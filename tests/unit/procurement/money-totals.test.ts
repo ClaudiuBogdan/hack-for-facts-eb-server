@@ -421,7 +421,7 @@ describe('moneyTotals (batch)', () => {
   });
 
   it('reads no floor for a batch without contract awards, and serves the fallback when it fails', async () => {
-    const { p, floorBuilds } = port({ caFloor: () => Promise.resolve(ok('2018-01-01')) });
+    const { p, floorBuilds } = port();
     const [da] = (
       await moneyTotals(p, [{ id: 'a', filters: { procurementKinds: ['direct_acquisition'] } }])
     )._unsafeUnwrap();

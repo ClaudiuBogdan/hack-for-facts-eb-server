@@ -167,8 +167,8 @@ export const totalsTypeDefs = /* GraphQL */ `
     disclosureKey: String!
     """
     The lowest award day a dated contract award is counted from: the floor the money build
-    was built under, or 2021-01-01 while the build records none (the contract-award records
-    use the same floor). A later asked start still applies; undated awards are treated as
+    was built under, or 2021-01-01 while the build records none or it cannot be read. The
+    other filters still apply (a later asked start wins); undated awards are treated as
     without it. Null when the request asks for no contract awards.
     """
     caAwardDayFrom: Date

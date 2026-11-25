@@ -46,6 +46,8 @@ const BUILD_ID = /^[1-9][0-9]{0,18}$/u;
 const GENERATIONS_NAME = `${DA_RELEASE_SCHEMA}.money_generations`;
 /** The build's contract-award floor (PROC-ACX6): a column that may not exist yet. */
 const FLOOR_COLUMN = 'ca_award_day_from';
+/** The floor is optional: a read slower than this serves the fallback, never a held-up batch. */
+const FLOOR_TIMEOUT_MS = 2000;
 /** Undefined column, insufficient privilege, undefined table. */
 const FLOOR_GONE = new Set(['42703', '42501', '42P01']);
 const sqlStateOf = (error: unknown): string | null =>
@@ -194,20 +196,26 @@ export const makeClickhouseMoneyRepo = (deps: {
 
     caFloor: async (build) => {
       try {
-        const readable = await sql<{ readable: boolean }>`
-          select coalesce((select has_column_privilege(a.attrelid, a.attnum, 'SELECT')
-            from pg_attribute a
-            where a.attrelid = to_regclass(${GENERATIONS_NAME}) and a.attname = ${FLOOR_COLUMN}
-              and a.attnum > 0 and not a.attisdropped), false) as readable`.execute(deps.db);
-        if (readable.rows[0]?.readable !== true) return ok(null);
-        // A day outside 0001-9999 AD (to_char could overflow, or drop a BC era) reads as none.
-        const result = await sql<{ floor: string | null }>`
-          select case when d between date '0001-01-01' and date '9999-12-31'
-            then to_char(d, 'YYYY-MM-DD') end as floor
-          from (select max(${sql.ref(`g.${FLOOR_COLUMN}`)}) as d
-                from procurement_v3.money_generations g
-                where g.build_id::text = ${build}) x`.execute(deps.db);
-        return ok(result.rows[0]?.floor ?? null);
+        // Its own short, read-only transaction: the statement timeout applies to these two reads.
+        const floor = await deps.db.transaction().execute(async (trx) => {
+          await sql`set transaction read only`.execute(trx);
+          await sql`set local statement_timeout = ${sql.lit(FLOOR_TIMEOUT_MS)}`.execute(trx);
+          const readable = await sql<{ readable: boolean }>`
+            select coalesce((select has_column_privilege(a.attrelid, a.attnum, 'SELECT')
+              from pg_attribute a
+              where a.attrelid = to_regclass(${GENERATIONS_NAME}) and a.attname = ${FLOOR_COLUMN}
+                and a.attnum > 0 and not a.attisdropped), false) as readable`.execute(trx);
+          if (readable.rows[0]?.readable !== true) return null;
+          // A day outside 0001-9999 AD (to_char could overflow, or drop a BC era) reads as none.
+          const result = await sql<{ floor: string | null }>`
+            select case when d between date '0001-01-01' and date '9999-12-31'
+              then to_char(d, 'YYYY-MM-DD') end as floor
+            from (select max(${sql.ref(`g.${FLOOR_COLUMN}`)}) as d
+                  from procurement_v3.money_generations g
+                  where g.build_id::text = ${build}) x`.execute(trx);
+          return result.rows[0]?.floor ?? null;
+        });
+        return ok(floor);
       } catch (error) {
         // Dropped or revoked since the catalog check: none, as when it was never there.
         if (FLOOR_GONE.has(sqlStateOf(error) ?? '')) return ok(null);
