@@ -1730,6 +1730,11 @@ describe('naming step 2b: undisclosed suppliers in records and scopes (120030)',
           });
         }
         expect((await scoped(company)).count).toBe('0');
+        // Live and rollup aggregates still answer (the supplier side never selects the denied
+        // column) and name no supplier.
+        const deniedAggregates = await aggregates();
+        for (const code of [company, soleTrader, unverified])
+          expect(JSON.stringify(deniedAggregates)).not.toContain(`"${code}"`);
       } finally {
         await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
           owner
@@ -1751,5 +1756,32 @@ describe('naming step 2b: undisclosed suppliers in records and scopes (120030)',
     } finally {
       await logged.destroy();
     }
+  });
+});
+
+describe('a geography-scoped supplier breakdown (CPV x county x month timed out, 24 Nov)', () => {
+  it('reconciles live supplier buckets and concentration with the scope stats', async () => {
+    // A value bound forces the live rows: no rollup carries supplier and county together.
+    const scope = { ...DA, buyerCounty: 'CJ', year: 2025, valueMin: 0 } as const;
+    const stats = (await analysisStats(deps, { scope }))._unsafeUnwrap().blocks[0];
+    expect(Number(stats?.recordCount)).toBeGreaterThan(0);
+    const breakdown = (
+      await analysisBreakdown(deps, { scope, dimension: 'supplier', topN: 50 })
+    )._unsafeUnwrap()[0];
+    const buckets = breakdown?.buckets ?? [];
+    expect(buckets.some((bucket) => bucket.key === COMPANY.fiscalCode)).toBe(true);
+    const sum = (field: 'recordCount' | 'valueAwardedSum') =>
+      buckets.reduce((total, bucket) => total.plus(bucket[field] ?? '0'), new Decimal(0));
+    expect(sum('recordCount').toString()).toBe(stats?.recordCount);
+    expect(sum('valueAwardedSum').toFixed(2)).toBe(
+      new Decimal(stats?.valueAwardedSum ?? '0').toFixed(2)
+    );
+    const concentration = (
+      await analysisConcentration(deps, { scope, basis: 'value' })
+    )._unsafeUnwrap()[0];
+    expect(concentration?.supplierCount).toBe(
+      buckets.filter((bucket) => bucket.kind === 'top').length
+    );
+    noLeak({ breakdown, concentration });
   });
 });

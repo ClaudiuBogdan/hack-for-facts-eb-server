@@ -423,6 +423,8 @@ describe('party joins', () => {
       buyer: text.includes(BUYER_JOIN),
       supplier: text.includes(SUPPLIER_JOIN),
     });
+    // A scope's totals (the stats select list) never name a supplier, so never join one.
+    const isTotals = (text: string) => text.includes('as undated_value');
     const YEAR: AnalysisScope = { ...AUTHORITY, year: 2025 };
     const shapes: readonly [
       string,
@@ -471,7 +473,61 @@ describe('party joins', () => {
       const { data } = await run(read);
       const reads = data.filter((text) => text.includes('"procurement_v3"."da_purchases" p'));
       expect(reads.length, label).toBeGreaterThan(0);
-      for (const text of reads) expect(joins(text), label).toEqual(expected);
+      for (const text of reads) {
+        expect(joins(text), label).toEqual(
+          isTotals(text) ? { ...expected, supplier: false } : expected
+        );
+      }
+      // A supplier shape still keys its suppliers through the join.
+      if (expected.supplier)
+        expect(
+          reads.some((text) => joins(text).supplier),
+          label
+        ).toBe(true);
+    }
+  });
+
+  it('hashes the supplier join of a live supplier-keyed read (CPV x county x month, 24 Nov)', async () => {
+    const OFF = 'set local enable_nestloop = off';
+    const YEAR: AnalysisScope = { ...AUTHORITY, year: 2025 };
+    const cases: readonly [
+      string,
+      (source: Parameters<Parameters<typeof run>[0]>[0]) => Promise<unknown>,
+      boolean,
+    ][] = [
+      ['by supplier', (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'supplier', 10, 'value'), true],
+      ['concentration', (s) => s.concentrationFor(ROUTE, YEAR, GEN, 'value'), true],
+      [
+        'distinct suppliers',
+        (s) => s.distinctSeriesFor(ROUTE, YEAR, GEN, 'supplier', 'year'),
+        true,
+      ],
+      ['by authority', (s) => s.breakdownFor(ROUTE, YEAR, GEN, 'authority', 10, 'value'), false],
+      [
+        'distinct authorities',
+        (s) => s.distinctSeriesFor(ROUTE, YEAR, GEN, 'authority', 'year'),
+        false,
+      ],
+      ['stats', (s) => s.statsFor(ROUTE, YEAR, GEN), false],
+    ];
+    // A rollup read never joins the view: the planner keeps its choice.
+    const rolled = await run(
+      (s) => s.breakdownFor(ROUTE, AUTHORITY, GEN, 'supplier', 10, 'value'),
+      { rollups: ['da_rollup_authority_supplier_month'] }
+    );
+    expect((rolled.result as { isOk: () => boolean }).isOk()).toBe(true);
+    expect(rolled.captured.some((query) => query.sql.includes(OFF))).toBe(false);
+    for (const [label, read, hashed] of cases) {
+      const statements = (await run(read)).captured.map((query) => query.sql);
+      const off = statements.findIndex((text) => text.includes(OFF));
+      expect(off >= 0, label).toBe(hashed);
+      // Set before the read that joins the supplier, inside the read's own transaction.
+      if (hashed) {
+        const joined = statements.findIndex((text) =>
+          text.includes(`left join "procurement_v3"."da_parties_public" s`)
+        );
+        expect(joined, label).toBeGreaterThan(off);
+      }
     }
   });
 

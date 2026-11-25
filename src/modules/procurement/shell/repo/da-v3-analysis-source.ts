@@ -574,7 +574,10 @@ const compile = (
   scope: AnalysisScope,
   dimension?: string,
   live = false,
-  pointReads = false
+  pointReads = false,
+  // False for a read that never names the supplier (a breakdown's or concentration's scope
+  // totals): the supplier is not joined, whatever the dimension (same rollup choice).
+  readsSupplier = true
 ): Result<Compiled, ApiError> => {
   for (const [field, message] of REFUSED_SCOPE)
     if (scope[field] !== undefined) return err(invalidInput(message, field));
@@ -588,7 +591,7 @@ const compile = (
   // for its key. A records page (pointReads) probes both for each row it lists.
   const joins: PartyJoins = {
     buyer: pointReads || geo || dimension === 'authority',
-    supplier: pointReads || dimension === 'supplier',
+    supplier: pointReads || (readsSupplier && dimension === 'supplier'),
   };
   const f =
     rollup === null
@@ -661,6 +664,19 @@ interface SupplierRows {
  * hold `dated` whenever the caller's measures do (a group with no dated rows then never forms,
  * as `datedHaving` drops it).
  */
+/**
+ * A live read keyed by supplier joins the supplier side of the barrier view, which the planner
+ * cannot key. Misestimating a scope as one row, it chose a nested loop that re-read the view's
+ * whole supplier side (≈171k rows, each through the D6 and naming checks) per scope row: CPV ×
+ * buyer-county × month supplier breakdowns and concentrations timed out at 15 s (Chronos dev,
+ * 24 Nov). Without nested loops it hashes the view once: 0.9–5 s on the same scopes, up to a
+ * county's year. For the rest of this read's own transaction only (like `jit = off`); a rollup
+ * read never joins the view and keeps the planner's choice.
+ */
+const hashSupplierJoin = async (ctx: Ctx, c: Compiled): Promise<void> => {
+  if (c.facts.rollup === null) await sql`set local enable_nestloop = off`.execute(ctx.trx);
+};
+
 const supplierRows = (
   ctx: Ctx,
   scope: AnalysisScope,
@@ -1297,6 +1313,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           const compiled = compile(ctx, scope, dimension);
           if (compiled.isErr()) return err(compiled.error);
           const scoped = compiled.value;
+          if (dimension === 'supplier') await hashSupplierJoin(ctx, scoped);
           const grouped =
             dimension === 'supplier'
               ? supplierRows(ctx, scope, scoped, scoped.where, bucket)
@@ -1356,6 +1373,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           const compiled = compile(ctx, scope, dimension);
           if (compiled.isErr()) return err(compiled.error);
           const scoped = compiled.value;
+          if (dimension === 'supplier') await hashSupplierJoin(ctx, scoped);
           // A supplier breakdown groups supplierRows (on a rollup: summed per supplier first).
           const grouped =
             dimension === 'supplier'
@@ -1364,7 +1382,10 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           if (grouped.isErr()) return err(grouped.error);
           const { c, key } = grouped.value;
           const f = c.facts;
-          const totals = await readStats(ctx, scoped);
+          // The scope's totals never name a supplier: compiled without the supplier join.
+          const whole = compile(ctx, scope, dimension, false, false, false);
+          if (whole.isErr()) return err(whole.error);
+          const totals = await readStats(ctx, whole.value);
           const { dated, where } = c;
           // The unknown bucket (no supplier: supplier_ref NULL, the key's first case) is read from
           // the scope's own rows, so a rollup never joins the view for it.
@@ -1441,11 +1462,15 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           const compiled = compile(ctx, scope, 'supplier');
           if (compiled.isErr()) return err(compiled.error);
           const scoped = compiled.value;
+          await hashSupplierJoin(ctx, scoped);
           const keyR = supplierRows(ctx, scope, scoped, sql`${scoped.where} and ${scoped.dated}`);
           if (keyR.isErr()) return err(keyR.error);
           const { c } = keyR.value;
           const f = c.facts;
-          const totals = await readStats(ctx, scoped);
+          // The scope's totals never name a supplier: compiled without the supplier join.
+          const whole = compile(ctx, scope, 'supplier', false, false, false);
+          if (whole.isErr()) return err(whole.error);
+          const totals = await readStats(ctx, whole.value);
           const { dated, where } = c;
           const measure = basis === 'value' ? sql`coalesce(${f.money(dated)}, 0)` : f.rows(dated);
           // Exact: no rounding before core computes shares and HHI.
