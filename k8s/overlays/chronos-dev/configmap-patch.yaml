@@ -50,6 +50,9 @@ data:
   # presence) off on Chronos dev (owner, 24 Nov): interim containment while legacy contract
   # party names are not screened for personal codes. Back on only on root's word.
   PROCUREMENT_LEGACY_ENABLED: 'false'
+  # Contract awards (PROC-KB0Z: buyer and winner-code lists, detail, 5 MCP tools) over the
+  # procurement_v3 contract-award views, on Chronos dev only (user, 25 Nov). Needs D6 enforced.
+  PROCUREMENT_CA_RECORDS_ENABLED: 'true'
   # Companies analytics: same ClickHouse service, its own database and its own
   # read-only companies_reader user (credentials from the workload patch).
   COMPANIES_ANALYTICS_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
