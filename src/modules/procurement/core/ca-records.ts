@@ -247,11 +247,12 @@ const withoutCodeRun = (text: string | null): string | null =>
   text === null || hasPersonCodeRun(text) ? null : text;
 
 /**
- * The portal's public identifier formats, allowlisted: a notice number is letters then digits
- * (CAN1234567), a procedure id digits. Anything else (free text, a dotted or spaced code) is not
- * served. The digit runs stay under 11 (a person's code's length), as `withoutCodeRun` also checks.
+ * The portal's public identifier formats, allowlisted: a notice number is digits after an optional
+ * letter prefix (CAN1234567; about 1.5% of prod's are digits only), a procedure id digits.
+ * Anything else (free text, a dotted or spaced code) is not served. The digit runs stay under 11
+ * (a person's code's length), as `withoutCodeRun` also checks.
  */
-const NOTICE_NO = /^[A-Z]{1,6}[0-9]{1,10}$/u;
+const NOTICE_NO = /^[A-Z]{0,6}[0-9]{1,10}$/u;
 const PROCEDURE_ID = /^[0-9]{1,10}$/u;
 const allowlisted = (text: string | null, format: RegExp): string | null =>
   text !== null && format.test(text) ? withoutCodeRun(text) : null;

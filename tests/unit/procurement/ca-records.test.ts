@@ -230,8 +230,14 @@ describe('identifiers a record may not serve', () => {
       winner({}),
     ])._unsafeUnwrap();
     expect([served.noticeNo, served.procedureId]).toEqual(['CAN1234567', '123456789']);
+    // A digits-only notice number is a portal format too.
+    expect(
+      toCaRecord(row({ noticeNo: '1234567' }), null, [winner({})])._unsafeUnwrap().noticeNo
+    ).toBe('1234567');
     for (const [noticeNo, procedureId] of [
       ['ION POPESCU', '196.01.01.12345'],
+      ['can1234567', ''],
+      ['12345678901', '1234567890A'],
       ['CAN 1234567', '1960101 123456'],
       ['CAN12345678901', '12345678901'],
     ] as const) {
