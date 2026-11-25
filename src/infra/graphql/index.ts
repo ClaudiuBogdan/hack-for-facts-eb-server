@@ -149,11 +149,24 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
     // Context extension for storing document between hooks
     interface GraphQLLoggingContext {
       graphqlDocument?: DocumentNode;
+      /** The operation's top-level field names that are real root fields of the schema. */
+      graphqlFields?: string[];
     }
 
     // Store document in context for logging in onResolution
-    fastify.graphql.addHook('preExecution', (_schema, document, context) => {
+    fastify.graphql.addHook('preExecution', (schema, document, context) => {
       (context as GraphQLLoggingContext).graphqlDocument = document;
+      // Only names the schema defines are logged: an unselected operation of the document is
+      // not checked against a root type the schema lacks, so its names are caller text.
+      const roots = [schema.getQueryType(), schema.getMutationType(), schema.getSubscriptionType()];
+      const known = new Set(
+        roots.flatMap((root) =>
+          root !== null && root !== undefined ? Object.keys(root.getFields()) : []
+        )
+      );
+      (context as GraphQLLoggingContext).graphqlFields = extractFieldNames(document).filter(
+        (name) => known.has(name)
+      );
     });
 
     fastify.graphql.addHook('onResolution', (execution, context) => {
@@ -168,7 +181,7 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       if (document !== undefined) {
         const opInfo = extractOperationInfo(document);
         operationType = loggedOperationType(opInfo.operationType);
-        fields = extractFieldNames(document);
+        fields = (context as GraphQLLoggingContext).graphqlFields ?? [];
       }
 
       // Determine if there were errors

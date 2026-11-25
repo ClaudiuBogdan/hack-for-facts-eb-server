@@ -104,12 +104,21 @@ const rawApp = async (
 const ECHO = 'query($c: String!) { echo(c: $c) }';
 const FAIL = 'query($c: String!) { fail(c: $c) }';
 
-const post = (app: FastifyInstance, query: string, variables: Record<string, unknown> = {}) =>
+const post = (
+  app: FastifyInstance,
+  query: string,
+  variables: Record<string, unknown> = {},
+  operationName?: string
+) =>
   app.inject({
     method: 'POST',
     url: '/graphql',
     headers: { 'content-type': 'application/json' },
-    payload: JSON.stringify({ query, variables }),
+    payload: JSON.stringify({
+      query,
+      variables,
+      ...(operationName !== undefined && { operationName }),
+    }),
   });
 
 /** Caller values in every spelling an error can carry them. */
@@ -131,6 +140,8 @@ const send = async (app: FastifyInstance) => [
   // Caller text with no digits at all: a person's name as an operation name and as an alias.
   await post(app, 'query Alice_Smith { fail(c: "x") }'),
   await post(app, '{ AliceSmith: fail(c: "x") }'),
+  // An unselected mutation whose field names the schema (no mutation root) never checks.
+  await post(app, 'mutation Other { AliceSmith } query Run { fail(c: "x") }', {}, 'Run'),
   // An error with no message of its own.
   await post(app, '{ many }'),
 ];
@@ -151,6 +162,7 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
         { message: 'x', originalError: new TypeError(`y ${CODE}`), path: ['a'] },
         { message: 'x', extensions: { code: 'ALICE_SMITH' } },
         { message: 'x', extensions: { code: 'MER_ERR_GQL_VALIDATION' } },
+        { message: 'x', extensions: { code: 'MER_ERR_ALICE_SMITH' } },
         { message: 'x', originalError: named },
         throwing,
         null,
@@ -162,6 +174,7 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
       { category: 'TypeError', kind: 'execution', pathDepth: 1 },
       { category: 'other_code', kind: 'request', pathDepth: null },
       { category: 'MER_ERR_GQL_VALIDATION', kind: 'request', pathDepth: null },
+      { category: 'other_code', kind: 'request', pathDepth: null },
       { category: 'other_error', kind: 'request', pathDepth: null },
       { category: 'unknown', kind: 'request', pathDepth: null },
       { category: 'unknown', kind: 'request', pathDepth: null },

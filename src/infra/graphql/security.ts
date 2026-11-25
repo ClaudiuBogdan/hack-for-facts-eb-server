@@ -149,8 +149,27 @@ const KNOWN_CODES: ReadonlySet<string> = new Set([
   'RENDER_INCONSISTENT',
   'IMPLAUSIBLE_REVENUE',
   'REVENUE_EQUALS_FIXED_ASSETS',
+  'TRANSCRIPT_UNAVAILABLE',
+  'SEARCH_UNAVAILABLE',
+  'TIMEOUT',
+  // ApiError types some resolvers use as codes.
+  'NotFound',
+  'InvalidInput',
+  'Database',
+  'Upstream',
+  'ServiceUnavailable',
+  'Timeout',
+  // Mercurius's own codes (lib/errors.js), exactly.
+  'MER_ERR_GQL_CSRF_PREVENTION',
+  'MER_ERR_GQL_INVALID_SCHEMA',
+  'MER_ERR_GQL_PERSISTED_QUERY_MISMATCH',
+  'MER_ERR_GQL_PERSISTED_QUERY_NOT_FOUND',
+  'MER_ERR_GQL_PERSISTED_QUERY_NOT_SUPPORTED',
+  'MER_ERR_GQL_QUERY_DEPTH',
+  'MER_ERR_GQL_VALIDATION',
+  'MER_ERR_INVALID_METHOD',
+  'MER_ERR_METHOD_NOT_ALLOWED',
 ]);
-const MERCURIUS_CODE = /^MER_ERR_[A-Z_]{1,60}$/u;
 /** The error classes logged by name; any other class is `other_error`. */
 const KNOWN_CLASSES: ReadonlySet<string> = new Set([
   'Error',
@@ -167,8 +186,7 @@ const field = (value: unknown, key: string): unknown =>
 
 const categoryOf = (error: unknown): string => {
   const code = field(field(error, 'extensions'), 'code');
-  if (typeof code === 'string')
-    return KNOWN_CODES.has(code) || MERCURIUS_CODE.test(code) ? code : 'other_code';
+  if (typeof code === 'string') return KNOWN_CODES.has(code) ? code : 'other_code';
   const original = field(error, 'originalError');
   const name = field(original ?? error, 'name');
   if (typeof name !== 'string') return 'unknown';
