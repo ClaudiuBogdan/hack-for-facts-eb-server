@@ -2108,6 +2108,53 @@ describe('App Factory', () => {
       await app.close();
     });
 
+    it('logs the path only, never the query string', async () => {
+      const logs = createLogCollector();
+
+      const app = await buildAppWithFakeRuntimes({
+        fastifyOptions: {
+          logger: { level: 'info', stream: logs.stream },
+          disableRequestLogging: true,
+        },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      app.get('/probe-query', async () => ({ ok: true }));
+      await app.ready();
+
+      // A synthetic personal code in a query parameter (as a caller may type into any filter).
+      const response = await app.inject({
+        method: 'GET',
+        url: '/probe-query?buyerFiscalCode=1960101123456&q=ion%40example.ro',
+      });
+
+      await flushLogs();
+
+      // A missing route answers with its path only (non-production names the route).
+      const missing = await app.inject({
+        method: 'GET',
+        url: '/missing-route?buyerFiscalCode=1960101123456',
+      });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.body).not.toContain('1960101123456');
+
+      await flushLogs();
+
+      expect(response.statusCode).toBe(200);
+      expect(getLogsForPath(logs.entries, '/probe-query', 'incoming request')).toHaveLength(1);
+      expect(getLogsForPath(logs.entries, '/probe-query', 'request completed')).toHaveLength(1);
+      const raw = JSON.stringify(logs.entries);
+      expect(raw).not.toContain('1960101123456');
+      expect(raw).not.toContain('buyerFiscalCode');
+      expect(raw).not.toContain('example.ro');
+
+      await app.close();
+    });
+
     it('does not emit custom request logs for health routes', async () => {
       const logs = createLogCollector();
 

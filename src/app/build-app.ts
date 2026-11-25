@@ -603,7 +603,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       error: 'NotFoundError',
       message: config.server.isProduction
         ? 'Not found'
-        : `Route ${request.method} ${request.url} not found`,
+        : // The path only, as in the request logs: a query string may carry a personal code.
+          `Route ${request.method} ${getRequestPath(request.url)} not found`,
       retryable: false,
     });
   });
@@ -632,7 +633,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         reqId: request.id,
         req: {
           method: request.method,
-          url: request.url,
+          // The path only: a query string can carry a personal code a caller typed (a value the
+          // route refuses still arrives in the URL), and request logs are kept.
+          url: getRequestPath(request.url),
           host: request.host,
           remoteAddress: request.ip,
           remotePort: request.socket.remotePort,
@@ -662,7 +665,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         reqId: request.id,
         req: {
           method: request.method,
-          url: request.url,
+          // The path only: a query string can carry a personal code a caller typed (a value the
+          // route refuses still arrives in the URL), and request logs are kept.
+          url: getRequestPath(request.url),
           host: request.host,
           remoteAddress: request.ip,
           remotePort: request.socket.remotePort,
