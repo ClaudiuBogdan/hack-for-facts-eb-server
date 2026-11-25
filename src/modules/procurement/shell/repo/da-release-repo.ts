@@ -1237,9 +1237,14 @@ export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
       const now = await probeRelease(db);
       // A D6 column that appeared, went or changed grant during the read: repeat the request.
       if (now.asOf !== seen.asOf) return err(REPUBLISHED());
-      return (now.privacy || !seen.privacy) && now.column === seen.column
-        ? result
-        : err(REPUBLISHED('not_readable'));
+      if ((now.privacy || !seen.privacy) && now.column === seen.column) return result;
+      // A gate grant lost or a column denied is a grant fault; a column that appeared or went
+      // while still readable is a change of publication.
+      return err(
+        REPUBLISHED(
+          now.column === 'denied' || (seen.privacy && !now.privacy) ? 'not_readable' : 'republished'
+        )
+      );
     } catch (error) {
       return err(readError(error));
     }

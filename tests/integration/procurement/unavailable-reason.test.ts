@@ -19,6 +19,7 @@ import {
   makeDaReleaseResolvers,
 } from '@/modules/procurement/shell/graphql/da-release-schema.js';
 import { makeCaRecordsMcpTools } from '@/modules/procurement/shell/mcp/ca-records-tools.js';
+import { makeDaReleaseMcpTools } from '@/modules/procurement/shell/mcp/da-release-tools.js';
 import { makeCaRecordsRepo } from '@/modules/procurement/shell/repo/ca-records-repo.js';
 import { makeDaReleaseRepo } from '@/modules/procurement/shell/repo/da-release-repo.js';
 import { makeCaRecordsRestPlugin } from '@/modules/procurement/shell/rest/ca-records-routes.js';
@@ -112,6 +113,13 @@ describe('a refusal logs its reason, through the real resolvers', () => {
     });
 });
 
+/** The REST refusal as it was before the reason existed (requestId aside). */
+const REST_ENVELOPE = {
+  ok: false,
+  error: 'ServiceUnavailable',
+  message: 'Contract awards are not enabled on this server.',
+};
+
 describe('REST and MCP envelopes carry no reason', () => {
   it('answers the same envelope keys as before', async () => {
     const deps = off();
@@ -125,12 +133,9 @@ describe('REST and MCP envelopes carry no reason', () => {
       url: '/api/v1/procurement/contract-awards/buyer-summary?buyerFiscalCode=14399840',
     });
     expect(res.statusCode).toBe(503);
-    expect(Object.keys(res.json<Record<string, unknown>>()).sort()).toEqual([
-      'error',
-      'message',
-      'ok',
-      'requestId',
-    ]);
+    const { requestId, ...envelope } = res.json<Record<string, unknown>>();
+    expect(typeof requestId).toBe('string');
+    expect(envelope).toEqual(REST_ENVELOPE);
     const tool = makeCaRecordsMcpTools(deps.ca).find(
       (t) => t.name === 'get_procurement_contract_award_summary'
     );
@@ -142,5 +147,15 @@ describe('REST and MCP envelopes carry no reason', () => {
       errorType: 'ServiceUnavailable',
       errorCode: 'SERVICE_UNAVAILABLE',
     });
+    // Every DA tool that gets past input validation refuses as before, without a reason.
+    let refused = 0;
+    for (const daTool of makeDaReleaseMcpTools(deps.da)) {
+      const daOutput = (await daTool.handler({})) as unknown as Record<string, unknown>;
+      expect(daOutput['ok'], daTool.name).toBe(false);
+      expect(JSON.stringify(daOutput), daTool.name).not.toContain('not_enabled');
+      expect(Object.keys(daOutput), daTool.name).not.toContain('reason');
+      if (daOutput['errorCode'] === 'SERVICE_UNAVAILABLE') refused += 1;
+    }
+    expect(refused).toBeGreaterThan(0);
   });
 });

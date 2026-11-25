@@ -643,6 +643,9 @@ describe('settled snapshots (the after-read rule)', () => {
     result.isErr() &&
     result._unsafeUnwrapErr().type === 'ServiceUnavailable' &&
     result._unsafeUnwrapErr().message.includes('republished');
+  /** The log reason of a refusal (never in a response). */
+  const reasonOf = (result: { _unsafeUnwrapErr: () => object }) =>
+    (result._unsafeUnwrapErr() as { reason?: string }).reason;
 
   it('answers when nothing moved', async () => {
     const read = await settledRead({ asOf: P1, privacy: true }, () => undefined, true);
@@ -652,18 +655,21 @@ describe('settled snapshots (the after-read rule)', () => {
   it('refuses (retryable) a read a publish overtook', async () => {
     const read = await settledRead({ asOf: P1, privacy: true }, (w) => (w.asOf = P2), true);
     expect(republished(read)).toBe(true);
+    expect(reasonOf(read)).toBe('republished');
   });
 
   it('refuses a read that could name suppliers once the grant is revoked', async () => {
     const read = await settledRead({ asOf: P1, privacy: true }, (w) => (w.privacy = false), true);
     expect(republished(read)).toBe(true);
+    // The same answer, logged as a grant fault.
+    expect(reasonOf(read)).toBe('not_readable');
   });
 
   it('refuses (retryable) a read the D6 column appeared, went or changed grant during', async () => {
-    for (const [from, to] of [
-      ['absent', 'readable'],
-      ['readable', 'absent'],
-      ['readable', 'denied'],
+    for (const [from, to, reason] of [
+      ['absent', 'readable', 'republished'],
+      ['readable', 'absent', 'republished'],
+      ['readable', 'denied', 'not_readable'],
     ] as const) {
       const read = await settledRead(
         { asOf: P1, privacy: true, column: from },
@@ -671,6 +677,7 @@ describe('settled snapshots (the after-read rule)', () => {
         true
       );
       expect(republished(read), `${from} → ${to}`).toBe(true);
+      expect(reasonOf(read), `${from} → ${to}`).toBe(reason);
     }
   });
 

@@ -654,11 +654,15 @@ export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
       if (result.isErr() || before === null) return result;
       // After the read: the same release, and the names and D6 views no less readable than they were.
       const now = await probeAccess(db);
-      if (now.asOf !== before.asOf) return err(REPUBLISHED());
-      // The same release, but a grant lost during the read: the same answer, logged as such.
-      return now.views && (now.names || !before.names) && (now.disclosure || !before.disclosure)
-        ? result
-        : err(REPUBLISHED('not_readable'));
+      // A grant lost during the read (the release column's included, whose loss also empties
+      // asOf): the same answer, logged as a grant fault. Otherwise a changed release republished.
+      const lost =
+        !now.release ||
+        !now.views ||
+        (!now.names && before.names) ||
+        (!now.disclosure && before.disclosure);
+      if (lost) return err(REPUBLISHED('not_readable'));
+      return now.asOf === before.asOf ? result : err(REPUBLISHED());
     } catch (error) {
       return err(readError(error));
     }

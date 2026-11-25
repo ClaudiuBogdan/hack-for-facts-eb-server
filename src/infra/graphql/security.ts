@@ -258,9 +258,9 @@ const loggedError = (error: unknown): LoggedGraphQLError => {
 export const loggedGraphQLErrors = (errors: readonly unknown[] | undefined): LoggedGraphQLError[] =>
   (errors ?? []).flatMap((error) => {
     // Mercurius wraps a request's errors in one error of its own (MER_ERR_GQL_VALIDATION and the
-    // other MER_ERR_ codes it attaches `errors` to). Only those are expanded, copied with
-    // Array.prototype.slice (an own `map` or iterator is never called) and capped; each entry is
-    // projected into a fresh record by `loggedError`.
+    // other MER_ERR_ codes it attaches `errors` to). Only those are expanded: read index by index
+    // into a fresh array (no species constructor, own `map` or iterator is called), capped, and
+    // each entry projected into a fresh record by `loggedError`.
     let nested: unknown[] | undefined;
     try {
       const original = field(error, 'originalError');
@@ -271,8 +271,16 @@ export const loggedGraphQLErrors = (errors: readonly unknown[] | undefined): Log
         code.startsWith('MER_ERR_') &&
         KNOWN_CODES.has(code) &&
         Array.isArray(errors)
-      )
-        nested = Array.prototype.slice.call(errors, 0, MAX_NESTED_ERRORS) as unknown[];
+      ) {
+        const length: unknown = errors.length;
+        const count =
+          typeof length === 'number' && Number.isSafeInteger(length) && length > 0
+            ? Math.min(length, MAX_NESTED_ERRORS)
+            : 0;
+        const copy: unknown[] = [];
+        for (let index = 0; index < count; index += 1) copy.push(errors[index]);
+        nested = copy;
+      }
     } catch {
       nested = undefined;
     }

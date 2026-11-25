@@ -234,6 +234,16 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
   it('expands only Mercurius wrappers, never trusting a nested array or a path length', () => {
     const errors = [{ message: `a ${CODE}`, locations: [{ line: 1, column: 1 }] }];
     const ownMap = Object.assign([...errors], { map: () => [`Alice ${CODE}`] });
+    // A subclass whose species constructor (what slice and map build) returns an array that
+    // ignores writes and holds caller text: a copy through it would keep that text.
+    class Species extends Array<unknown> {
+      static override get [Symbol.species](): ArrayConstructor {
+        return function () {
+          return new Proxy([`Alice ${CODE}`], { defineProperty: () => true, set: () => true });
+        } as unknown as ArrayConstructor;
+      }
+    }
+    const species = Species.from(errors);
     const proxiedPath = new Proxy(['a'], {
       get: (target, key): unknown =>
         key === 'length' ? `Alice ${CODE}` : (Reflect.get(target, key) as unknown),
@@ -241,12 +251,14 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
     const logged = loggedGraphQLErrors([
       // A Mercurius validation wrapper: expanded, each entry a fresh record (an own map is not called).
       { message: 'x', originalError: { code: 'MER_ERR_GQL_VALIDATION', errors: ownMap } },
+      { message: 'x', originalError: { code: 'MER_ERR_GQL_VALIDATION', errors: species } },
       // Any other error's `errors` array is not expanded.
       { message: 'x', originalError: { code: 'ALICE', errors }, extensions: { code: 'NOT_FOUND' } },
       { message: 'x', originalError: { errors } },
       { message: 'x', path: proxiedPath },
     ]);
     expect(logged).toEqual([
+      { category: 'unknown', kind: 'validation', pathDepth: null, reason: null },
       { category: 'unknown', kind: 'validation', pathDepth: null, reason: null },
       { category: 'NOT_FOUND', kind: 'request', pathDepth: null, reason: null },
       { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
