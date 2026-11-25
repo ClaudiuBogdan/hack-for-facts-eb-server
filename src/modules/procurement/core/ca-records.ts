@@ -50,6 +50,10 @@ export interface CaAppearance {
 }
 
 const SOURCE_NAME = /^[a-z][a-z0-9_]{0,63}$/u;
+const PUBLIC_CODE = /^[1-9][0-9]{1,9}$/u;
+
+/** A fiscal code with an organization code's shape (never a personal code's 13 digits). */
+export const isPublicCode = (code: string): boolean => PUBLIC_CODE.test(code);
 const PORTAL_ID = /^[0-9A-Za-z_-]{1,64}$/u;
 
 /**
@@ -238,6 +242,10 @@ const FLAGS: ReadonlySet<string> = new Set([
 const isMoney = (value: string | null): boolean => value === null || DECIMAL_TEXT.test(value);
 const isDay = (value: string | null): boolean => value === null || DAY_TEXT.test(value);
 
+/** An identifier as served: none when it carries a run of 11+ digits (a person's code's length). */
+const withoutCodeRun = (text: string | null): string | null =>
+  text === null || hasPersonCodeRun(text) ? null : text;
+
 /** A masked or registry name as served: the personal-code screen and any 11+ digit run withhold it. */
 const servedName = (name: string | null): string | null => {
   const screened = publicPartyName(name);
@@ -280,7 +288,7 @@ const WITHHELD: Omit<CaWinner, 'order'> = {
  */
 export const toCaWinner = (row: CaWinnerRow): CaWinner => {
   const order = row.winnerOrder;
-  if (row.fiscalCode === null) {
+  if (row.fiscalCode === null || !isPublicCode(row.fiscalCode)) {
     return { order, displayKind: 'unidentified', fiscalCode: null, name: null, disclosed: null };
   }
   const naming = row.naming;
@@ -353,8 +361,9 @@ export const toCaRecord = (
   if (winners.length !== row.winnerCount) return err(refused('winner count'));
   if (row.buyerCode !== null && buyer !== null && buyer.code !== row.buyerCode)
     return err(refused('buyer'));
+  // A buyer code without an organization code's shape is not served (the view does not check it).
   const servedBuyer =
-    row.buyerCode === null
+    row.buyerCode === null || !isPublicCode(row.buyerCode)
       ? null
       : toCaBuyer(
           // The row's own person flag decides, whatever the buyer lookup carried.
@@ -389,8 +398,8 @@ export const toCaRecord = (
     cpvDivision: row.cpvDivision,
     cpvGroup: row.cpvGroup,
     cpvClass: row.cpvClass,
-    procedureId: row.procedureId,
-    noticeNo: row.noticeNo,
+    procedureId: withoutCodeRun(row.procedureId),
+    noticeNo: withoutCodeRun(publicFreeText(row.noticeNo)),
     title: publicFreeText(row.title),
     sourceUrl: row.sourceUrl,
     winnerCount: row.winnerCount,

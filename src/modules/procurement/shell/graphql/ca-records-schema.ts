@@ -124,7 +124,11 @@ export const caRecordsTypeDefs = /* GraphQL */ `
   """
   type ProcurementCaBuyerSummary {
     dataAsOf: DateTime!
-    "Key caches of winner names by it; never cache an answer whose key is unavailable."
+    """
+    dataAsOf, or unavailable when the names view is not readable (no winner code is then shown).
+    Every contract-award answer is no-store: winner codes and names can be withdrawn without
+    dataAsOf moving, so never keep them beyond the response that carried them.
+    """
     disclosureKey: String!
     window: ProcurementCaWindow!
     buyer: ProcurementCaBuyer!
@@ -144,6 +148,8 @@ export const caRecordsTypeDefs = /* GraphQL */ `
     "The records in the window."
     total: Int!
     hasMore: Boolean!
+    "True when the window holds more records than a list may reach (row 10000): narrow it."
+    depthLimited: Boolean!
   }
 
   type ProcurementCaRecordDetail {
@@ -162,7 +168,11 @@ export const caRecordsTypeDefs = /* GraphQL */ `
   }
 
   extend type Query {
-    "A buyer's contract awards in the published window: counts."
+    """
+    A buyer's contract awards in the published window: counts. Each contract-award query field
+    reads in its own database snapshot and reports its dataAsOf: when one operation combines
+    several, compare their dataAsOf and refetch if they differ.
+    """
     procurementContractAwardSummary(
       buyerFiscalCode: String!
       from: Date
@@ -207,27 +217,39 @@ interface WindowArgs {
 
 export const makeCaRecordsResolvers = (deps: CaRecordsDeps) => ({
   ProcurementCaWinner: {
-    // A named or masked winner makes the answer never cacheable (as PROC-VDWQ on the DA path).
     name: (winner: { name: string | null }, _a: unknown, context: unknown) => {
-      if (winner.name !== null) markNoStore(context);
+      markNoStore(context);
       return winner.name;
     },
   },
+  // Every root marks the answer no-store before it reads: a winner code or name can be withdrawn
+  // without dataAsOf moving (a selection of fiscalCode alone must not be cached either).
   Query: {
-    procurementContractAwardSummary: async (_root: unknown, args: WindowArgs) =>
-      unwrap(await caBuyerSummary(deps, args)),
+    procurementContractAwardSummary: async (_root: unknown, args: WindowArgs, context: unknown) => {
+      markNoStore(context);
+      return unwrap(await caBuyerSummary(deps, args));
+    },
     procurementContractAwards: async (
       _root: unknown,
-      args: WindowArgs & { sort?: string | null; page?: number | null; pageSize?: number | null }
-    ) =>
-      unwrap(
+      args: WindowArgs & { sort?: string | null; page?: number | null; pageSize?: number | null },
+      context: unknown
+    ) => {
+      markNoStore(context);
+      return unwrap(
         await listCaBuyerRecords(deps, {
           ...args,
           page: args.page ?? 1,
           pageSize: args.pageSize ?? 20,
         })
-      ),
-    procurementContractAward: async (_root: unknown, args: { recordId: string }) =>
-      unwrap(await getCaRecord(deps, args.recordId)),
+      );
+    },
+    procurementContractAward: async (
+      _root: unknown,
+      args: { recordId: string },
+      context: unknown
+    ) => {
+      markNoStore(context);
+      return unwrap(await getCaRecord(deps, args.recordId));
+    },
   },
 });

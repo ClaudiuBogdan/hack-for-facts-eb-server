@@ -1,3 +1,10 @@
+import {
+  DummyDriver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+} from 'kysely';
 import { describe, expect, it } from 'vitest';
 
 import { validateCaWindow } from '@/modules/procurement/core/ca-records-usecases.js';
@@ -10,6 +17,13 @@ import {
   type CaRecordRow,
   type CaWinnerRow,
 } from '@/modules/procurement/core/ca-records.js';
+import {
+  buyerCountsSql,
+  buyerKeysSql,
+  recordRowsSql,
+} from '@/modules/procurement/shell/repo/ca-records-repo.js';
+
+import type { ProdDatabase } from '@/modules/shared/index.js';
 
 const KEY = { sourceName: 'seap', matchId: 'ca:1001:1' };
 const PLACE = { countyCode: null, siruta: null, region: null };
@@ -199,5 +213,85 @@ describe('record ids and windows', () => {
     });
     expect(validateCaWindow('2023-02-30', null).isErr()).toBe(true);
     expect(validateCaWindow('2024-01-02', '2024-01-01').isErr()).toBe(true);
+  });
+});
+
+describe('identifiers a record may not serve', () => {
+  it('serves no buyer whose code lacks an organization code’s shape', () => {
+    const record = toCaRecord(row({ buyerCode: '1960101123456' }), null, [
+      winner({}),
+    ])._unsafeUnwrap();
+    expect(record.buyer).toBeNull();
+    expect(JSON.stringify(record)).not.toContain('1960101123456');
+  });
+
+  it('withholds a notice number or procedure id with a personal-code run', () => {
+    const record = toCaRecord(
+      row({ noticeNo: 'CAN 1960101123456', procedureId: '19601011234567' }),
+      null,
+      [winner({})]
+    )._unsafeUnwrap();
+    expect(record.noticeNo).toBeNull();
+    expect(record.procedureId).toBeNull();
+  });
+
+  it('serves a winner code without an organization code’s shape as unidentified', () => {
+    expect(toCaWinner(winner({ fiscalCode: '1960101123456' }))).toMatchObject({
+      displayKind: 'unidentified',
+      fiscalCode: null,
+      name: null,
+    });
+  });
+
+  it('refuses a year PostgreSQL cannot hold', () => {
+    expect(validateCaWindow(null, '0000-01-01').isErr()).toBe(true);
+    expect(validateCaWindow('1899-12-31', null).isErr()).toBe(true);
+  });
+});
+
+describe('the keys and counts statements (reader rule 1)', () => {
+  const db = new Kysely<ProdDatabase>({
+    dialect: {
+      createAdapter: () => new PostgresAdapter(),
+      createDriver: () => new DummyDriver(),
+      createIntrospector: (k) => new PostgresIntrospector(k),
+      createQueryCompiler: () => new PostgresQueryCompiler(),
+    },
+  });
+  const COMPUTED = [
+    'winner_count',
+    'lot_count',
+    'flags',
+    'buyer_person',
+    'buyer_name_masked',
+    'change_lei',
+    'change_publication_day',
+    'record_id',
+  ];
+
+  it('name no computed column, for every sort', () => {
+    const statements = [
+      ...(['awardDayDesc', 'awardDayAsc', 'amountDesc'] as const).map((sort) =>
+        buyerKeysSql({
+          buyerCode: '4267117',
+          window: { from: '2021-01-01', to: '2024-12-31' },
+          sort,
+          offset: 0,
+          limit: 20,
+        })
+      ),
+      buyerCountsSql('4267117', { from: '2021-01-01', to: null }),
+    ];
+    for (const statement of statements) {
+      const text = statement.compile(db).sql;
+      for (const column of COMPUTED) expect(text).not.toMatch(new RegExp(`\\b${column}\\b`, 'u'));
+      expect(text).not.toMatch(/\bin\s*\(\s*select/iu);
+    }
+  });
+
+  it('reads rows by source and match_id = any', () => {
+    const text = recordRowsSql('seap', ['ca:1:1']).compile(db).sql;
+    expect(text).toMatch(/r\.source_name = \$1 and r\.match_id = any\(\$2::text\[\]\)/u);
+    expect(text).not.toMatch(/\*/u);
   });
 });

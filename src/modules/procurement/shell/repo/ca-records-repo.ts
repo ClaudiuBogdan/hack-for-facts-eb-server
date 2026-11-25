@@ -29,12 +29,8 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
-import {
-  daV3Table,
-  DA_RELEASE_SCHEMA,
-  SUPPLIER_NAMES_NAME,
-  supplierNamesByCode,
-} from './da-v3-sql.js';
+import { daV3Table, DA_RELEASE_SCHEMA, SUPPLIER_NAMES_NAME } from './da-v3-sql.js';
+import { namingFromView, type SupplierNamesViewRow } from '../../core/supplier-naming.js';
 
 import type {
   CaBuyerProbe,
@@ -60,6 +56,8 @@ const LOTS = daV3Table('ca_record_lots_public');
 const KEYS = daV3Table('ca_record_keys_public');
 const RELEASE = daV3Table('da_release');
 const PUBLIC_NAMES = daV3Table('party_public_names');
+const SUPPLIER_NAMES = daV3Table('supplier_names_public');
+const NAME_CHUNK = 500;
 
 /** The four views the API reads; all four must be readable or nothing is served. */
 export const CA_VIEW_NAMES = [
@@ -80,7 +78,10 @@ const readError = (error: unknown): ApiError => {
     return serviceUnavailable('Contract-award views are not deployed.');
   if (code === '42501') return serviceUnavailable('Contract awards are not readable by this API.');
   if (code === '57014') return timeoutError('Contract-award read timed out.');
-  return databaseError('Contract-award read failed', error);
+  // Only the SQLSTATE: a driver message or detail may quote a value it read, and errors are logged.
+  return databaseError(
+    typeof code === 'string' ? `Contract-award read failed (${code})` : 'Contract-award read failed'
+  );
 };
 
 const attempt = async <T>(run: () => Promise<T>): Promise<Result<T, ApiError>> => {
@@ -101,7 +102,7 @@ interface Access {
   readonly registry: boolean;
 }
 
-/** The release and what this login may read, in one statement (no view is touched). */
+/** What this login may read (catalog only, no view touched), then the release's data_as_of. */
 const probeAccess = async (db: Db): Promise<Access> => {
   const result = await sql<{
     views: boolean;
@@ -115,7 +116,9 @@ const probeAccess = async (db: Db): Promise<Access> => {
     )} as views,
       ${privilege(SUPPLIER_NAMES_NAME)} as names,
       ${privilege(PUBLIC_NAMES_NAME)} as registry,
-      ${privilege(`${DA_RELEASE_SCHEMA}.da_release`)} as release`.execute(db);
+      -- The API's grant on da_release is per column (procurement-api-read.sql).
+      coalesce(has_column_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.da_release`}), 'data_as_of', 'SELECT'),
+        false) as release`.execute(db);
   const row = result.rows[0];
   let asOf: string | null = null;
   if (row?.release === true) {
@@ -341,15 +344,46 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
             supplierDisclosed: row.supplier_disclosed,
           });
       }
-      // Every code is named through supplier_names_public; without it no code is shown
-      // (the registry fallback's naming carries no `view` source, which the core withholds).
-      const codes = rows.flatMap((row) => (row.fiscalCode === null ? [] : [row.fiscalCode]));
+      // Every code is named through supplier_names_public only (no registry fallback); without
+      // it no naming is attached and the core shows no code.
+      const codes = [
+        ...new Set(rows.flatMap((row) => (row.fiscalCode === null ? [] : [row.fiscalCode]))),
+      ];
       if (codes.length === 0 || !access.names) return rows;
-      const names = await supplierNamesByCode(trx, codes);
-      return rows.map((row) => {
-        const naming = row.fiscalCode === null ? undefined : names.get(row.fiscalCode);
-        return naming === undefined ? row : { ...row, naming };
-      });
+      const views = new Map<string, SupplierNamesViewRow>();
+      for (let start = 0; start < codes.length; start += NAME_CHUNK) {
+        const result = await sql<{
+          code: string;
+          naming: string | null;
+          display_name: string | null;
+          code_shown: boolean | null;
+        }>`
+          select v.fiscal_code_clean as code, v.naming, v.display_name, v.code_shown
+          from ${SUPPLIER_NAMES} v
+          where v.fiscal_code_clean = any(${codes.slice(start, start + NAME_CHUNK)}::text[])`.execute(
+          trx
+        );
+        for (const row of result.rows) {
+          const next = {
+            naming: row.naming,
+            displayName: row.display_name,
+            codeShown: row.code_shown,
+          };
+          // Two rows for one code (never expected): a code either hides is hidden.
+          const prior = views.get(row.code);
+          views.set(
+            row.code,
+            prior !== undefined && (prior.codeShown !== true || next.codeShown !== true)
+              ? { ...next, codeShown: false }
+              : next
+          );
+        }
+      }
+      return rows.map((row) =>
+        row.fiscalCode === null
+          ? row
+          : { ...row, naming: namingFromView(views.get(row.fiscalCode)) }
+      );
     }),
 
   lotsOf: (key) =>

@@ -135,12 +135,28 @@ export const makeCaRecordsRestPlugin =
         pageSize: int(decoded.value, 'pageSize', 20),
       });
       if (result.isErr()) return sendError(request, reply, result.error);
-      const { items, page, pageSize, total, hasMore, dataAsOf, disclosureKey, window } =
-        result.value;
+      const {
+        items,
+        page,
+        pageSize,
+        total,
+        hasMore,
+        depthLimited,
+        dataAsOf,
+        disclosureKey,
+        window,
+      } = result.value;
       return reply.status(200).send({
         ok: true as const,
         data: items,
-        meta: { page: { page, pageSize, total }, hasMore, dataAsOf, disclosureKey, window },
+        meta: {
+          page: { page, pageSize, total },
+          hasMore,
+          depthLimited,
+          dataAsOf,
+          disclosureKey,
+          window,
+        },
         requestId: request.id,
       });
     });

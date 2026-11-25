@@ -55,6 +55,7 @@ let container: StartedPostgreSqlContainer | undefined;
 let owner: Kysely<ProdDatabase> | undefined;
 let api: Kysely<ProdDatabase> | undefined;
 let noGrant: Kysely<ProdDatabase> | undefined;
+let noNames: Kysely<ProdDatabase> | undefined;
 let deps: CaRecordsDeps;
 
 const it = (name: string, test: () => Promise<void>): void => {
@@ -121,15 +122,16 @@ const API_SIDE_DDL = `
 const GRANTS = `
   create role ca_api login password 'ca_api';
   create role ca_nogrant login password 'ca_nogrant';
-  grant usage on schema procurement_v3 to ca_api, ca_nogrant;
+  create role ca_nonames login password 'ca_nonames';
+  grant usage on schema procurement_v3 to ca_api, ca_nogrant, ca_nonames;
   -- As procurement-api-read.sql: the views' SQL functions (core.cui_is_mintable) are parsed as the caller.
-  grant usage on schema core to ca_api, ca_nogrant;
+  grant usage on schema core to ca_api, ca_nogrant, ca_nonames;
+  -- As procurement-api-read.sql: da_release is granted per column.
+  grant select (data_as_of) on procurement_v3.da_release to ca_api, ca_nogrant, ca_nonames;
   grant select on procurement_v3.ca_records_public, procurement_v3.ca_record_winners_public,
-    procurement_v3.ca_record_lots_public, procurement_v3.ca_record_keys_public,
-    procurement_v3.supplier_names_public, procurement_v3.party_public_names, procurement_v3.da_release
-    to ca_api;
-  grant select on procurement_v3.supplier_names_public, procurement_v3.party_public_names,
-    procurement_v3.da_release to ca_nogrant;
+    procurement_v3.ca_record_lots_public, procurement_v3.ca_record_keys_public to ca_api, ca_nonames;
+  grant select on procurement_v3.supplier_names_public, procurement_v3.party_public_names to ca_api, ca_nogrant;
+  grant select on procurement_v3.party_public_names to ca_nonames;
 `;
 
 const AS_OF = '2026-11-24T12:00:00.000000Z';
@@ -410,12 +412,14 @@ beforeAll(async () => {
   await load(owner);
   api = connect(asRole('ca_api'));
   noGrant = connect(asRole('ca_nogrant'));
+  noNames = connect(asRole('ca_nonames'));
   deps = { repo: makeCaRecordsRepo(api, true) };
 }, 240_000);
 
 afterAll(async () => {
   await api?.destroy();
   await noGrant?.destroy();
+  await noNames?.destroy();
   await owner?.destroy();
   await container?.stop();
 });
@@ -435,11 +439,28 @@ const COMPUTED_RELATIONS = [
 /** A node of `explain (format json)`: its keys are PostgreSQL's ("Node Type", "Relation Name", "Plans"). */
 type PlanNode = Readonly<Record<string, unknown>>;
 
-const relationsOf = (node: PlanNode, out: { relation: string; type: string }[] = []) => {
+interface PlanRelation {
+  readonly relation: string;
+  readonly type: string;
+  /** The node's index or recheck condition, when it has one. */
+  readonly condition: string;
+}
+
+/** Every relation a plan reads, and a `subplan` entry for each SubPlan or InitPlan node. */
+const relationsOf = (node: PlanNode, out: PlanRelation[] = []) => {
   const relation = node['Relation Name'];
   const type = node['Node Type'];
-  if (typeof relation === 'string')
-    out.push({ relation, type: typeof type === 'string' ? type : '' });
+  const parent = node['Parent Relationship'];
+  if (parent === 'SubPlan' || parent === 'InitPlan')
+    out.push({ relation: 'subplan', type: parent, condition: '' });
+  if (typeof relation === 'string') {
+    const condition = node['Index Cond'] ?? node['Recheck Cond'];
+    out.push({
+      relation,
+      type: typeof type === 'string' ? type : '',
+      condition: typeof condition === 'string' ? condition : '',
+    });
+  }
   const children = node['Plans'];
   if (Array.isArray(children)) for (const child of children as PlanNode[]) relationsOf(child, out);
   return out;
@@ -468,16 +489,19 @@ describe('reader rule 1 on the real views', () => {
       const relations = await planOf(
         buyerKeysSql({ buyerCode: BIG_BUYER, window: WINDOW, sort, offset: 0, limit: 20 })
       );
-      expect(relations.map((r) => r.relation)).toContain('ca_money_facts');
-      for (const relation of COMPUTED_RELATIONS)
-        expect(relations.map((r) => r.relation)).not.toContain(relation);
+      const names = relations.map((r) => r.relation);
+      // The facts once (a computed column's subquery would read them again) and no subplan.
+      expect(names.filter((name) => name === 'ca_money_facts')).toHaveLength(1);
+      expect(names).not.toContain('subplan');
+      for (const relation of COMPUTED_RELATIONS) expect(names).not.toContain(relation);
     }
   });
 
   it('the counts read no computed column', async () => {
-    const relations = await planOf(buyerCountsSql(BIG_BUYER, WINDOW));
-    for (const relation of COMPUTED_RELATIONS)
-      expect(relations.map((r) => r.relation)).not.toContain(relation);
+    const names = (await planOf(buyerCountsSql(BIG_BUYER, WINDOW))).map((r) => r.relation);
+    expect(names.filter((name) => name === 'ca_money_facts')).toHaveLength(1);
+    expect(names).not.toContain('subplan');
+    for (const relation of COMPUTED_RELATIONS) expect(names).not.toContain(relation);
   });
 
   it('the plan check sees the slow shape (a computed column in the keys statement)', async () => {
@@ -485,6 +509,15 @@ describe('reader rule 1 on the real views', () => {
       select r.source_name, r.match_id, r.winner_count from procurement_v3.ca_records_public r
       where r.buyer_code = ${BIG_BUYER} order by r.award_day desc limit 20`);
     expect(relations.map((r) => r.relation)).toContain('ca_contract_winners');
+    // change_lei reads only ca_money_facts, so the check counts the facts and the subplans too.
+    const change = (
+      await planOf(sql`
+      select r.source_name, r.match_id, r.change_lei from procurement_v3.ca_records_public r
+      where r.buyer_code = ${BIG_BUYER} order by r.award_day desc limit 20`)
+    ).map((r) => r.relation);
+    expect(
+      change.filter((name) => name === 'ca_money_facts').length > 1 || change.includes('subplan')
+    ).toBe(true);
   });
 
   it('the rows step probes the facts by key, never a scan', async () => {
@@ -492,7 +525,14 @@ describe('reader rule 1 on the real views', () => {
     const relations = await planOf(recordRowsSql('seap', keys));
     const facts = relations.filter((r) => r.relation === 'ca_money_facts');
     expect(facts.length).toBeGreaterThan(0);
-    for (const fact of facts.slice(0, 1)) expect(fact.type).not.toBe('Seq Scan');
+    // Every read of the facts (the main row and each computed column's probe) is an index probe.
+    for (const fact of facts) expect(fact.type).not.toBe('Seq Scan');
+    // The main row's probe uses both key columns.
+    expect(
+      facts.some(
+        (fact) => fact.condition.includes('source_name') && fact.condition.includes('match_id')
+      )
+    ).toBe(true);
   });
 
   it('serves a large buyer’s pages within bounds', async () => {
@@ -704,6 +744,22 @@ describe('refusals', () => {
     expect((await getCaRecord(refusedDeps, 'seap:ca:1001:1'))._unsafeUnwrapErr().type).toBe(
       'ServiceUnavailable'
     );
+  });
+
+  it('shows no winner code without the names view', async () => {
+    if (noNames === undefined) throw new Error('no database');
+    const page = (
+      await listCaBuyerRecords(
+        { repo: makeCaRecordsRepo(noNames, true) },
+        { buyerFiscalCode: BUYER, page: 1, pageSize: 20 }
+      )
+    )._unsafeUnwrap();
+    expect(page.disclosureKey).toBe('unavailable');
+    const winners = page.items.flatMap((item) => item.winners);
+    expect(winners.length).toBeGreaterThan(0);
+    for (const winner of winners) expect(winner.fiscalCode).toBeNull();
+    expect(JSON.stringify(page)).not.toContain(GATE_WINNER);
+    expect(JSON.stringify(page)).not.toContain(MASKED_WINNER);
   });
 
   it('answers unavailable when switched off', async () => {

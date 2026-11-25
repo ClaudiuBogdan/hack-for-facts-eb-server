@@ -21,6 +21,7 @@ import {
   CA_LIST_SORTS,
   CA_MAX_PAGE_SIZE,
   isBeforeFloor,
+  isPublicCode,
   parseCaRecordId,
   toCaBuyer,
   toCaLot,
@@ -66,6 +67,8 @@ export interface CaRecordPage extends CaEnvelope {
   /** The records in the window (exact). */
   readonly total: number;
   readonly hasMore: boolean;
+  /** More records than a list may reach (row 10000): narrow the window to see the rest. */
+  readonly depthLimited: boolean;
 }
 
 export interface CaRecordDetail extends CaEnvelope {
@@ -87,7 +90,8 @@ const contractBreak = (what: string): ApiError =>
 const BUYER_CODE = /^[1-9][0-9]{1,9}$/u;
 
 const isCalendarDay = (day: string): boolean => {
-  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(day)) return false;
+  // Years 1900-2999 only: PostgreSQL has no year 0, and no award is older.
+  if (!/^(19|2[0-9])[0-9]{2}-[0-9]{2}-[0-9]{2}$/u.test(day)) return false;
   const parsed = new Date(`${day}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
 };
@@ -146,18 +150,18 @@ const inSnapshot = async <T>(
 /** Rows of these keys with their winners and buyers' public names, mapped. */
 const recordsOf = async (
   reader: CaRecordsReader,
-  keys: readonly CaKey[]
-): Promise<Result<{ records: CaRecord[]; rows: readonly CaRecordRow[] }, ApiError>> => {
-  if (keys.length === 0) return ok({ records: [], rows: [] });
-  const rows = await reader.recordsByKeys(keys);
-  if (rows.isErr()) return err(rows.error);
-  const winners = await reader.winnersByKeys(keys);
+  rows: readonly CaRecordRow[]
+): Promise<Result<CaRecord[], ApiError>> => {
+  if (rows.length === 0) return ok([]);
+  const winners = await reader.winnersByKeys(rows);
   if (winners.isErr()) return err(winners.error);
-  // Only a buyer the view says is not a person is named by code.
+  // Only a buyer the view says is not a person, with a public code's shape, is named by code.
   const named = [
     ...new Set(
-      rows.value.flatMap((row) =>
-        row.buyerPerson === false && row.buyerCode !== null ? [row.buyerCode] : []
+      rows.flatMap((row) =>
+        row.buyerPerson === false && row.buyerCode !== null && isPublicCode(row.buyerCode)
+          ? [row.buyerCode]
+          : []
       )
     ),
   ];
@@ -165,7 +169,7 @@ const recordsOf = async (
     named.length === 0 ? ok(new Map<string, string>()) : await reader.buyerRegistryNames(named);
   if (names.isErr()) return err(names.error);
   const records: CaRecord[] = [];
-  for (const row of rows.value) {
+  for (const row of rows) {
     const own = winners.value.filter(
       (winner) => winner.sourceName === row.sourceName && winner.matchId === row.matchId
     );
@@ -182,7 +186,7 @@ const recordsOf = async (
     if (record.isErr()) return err(record.error);
     records.push(record.value);
   }
-  return ok({ records, rows: rows.value });
+  return ok(records);
 };
 
 const checkPage = (page: number, pageSize: number): ApiError | null => {
@@ -267,20 +271,22 @@ export const listCaBuyerRecords = async (
       limit,
     });
     if (keys.isErr()) return err(keys.error);
-    const read = await recordsOf(reader, keys.value);
-    if (read.isErr()) return err(read.error);
+    const rows = keys.value.length === 0 ? ok([]) : await reader.recordsByKeys(keys.value);
+    if (rows.isErr()) return err(rows.error);
     // Every key the keys step read has its row in the same snapshot.
-    if (read.value.records.length !== keys.value.length)
-      return err(contractBreak('key without a row'));
+    if (rows.value.length !== keys.value.length) return err(contractBreak('key without a row'));
+    const items = await recordsOf(reader, rows.value);
+    if (items.isErr()) return err(items.error);
     const total = counts.value.recordCount;
     return ok({
       ...envelope,
       window: windowAnswer(window.value),
-      items: read.value.records,
+      items: items.value,
       page: request.page,
       pageSize: request.pageSize,
       total,
-      hasMore: offset + read.value.records.length < Math.min(total, CA_LIST_MAX_DEPTH),
+      hasMore: offset + items.value.length < Math.min(total, CA_LIST_MAX_DEPTH),
+      depthLimited: total > CA_LIST_MAX_DEPTH,
     });
   });
 };
@@ -296,10 +302,10 @@ export const getCaRecord = async (
     );
   return inSnapshot(deps, async (reader, envelope) => {
     let key: CaKey = { sourceName: parsed.sourceName, matchId: parsed.matchId };
-    let read = await recordsOf(reader, [key]);
-    if (read.isErr()) return err(read.error);
+    let rows = await reader.recordsByKeys([key]);
+    if (rows.isErr()) return err(rows.error);
     let reanchored = false;
-    if (read.value.records.length === 0) {
+    if (rows.value.length === 0) {
       // An id from an earlier build: its appearance's identity under today's key.
       const current = await reader.currentKeyOf(parsed);
       if (current.isErr()) return err(current.error);
@@ -307,13 +313,12 @@ export const getCaRecord = async (
         return err(notFound('Contract award not found.', 'contractAward'));
       key = current.value;
       reanchored = true;
-      read = await recordsOf(reader, [key]);
-      if (read.isErr()) return err(read.error);
+      rows = await reader.recordsByKeys([key]);
+      if (rows.isErr()) return err(rows.error);
     }
-    const record = read.value.records[0];
-    const row = read.value.rows[0];
-    if (record === undefined || row === undefined)
-      return err(notFound('Contract award not found.', 'contractAward'));
+    const row = rows.value[0];
+    if (row === undefined) return err(notFound('Contract award not found.', 'contractAward'));
+    // The floor first: nothing more of a record outside the window is read.
     if (isBeforeFloor(row.awardDay))
       return err(
         notFound(
@@ -321,6 +326,10 @@ export const getCaRecord = async (
           OUTSIDE_WINDOW_RESOURCE
         )
       );
+    const records = await recordsOf(reader, [row]);
+    if (records.isErr()) return err(records.error);
+    const record = records.value[0];
+    if (record === undefined) return err(contractBreak('record'));
     const lotRows = await reader.lotsOf(key);
     if (lotRows.isErr()) return err(lotRows.error);
     if (lotRows.value.length !== row.lotCount) return err(contractBreak('lot count'));
