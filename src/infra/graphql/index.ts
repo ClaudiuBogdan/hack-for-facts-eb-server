@@ -4,6 +4,7 @@ import mercuriusPlugin, { type IResolvers, type MercuriusLoaders } from 'mercuri
 
 import {
   loggedGraphQLErrors,
+  loggedOperationName,
   makeGraphQLErrorFormatter,
   makeGraphQLValidationRules,
 } from './security.js';
@@ -166,7 +167,8 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
 
       if (document !== undefined) {
         const opInfo = extractOperationInfo(document);
-        operationName = opInfo.operationName;
+        // A caller chooses the operation name: logged only when it is letters and underscores.
+        operationName = loggedOperationName(opInfo.operationName);
         operationType = opInfo.operationType;
         fields = extractFieldNames(document);
       }
@@ -189,7 +191,7 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       // Log at appropriate level
       if (hasErrors) {
         context.reply.log.warn(
-          // Redacted: an error message can quote a value the caller sent.
+          // Fixed categories only: an error message can quote a value the caller sent.
           { ...logEntry, errors: loggedGraphQLErrors(execution.errors) },
           `GraphQL ${operationType} "${operationName ?? 'anonymous'}" completed with ${String(errorCount)} error(s)`
         );

@@ -1,6 +1,7 @@
 /**
  * PRJ-DMHY: a GraphQL error message can quote a value the caller sent (a variable-coercion
- * error quotes it whole), so the shared formatter and the operation log write it redacted. The
+ * error quotes it whole, in any spelling), and a path key or an operation name is chosen by the
+ * caller, so the shared formatter and the operation log write fixed categories only. The
  * response the client gets is unchanged.
  */
 
@@ -12,23 +13,30 @@ import mercuriusPlugin, { type MercuriusOptions } from 'mercurius';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
-import { makeGraphQLErrorFormatter, redactLoggedText } from '@/infra/graphql/security.js';
+import {
+  loggedGraphQLErrors,
+  loggedOperationName,
+  makeGraphQLErrorFormatter,
+} from '@/infra/graphql/security.js';
 
 /** A synthetic CNP-shaped value (never a real person's). */
 const CODE = '1960101123456';
-const EMAIL = 'ion@example.ro';
 
 const TYPE_DEFS = /* GraphQL */ `
   type Query {
     echo(c: String!): String
     fail(c: String!): String
+    many: String
   }
 `;
 const RESOLVERS = {
   Query: {
     echo: (_root: unknown, args: { c: string }) => args.c,
     fail: (_root: unknown, args: { c: string }): never => {
-      throw new Error(`lookup failed for ${args.c} (${EMAIL})`);
+      throw new Error(`lookup failed for ${args.c}`);
+    },
+    many: (): never => {
+      throw new AggregateError([`detail ${CODE}`]);
     },
   },
 };
@@ -48,6 +56,10 @@ const collector = () => {
   });
   return { lines, stream };
 };
+
+/** The logged text without the logger's own numbers (time, pid). */
+const callerText = (lines: readonly string[]): string =>
+  lines.join('\n').replace(/"(time|pid)":[0-9]+/gu, '');
 
 const apps: FastifyInstance[] = [];
 afterEach(async () => {
@@ -73,7 +85,7 @@ const pluginApp = async (isProduction: boolean, stream: Writable) => {
   return app;
 };
 
-/** Mercurius as the redesign entrypoint mounts it, with a given formatter. */
+/** Mercurius as the redesign entrypoint registers it, with a given formatter. */
 const rawApp = async (
   errorFormatter: NonNullable<MercuriusOptions['errorFormatter']>,
   stream: Writable
@@ -92,60 +104,82 @@ const rawApp = async (
 const ECHO = 'query($c: String!) { echo(c: $c) }';
 const FAIL = 'query($c: String!) { fail(c: $c) }';
 
-/** A mistyped variable (a number for String!) over GET and POST, and a resolver error quoting it. */
+const post = (app: FastifyInstance, query: string, variables: Record<string, unknown> = {}) =>
+  app.inject({
+    method: 'POST',
+    url: '/graphql',
+    headers: { 'content-type': 'application/json' },
+    payload: JSON.stringify({ query, variables }),
+  });
+
+/** Caller values in every spelling an error can carry them. */
 const send = async (app: FastifyInstance) => [
+  // A mistyped variable (a number for String!), over GET and POST.
   await app.inject({
     method: 'GET',
     url: `/graphql?query=${encodeURIComponent(ECHO)}&variables=${encodeURIComponent(
       JSON.stringify({ c: Number(CODE) })
     )}`,
   }),
-  await app.inject({
-    method: 'POST',
-    url: '/graphql',
-    headers: { 'content-type': 'application/json' },
-    payload: JSON.stringify({ query: ECHO, variables: { c: Number(CODE) } }),
-  }),
-  await app.inject({
-    method: 'POST',
-    url: '/graphql',
-    headers: { 'content-type': 'application/json' },
-    payload: JSON.stringify({ query: FAIL, variables: { c: CODE } }),
-  }),
+  await post(app, ECHO, { c: Number(CODE) }),
+  // A resolver error quoting a dotted, tab-split and encoded value.
+  await post(app, FAIL, { c: `196.0101.123456 196\t0101\t123456 ion%40example.ro` }),
+  // A literal in exponent form, an alias and an operation name with the code.
+  await post(app, '{ echo(c: 1960.101123456e9) }'),
+  await post(app, `{ id${CODE}: fail(c: "x") }`),
+  await post(app, `query q${CODE} { fail(c: "x") }`),
+  // An error with no message of its own.
+  await post(app, '{ many }'),
 ];
 
 describe('GraphQL error logging (PRJ-DMHY)', () => {
-  it('redacts 11+ digit runs, also written with separators, and e-mail addresses', () => {
-    expect(redactLoggedText(`got ${CODE} and 196 0101 123456 and ${EMAIL}`)).toBe(
-      'got [digits] and [digits] and [email]'
-    );
-    // Fullwidth digits fold to ASCII first.
-    expect(redactLoggedText('１９６０１０１１２３４５６')).toBe('[digits]');
-    // Short numbers stay (an organization code, a count, a line number).
-    expect(redactLoggedText('code 14399840, line 12')).toBe('code 14399840, line 12');
+  it('logs categories only, whatever the error carries', () => {
+    expect(
+      loggedGraphQLErrors([
+        { message: `x ${CODE}`, extensions: { code: 'BAD_USER_INPUT' }, path: [`id${CODE}`, 0] },
+        { message: `x ${CODE}`, locations: [{ line: 1, column: 2 }] },
+        { message: 'x', originalError: new TypeError(`y ${CODE}`), path: ['a'] },
+        { message: 'x', extensions: { code: `CODE_${CODE}` } },
+        null,
+        'text',
+      ])
+    ).toEqual([
+      { category: 'BAD_USER_INPUT', kind: 'execution', pathDepth: 2 },
+      { category: 'unknown', kind: 'validation', pathDepth: null },
+      { category: 'TypeError', kind: 'execution', pathDepth: 1 },
+      { category: 'unknown', kind: 'request', pathDepth: null },
+      { category: 'unknown', kind: 'request', pathDepth: null },
+      { category: 'unknown', kind: 'request', pathDepth: null },
+    ]);
+    expect(loggedOperationName('ProcurementBuyerKeys')).toBe('ProcurementBuyerKeys');
+    expect(loggedOperationName(`q${CODE}`)).toBe('[redacted]');
+    expect(loggedOperationName(null)).toBeNull();
   });
 
   for (const isProduction of [false, true])
-    it(`logs no caller value from an error (shared plugin, production ${String(isProduction)})`, async () => {
+    it(`logs no caller value (shared plugin, production ${String(isProduction)})`, async () => {
       const logs = collector();
       const responses = await send(await pluginApp(isProduction, logs.stream));
-      // The requests reached their error paths.
-      expect(responses.map((response) => response.statusCode)).toEqual([400, 400, 200]);
-      const raw = logs.lines.join('\n');
-      expect(raw).not.toContain(CODE);
-      expect(raw).not.toContain('example.ro');
-      // The errors are still logged, redacted.
-      const logged = logs.lines.filter((line) => line.includes('"msg":"GraphQL error"'));
-      expect(logged.length).toBeGreaterThanOrEqual(3);
-      expect(logged.join('\n')).toContain('[digits]');
+      // Every request reached an error path.
+      for (const response of responses)
+        expect(JSON.stringify(response.json<unknown>())).toContain('errors');
+      const text = callerText(logs.lines);
+      // No run of four digits at all, no address, no alias or operation name with the code.
+      expect(text).not.toMatch(/[0-9]{4}/u);
+      expect(text).not.toContain('example');
+      // The errors and the operation warning are still logged.
+      expect(
+        logs.lines.filter((line) => line.includes('"msg":"GraphQL error"')).length
+      ).toBeGreaterThanOrEqual(responses.length);
+      expect(logs.lines.some((line) => line.includes('completed with 1 error(s)'))).toBe(true);
     });
 
   it('logs no caller value through the redesign registration either', async () => {
     const logs = collector();
     await send(await rawApp(makeGraphQLErrorFormatter(false), logs.stream));
-    const raw = logs.lines.join('\n');
-    expect(raw).not.toContain(CODE);
-    expect(raw).not.toContain('example.ro');
+    const text = callerText(logs.lines);
+    expect(text).not.toMatch(/[0-9]{4}/u);
+    expect(text).not.toContain('example');
   });
 
   it('leaves the client-facing response as Mercurius formats it', async () => {

@@ -107,44 +107,55 @@ const SAFE_ERROR_CODES = new Set([
 ]);
 
 /**
- * Runs of 11+ digits, each joined by at most one white-space character or dash (a personal
- * numeric code, also as written with separators), and e-mail addresses, in the NFKC form.
+ * What is logged of one GraphQL error: fixed categories only, never its message, path keys or
+ * any other text. A message can quote a value the caller sent (a variable-coercion error quotes
+ * it whole, in any spelling: escaped, encoded, as a number), and a path key can be a
+ * caller-chosen alias, so no redaction of free text is attempted.
  */
-const LOGGED_CODE_RUN = /[0-9](?:[\s\u0085\p{Pd}\u2212]?[0-9]){10,}/gu;
-const LOGGED_EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/gu;
-
-/**
- * Text as it may be logged: a GraphQL error message can quote a value the caller sent (a
- * variable-coercion error quotes it whole), so personal codes and e-mail addresses are redacted.
- */
-export const redactLoggedText = (text: string): string =>
-  text.normalize('NFKC').replace(LOGGED_EMAIL, '[email]').replace(LOGGED_CODE_RUN, '[digits]');
-
 export interface LoggedGraphQLError {
-  readonly code: string | null;
-  readonly path: readonly (string | number)[] | null;
-  readonly message: string;
+  /** The error's code when it has a code's shape (A-Z and _), else its class name, else `unknown`. */
+  readonly category: string;
+  /** execution (it has a path), validation (locations, no path) or request. */
+  readonly kind: 'execution' | 'validation' | 'request';
+  /** How deep in the response the error sits; null outside execution. */
+  readonly pathDepth: number | null;
 }
 
-/** What is logged of GraphQL errors: code, path and the redacted message (never the error object). */
-export const loggedGraphQLErrors = (
-  errors: readonly GraphQLError[] | undefined
-): LoggedGraphQLError[] =>
+const CODE_SHAPE = /^[A-Z][A-Z_]{0,63}$/u;
+const CLASS_SHAPE = /^[A-Za-z]{1,64}$/u;
+
+const field = (value: unknown, key: string): unknown =>
+  typeof value === 'object' && value !== null ? (value as Record<string, unknown>)[key] : undefined;
+
+const categoryOf = (error: unknown): string => {
+  const code = field(field(error, 'extensions'), 'code');
+  if (typeof code === 'string' && CODE_SHAPE.test(code)) return code;
+  const original = field(error, 'originalError');
+  const name = field(original ?? error, 'name');
+  return typeof name === 'string' && CLASS_SHAPE.test(name) ? name : 'unknown';
+};
+
+const loggedError = (error: unknown): LoggedGraphQLError => {
+  const path = field(error, 'path');
+  const locations = field(error, 'locations');
+  return {
+    category: categoryOf(error),
+    kind: Array.isArray(path) ? 'execution' : Array.isArray(locations) ? 'validation' : 'request',
+    pathDepth: Array.isArray(path) ? path.length : null,
+  };
+};
+
+/** What is logged of GraphQL errors (`LoggedGraphQLError`); never throws on an unusual error value. */
+export const loggedGraphQLErrors = (errors: readonly unknown[] | undefined): LoggedGraphQLError[] =>
   (errors ?? []).flatMap((error) => {
     // Mercurius wraps a validation failure's errors in one error (MER_ERR_GQL_VALIDATION).
-    const nested: unknown = (error.originalError as { errors?: unknown } | undefined)?.errors;
-    const all: readonly GraphQLError[] = Array.isArray(nested)
-      ? (nested as GraphQLError[])
-      : [error];
-    return all.map((each) => {
-      const code = (each.extensions as Record<string, unknown> | undefined)?.['code'];
-      return {
-        code: typeof code === 'string' ? code : null,
-        path: Array.isArray(each.path) ? each.path : null,
-        message: redactLoggedText(each.message),
-      };
-    });
+    const nested = field(field(error, 'originalError'), 'errors');
+    return Array.isArray(nested) ? nested.map(loggedError) : [loggedError(error)];
   });
+
+/** An operation name as logged: letters and underscores only (a caller chooses it), else none. */
+export const loggedOperationName = (name: string | null): string | null =>
+  name === null ? null : /^[A-Za-z_]{1,64}$/u.test(name) ? name : '[redacted]';
 
 const noop = (): void => undefined;
 /** Mercurius's default formatter logs each error's message whole; it gets this logger instead. */
@@ -159,7 +170,7 @@ const SILENT_LOG = {
 };
 
 /**
- * Shared error formatting for every public GraphQL surface: errors are logged redacted
+ * Shared error formatting for every public GraphQL surface: errors are logged as fixed categories
  * (`loggedGraphQLErrors`), and in production the response is redacted too.
  */
 export const makeGraphQLErrorFormatter =
