@@ -17,6 +17,7 @@ import { daReleaseTypeDefs, makeDaReleaseResolvers } from './shell/graphql/da-re
 import { makeProcurementResolvers, toGraphqlError } from './shell/graphql/resolvers.js';
 import { makeTotalsResolvers, totalsTypeDefs } from './shell/graphql/totals-schema.js';
 import { procurementTypeDefs } from './shell/graphql/typedefs.js';
+import { makeCaRecordsMcpTools } from './shell/mcp/ca-records-tools.js';
 import { makeDaReleaseMcpTools } from './shell/mcp/da-release-tools.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
 import { makeTotalsMcpTools } from './shell/mcp/totals-tools.js';
@@ -303,6 +304,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     mcpTools: [
       ...procurementTools,
       ...(daV3Enabled ? makeDaReleaseMcpTools(daRelease) : []),
+      ...(deps.caRecordsEnabled === true ? makeCaRecordsMcpTools(caRecords) : []),
       ...(moneyPort !== undefined ? makeTotalsMcpTools(moneyPort, deps.supplierDisclosure) : []),
     ],
     contributor: makeProcurementContributor(

@@ -32,6 +32,7 @@ import {
   caRecordsTypeDefs,
   makeCaRecordsResolvers,
 } from '@/modules/procurement/shell/graphql/ca-records-schema.js';
+import { makeCaRecordsMcpTools } from '@/modules/procurement/shell/mcp/ca-records-tools.js';
 import {
   awardDaySql,
   buyerCountsSql,
@@ -47,10 +48,12 @@ import {
 import { makeCaRecordsRestPlugin } from '@/modules/procurement/shell/rest/ca-records-routes.js';
 import {
   baseTypeDefs,
+  createMcpHttpDispatcher,
   mergeGraphqlSlices,
   scalarResolvers,
   type ProdDatabase,
 } from '@/modules/shared/index.js';
+import { createKernelMcpServer } from '@/modules/shared/shell/mcp/server.js';
 
 import { dockerCliUp } from './disposable-postgres.js';
 import {
@@ -1221,5 +1224,71 @@ describe('GraphQL', () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe('MCP', () => {
+  const callTool = async (name: string, args: Record<string, unknown>) => {
+    const dispatcher = createMcpHttpDispatcher(() =>
+      createKernelMcpServer(makeCaRecordsMcpTools(deps))
+    );
+    const response = (await dispatcher.dispatch({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name, arguments: args },
+    })) as { result?: { structuredContent?: Record<string, unknown> } };
+    await dispatcher.close();
+    const content = response.result?.structuredContent;
+    if (content === undefined) throw new Error(`no structured content from ${name}`);
+    return { raw: JSON.stringify(response), content };
+  };
+
+  it('serves the same answers as the usecases, and the same refusals', async () => {
+    const summary = await callTool('get_procurement_contract_award_summary', {
+      buyerFiscalCode: BUYER,
+    });
+    expect(summary.content).toMatchObject({
+      ok: true,
+      item: (await caBuyerSummary(deps, { buyerFiscalCode: BUYER }))._unsafeUnwrap(),
+    });
+    const list = await callTool('list_procurement_contract_awards', {
+      buyerFiscalCode: BUYER,
+      pageSize: 5,
+    });
+    expect(list.content).toMatchObject({ ok: true, meta: { total: 5, depthLimited: false } });
+    expect(list.raw).not.toContain(WITHHELD_WINNER);
+    expect(list.raw).not.toContain(SECRET_WINNER_NAME);
+    const won = await callTool('list_procurement_contract_awards_by_winner', {
+      winnerFiscalCode: NAMED_OFF_GATE_WINNER,
+    });
+    expect(won.content).toMatchObject({ ok: true, meta: { total: 1 } });
+    // The asked code is not echoed in the query (only by the records' winners).
+    expect(JSON.stringify(won.content['query'])).not.toContain(NAMED_OFF_GATE_WINNER);
+    const winnerSummary = await callTool('get_procurement_contract_award_winner_summary', {
+      winnerFiscalCode: GATE_MASKED_WINNER,
+    });
+    expect(winnerSummary.content).toMatchObject({
+      ok: true,
+      item: { recordCount: 2, winner: { displayKind: 'person_masked' } },
+    });
+    for (const code of [MASKED_WINNER, UNKNOWN_WINNER]) {
+      const refused = await callTool('list_procurement_contract_awards_by_winner', {
+        winnerFiscalCode: code,
+      });
+      expect(refused.content).toEqual({
+        ok: false,
+        kind: 'procurement_contract_awards_by_winner',
+        error: 'No published contract awards for this supplier code.',
+        errorType: 'NotFound',
+        errorCode: 'NOT_FOUND',
+      });
+    }
+    const detail = await callTool('get_procurement_contract_award', { recordId: 'seap:ca:901:1' });
+    expect(detail.content).toMatchObject({ ok: true, meta: { reanchored: true } });
+    const outside = await callTool('get_procurement_contract_award', {
+      recordId: 'seap:ca:1004:1',
+    });
+    expect(outside.content).toMatchObject({ ok: false, errorType: 'NotFound' });
   });
 });
