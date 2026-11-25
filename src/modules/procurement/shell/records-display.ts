@@ -10,7 +10,9 @@
  * free-text rule applies to it as to the source title.
  */
 
-import { isFreeTextWithheld } from '../core/free-text-rule.js';
+import { isWithheldOrganizationIdentifier } from '@/modules/shared/index.js';
+
+import { isFreeTextWithheld, publicPartyName } from '../core/free-text-rule.js';
 
 import type { AnalysisRecordsResult } from '../core/analysis-usecases.js';
 import type { ContractDisplayTitle } from '../core/contract-display-title.js';
@@ -19,6 +21,10 @@ import type { AnalysisRecordRow, ProcurementRepo } from '../core/ports.js';
 export type DisplayedRecord = AnalysisRecordRow & {
   readonly displayTitle: ContractDisplayTitle | null;
 };
+
+/** A code as the records usecase serves it: null for a person's (kernel P0 containment). */
+const servedCode = (cui: string | null): string | null =>
+  cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
 
 export const withDisplayTitles = async (
   repo: ProcurementRepo,
@@ -29,10 +35,21 @@ export const withDisplayTitles = async (
       ? await repo.contractsByIds(result.items.map((item) => item.id))
       : null;
   const contracts = titles?.isOk() === true ? titles.value : null;
-  return result.items.map(({ titleWithheld, ...item }) => {
-    const displayTitle = contracts?.get(item.id)?.displayTitle ?? null;
+  return result.items.map(({ titleWithheld, supplierPerson: _person, ...item }) => {
+    const contract = contracts?.get(item.id);
+    const displayTitle = contract?.displayTitle ?? null;
     return {
       ...item,
+      // A contract's supplier name: only the one production serves for it (its read masks a
+      // person's, whatever the build says), never one that may carry a personal code; null when not
+      // read. On another grain the usecase already nulled a person's name (`supplierPerson`).
+      // And only for the same supplier: the production row's served code must equal the record's.
+      ...(result.grain === 'contract' && {
+        supplierName:
+          contract !== undefined && servedCode(contract.supplierCui) === item.supplierCui
+            ? publicPartyName(contract.supplierName)
+            : null,
+      }),
       // The free-text rule (interim gate): a withheld source title takes its
       // display title with it, and a display title the rule hits is withheld.
       displayTitle:

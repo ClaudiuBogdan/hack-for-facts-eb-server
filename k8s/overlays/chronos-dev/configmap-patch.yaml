@@ -34,6 +34,25 @@ data:
   PROD_OPENSEARCH_TLS_SERVERNAME: transparenta-eu-etl-opensearch.transparenta-eu-etl-prod.svc.cluster.local
   PROD_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443
   PROD_CLICKHOUSE_DATABASE: proto
+  # Procurement totals v2 (procurementTotals, MCP aggregate_procurement_totals) over the
+  # active money build (procurement_v3.money_generations; build 1 activated 2026-11-22).
+  # Chronos dev only.
+  PROCUREMENT_TOTALS_V2: 'true'
+  # DA release 1 (procurement_v3) on Chronos dev only (owner, 22 Nov); the server boots v3 only
+  # with site-wide D6 enforced (root's rollout order), so both are on here. Public stays off
+  # until the PRJ-54YB cutover and the client's DA-009 displayName switch.
+  PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: 'true'
+  PROCUREMENT_DA_V3_ENABLED: 'true'
+  # The legacy DA list (procurementDirectAcquisitions, MCP search_procurement_direct_acquisitions)
+  # names masked buyers from the raw authority name; retired on Chronos dev (owner, 23 Nov).
+  PROCUREMENT_LEGACY_DA_LIST_ENABLED: 'false'
+  # Every legacy procurement read (records, details, supplier records, legacy analysis grains,
+  # presence) off on Chronos dev (owner, 24 Nov): interim containment while legacy contract
+  # party names are not screened for personal codes. Back on only on root's word.
+  PROCUREMENT_LEGACY_ENABLED: 'false'
+  # Contract awards (PROC-KB0Z: buyer and winner-code lists, detail, 5 MCP tools) over the
+  # procurement_v3 contract-award views, on Chronos dev only (user, 25 Nov). Needs D6 enforced.
+  PROCUREMENT_CA_RECORDS_ENABLED: 'true'
   # Companies analytics: same ClickHouse service, its own database and its own
   # read-only companies_reader user (credentials from the workload patch).
   COMPANIES_ANALYTICS_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443

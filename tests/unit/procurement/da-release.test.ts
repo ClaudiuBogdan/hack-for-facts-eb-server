@@ -36,7 +36,7 @@ const row = (n: number): DaPurchaseRecord => {
 const served = (record: DaPurchaseRecord) => toPurchase(record)._unsafeUnwrap();
 
 describe('D6 supplier rule', () => {
-  it('names a supplier only when its code is public in supplier_privacy', () => {
+  it('names a supplier only when its code is disclosed', () => {
     expect(isNamedSupplier(COMPANY)).toBe(true);
     for (const party of [SOLE_TRADER, NATURAL_PERSON, UNVERIFIED, BAD_CODE_SUPPLIER])
       expect(isNamedSupplier(party)).toBe(false);
@@ -119,15 +119,35 @@ describe('value fields per contract case', () => {
     expect(p.reviewRule?.effect).toBe('exclude');
   });
 
-  it('open case, refused, before 2025, no longer listed and symbolic', () => {
+  it('open case, refused, value not confirmed, no longer listed and symbolic', () => {
     expect(served(row(5))).toMatchObject({ counted: true, reviewRule: null });
     expect(served(row(6))).toMatchObject({
       outcome: 'refused',
       notCountedReason: { code: 'not_accepted' },
     });
-    expect(served(row(7)).notCountedReason?.code).toBe('value_not_qualified');
+    expect(served(row(7)).notCountedReason).toEqual({
+      code: 'value_not_qualified',
+      labelEn: "The currency and VAT basis of this purchase's value are not confirmed.",
+      labelRo: 'Moneda și baza TVA ale valorii acestei achiziții nu sunt confirmate.',
+    });
     expect(served(row(8)).listedNow).toBe(false);
     expect(served(row(9))).toMatchObject({ symbolicPrice: true, countedValue: '0.01' });
+  });
+
+  it('serves a delisted purchase (removed_from_portal, D3) with its labels instead of refusing it', () => {
+    const delisted = served({
+      ...row(6),
+      outcome: 'accepted',
+      counted: false,
+      countedValue: null,
+      notCountedReason: 'removed_from_portal',
+      listedNow: false,
+    });
+    expect(delisted.notCountedReason).toEqual({
+      code: 'removed_from_portal',
+      labelEn: 'The purchase is no longer on any portal list.',
+      labelRo: 'Achiziția nu mai apare în nicio listă a portalului.',
+    });
   });
 
   it('labels every reason in both languages', () => {

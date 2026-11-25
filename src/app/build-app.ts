@@ -343,9 +343,10 @@ const GENERIC_MESSAGES: Record<number, string> = {
   429: 'Too many requests',
 };
 
-function getRequestPath(url: string): string {
-  const queryIndex = url.indexOf('?');
-  return queryIndex === -1 ? url : url.slice(0, queryIndex);
+/** The path of a request target: everything before its first `?` or a raw `#` (Node accepts both). */
+export function getRequestPath(url: string): string {
+  const end = url.search(/[?#]/u);
+  return end === -1 ? url : url.slice(0, end);
 }
 
 function isHealthRoute(url: string): boolean {
@@ -603,7 +604,8 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
       error: 'NotFoundError',
       message: config.server.isProduction
         ? 'Not found'
-        : `Route ${request.method} ${request.url} not found`,
+        : // The path only, as in the request logs: a query string may carry a personal code.
+          `Route ${request.method} ${getRequestPath(request.url)} not found`,
       retryable: false,
     });
   });
@@ -632,7 +634,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         reqId: request.id,
         req: {
           method: request.method,
-          url: request.url,
+          // The path only: a query string can carry a personal code a caller typed (a value the
+          // route refuses still arrives in the URL), and request logs are kept.
+          url: getRequestPath(request.url),
           host: request.host,
           remoteAddress: request.ip,
           remotePort: request.socket.remotePort,
@@ -662,7 +666,9 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
         reqId: request.id,
         req: {
           method: request.method,
-          url: request.url,
+          // The path only: a query string can carry a personal code a caller typed (a value the
+          // route refuses still arrives in the URL), and request logs are kept.
+          url: getRequestPath(request.url),
           host: request.host,
           remoteAddress: request.ip,
           remotePort: request.socket.remotePort,

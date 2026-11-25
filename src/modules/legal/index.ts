@@ -20,17 +20,44 @@
 import './shell/db/schema.js';
 
 import {
+  createCache,
+  type CapabilityResolver,
+  type ContributorRegistry,
+  type GraphqlSlice,
+  type IdentityRepo,
+  type KernelCache,
+  type KernelMcpTool,
+  type LegalActByIdLoader,
+  type MeiliClient,
+  type OpenSearchClient,
+  type ProdDatabase,
+  type SourceContributor,
+  type SyntheticClient,
+} from '@/modules/shared/index.js';
+
+import {
+  ANALYTICS_SLOTS,
+  makeLegalAnalyticsGate,
+  type LegalAnalyticsDeps,
+} from './core/analytics/usecases.js';
+import {
   effectiveSemantic,
   type LegalSearchDeps,
   type ResolveLegalFiltersDeps,
 } from './core/usecases.js';
 import { makeMonitorulSurface } from './mo/index.js';
+import {
+  legalAnalyticsTypeDefs,
+  makeLegalAnalyticsMcpTool,
+  makeLegalAnalyticsResolvers,
+} from './shell/analytics-surfaces.js';
 import { probeLegalHnsw } from './shell/capability.js';
 import { makeLegalResolvers } from './shell/graphql/resolvers.js';
 import { legalTypeDefs } from './shell/graphql/typedefs.js';
 import { makeLegalActLoader } from './shell/loader/legal-act-loader.js';
 import { makeLegalMcpTools } from './shell/mcp/tools.js';
 import { makeLegalActsRepo } from './shell/repo/acts-repo.js';
+import { makeLegalAnalyticsRepo } from './shell/repo/analytics-repo.js';
 import { makeLegalGraphRepo } from './shell/repo/graph-repo.js';
 import {
   makeLegalSearchEngine,
@@ -46,6 +73,7 @@ import { makeLegalRenderRepoV2, makeLegalRenderSourceV2 } from './shell/repo/v2/
 import { makeLegalV2SearchEngine } from './shell/repo/v2/search-engine-v2.js';
 import { makeLegalV2HitVerifier } from './shell/repo/v2/search-verify-v2.js';
 import { makeLegalVocabRepo } from './shell/repo/vocab-repo.js';
+import { makeLegalAnalyticsRoutes } from './shell/rest/analytics-routes.js';
 import { makeLegalRoutes } from './shell/rest/routes.js';
 
 import type {
@@ -56,20 +84,6 @@ import type {
   LegalRetrievalRepo,
 } from './core/ports.js';
 import type { LegalRepoBase } from './core/repo-base.js';
-import type {
-  CapabilityResolver,
-  ContributorRegistry,
-  GraphqlSlice,
-  IdentityRepo,
-  KernelCache,
-  KernelMcpTool,
-  LegalActByIdLoader,
-  MeiliClient,
-  OpenSearchClient,
-  ProdDatabase,
-  SourceContributor,
-  SyntheticClient,
-} from '@/modules/shared/index.js';
 import type { Kysely } from 'kysely';
 
 /** Minimal logger surface (Fastify's logger satisfies it). */
@@ -242,23 +256,60 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
     clientBaseUrl,
   });
 
-  const graphqlResolvers = deepMergeResolvers(actsResolvers, mo.resolvers);
-  const mcpTools = [...actsMcpTools, ...mo.mcpTools];
+  // 7. Legislation analytics (design §11): the published insights layer of
+  //    legal_v2_analytics, on all three surfaces over one usecase. Independent of
+  //    LEGAL_SOURCE: the layer is read the same way on both sources; the acts it
+  //    names must have a public legal_v2 identity, tested in SQL in the view's own
+  //    transaction; the old corpus's title is optional decoration.
+  //    A database without the layer answers 503.
+  const analytics = makeLegalAnalyticsDeps(deps.db);
+
+  const graphqlResolvers = deepMergeResolvers(
+    deepMergeResolvers(actsResolvers, mo.resolvers),
+    makeLegalAnalyticsResolvers(analytics)
+  );
+  const mcpTools = [
+    ...actsMcpTools,
+    ...mo.mcpTools,
+    makeLegalAnalyticsMcpTool(analytics, clientBaseUrl),
+  ];
+  const renderRoutes = makeLegalRoutes({
+    render,
+    ...(renderSource !== undefined && { source: renderSource }),
+  });
+  const analyticsRoutes = makeLegalAnalyticsRoutes(analytics);
 
   return {
-    graphqlSlice: { source: 'legal', typeDefs: `${legalTypeDefs}\n\n${mo.typeDefs}` },
+    graphqlSlice: {
+      source: 'legal',
+      typeDefs: `${legalTypeDefs}\n\n${mo.typeDefs}\n\n${legalAnalyticsTypeDefs}`,
+    },
     graphqlResolvers,
     mcpTools,
     contributors: [mo.contributor], // 06's MO area: source:'monitorul-oficial'.
     repos,
     legalActLoader,
     semanticReady,
-    routesPlugin: makeLegalRoutes({
-      render,
-      ...(renderSource !== undefined && { source: renderSource }),
-    }),
+    routesPlugin: async (app) => {
+      await app.register(renderRoutes);
+      await app.register(analyticsRoutes, { prefix: '/analytics' });
+    },
   };
 };
+
+/** Answers stay true for their layer; the TTL bounds memory, the head TTL how soon a new layer is seen. */
+const ANALYTICS_HEAD_TTL_MS = 60_000;
+const ANALYTICS_ANSWER_TTL_MS = 6 * 60 * 60_000;
+const ANALYTICS_ANSWER_ENTRIES = 2_000;
+
+/** The analytics usecase's deps as the module wires them (exported for the real-DDL proof). */
+export const makeLegalAnalyticsDeps = (db: Kysely<ProdDatabase>): LegalAnalyticsDeps => ({
+  repo: makeLegalAnalyticsRepo({ db }),
+  gate: makeLegalAnalyticsGate(ANALYTICS_SLOTS),
+  inflight: new Map(),
+  heads: createCache({ ttlMs: ANALYTICS_HEAD_TTL_MS, maxEntries: 4 }),
+  answers: createCache({ ttlMs: ANALYTICS_ANSWER_TTL_MS, maxEntries: ANALYTICS_ANSWER_ENTRIES }),
+});
 
 /**
  * Deep-merge two resolver maps: nested resolver objects (e.g. `Query`, `LegalAct`,

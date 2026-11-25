@@ -390,6 +390,12 @@ export const registerCompression = async (app: FastifyInstance): Promise<void> =
     global: true,
     threshold: 1024,
     encodings: ['br', 'gzip', 'deflate'],
+    // Request bodies: the same three plus identity, never zstd (the plugin's default adds it
+    // when Node has it). Node bundles its own zstd 1.5.7, which CVE-2026-124851 may affect; a
+    // zstd-encoded body is refused with 415 instead of reaching that decoder (25 Nov 2026).
+    // No route may set its own `decompress` options: they would restore the defaults (guarded
+    // by tests/integration/redesign-compression.test.ts).
+    requestEncodings: ['br', 'gzip', 'deflate', 'identity'],
     // Never rewrite an already-encoded payload.
     inflateIfDeflated: false,
   });
@@ -483,6 +489,7 @@ export const registerRedesignSurface = async (
   let judicialRoutes: import('fastify').FastifyPluginAsync | undefined;
   let electionsRoutes: import('fastify').FastifyPluginAsync | undefined;
   let procurementDaRoutes: import('fastify').FastifyPluginAsync | undefined;
+  let procurementCaRoutes: import('fastify').FastifyPluginAsync | undefined;
 
   if (enabledModules.includes('ngos')) {
     const ngos = makeNgosModule({
@@ -686,7 +693,8 @@ export const registerRedesignSurface = async (
     // record lists, and the DA list window. Nothing here reads process.env.
     const composition = deps.procurement ?? {};
     const procurement = makeProcurementModule({
-      db: kernel.db,
+      // Its own login when PROCUREMENT_DATABASE_URL is set (PRJ-54YB), else kernel.db itself.
+      db: kernel.procurementDb,
       logger: app.log,
       supplierDisclosure: kernel.supplierDisclosure,
       ...(composition.search !== undefined && {
@@ -713,8 +721,17 @@ export const registerRedesignSurface = async (
         daListMaxWindowDays: composition.daListMaxWindowDays,
       }),
       ...(composition.daV3Enabled !== undefined && { daV3Enabled: composition.daV3Enabled }),
+      ...(composition.caRecordsEnabled !== undefined && {
+        caRecordsEnabled: composition.caRecordsEnabled,
+      }),
       ...(composition.totalsV2Enabled !== undefined && {
         totalsV2Enabled: composition.totalsV2Enabled,
+      }),
+      ...(composition.legacyEnabled !== undefined && {
+        legacyEnabled: composition.legacyEnabled,
+      }),
+      ...(composition.legacyDaListEnabled !== undefined && {
+        legacyDaListEnabled: composition.legacyDaListEnabled,
       }),
       ...(deps.clientBaseUrl !== undefined && { clientBaseUrl: deps.clientBaseUrl }),
     });
@@ -723,6 +740,7 @@ export const registerRedesignSurface = async (
     moduleMcpTools.push(...procurement.mcpTools);
     kernel.contributors.register(procurement.contributor);
     procurementDaRoutes = procurement.daRestPlugin;
+    procurementCaRoutes = procurement.caRestPlugin;
   }
 
   if (enabledModules.includes('companies')) {
@@ -918,6 +936,9 @@ export const registerRedesignSurface = async (
   if (procurementDaRoutes !== undefined) {
     await app.register(procurementDaRoutes, { prefix: '/api/v1/procurement/da' });
   }
+  if (procurementCaRoutes !== undefined) {
+    await app.register(procurementCaRoutes, { prefix: '/api/v1/procurement/contract-awards' });
+  }
   if (electionsRoutes !== undefined) {
     await app.register(electionsRoutes, { prefix: '/api/v1/elections' });
   }
@@ -936,7 +957,13 @@ export const registerRedesignSurface = async (
   // the budgets don't collide). One host turn is a handful of requests
   // (initialize, tools/list, tools/call, resources/read), well inside the
   // bucket; shared egress IPs (ChatGPT) may need tuning under real traffic.
-  app.post('/api/v1/mcp', async (request, reply) => {
+  // PROC-VDWQ: a tool result can carry a DA supplier name, so no MCP reply is ever cacheable,
+  // including the ones sent before the handler runs (body parsing, a global rate limit).
+  const mcpNoStore = (_request: unknown, reply: FastifyReply, payload: unknown) => {
+    void reply.header('cache-control', 'no-store');
+    return Promise.resolve(payload);
+  };
+  app.post('/api/v1/mcp', { onSend: mcpNoStore }, async (request, reply) => {
     const limit = kernel.rateLimiter.consume(`mcp:${request.ip}`);
     if (!limit.allowed) {
       return reply
@@ -957,8 +984,8 @@ export const registerRedesignSurface = async (
   // DELETE (session teardown). A stateless JSON server answers 405, not 404.
   const methodNotAllowed = async (_request: unknown, reply: FastifyReply) =>
     reply.code(405).header('allow', 'POST').send();
-  app.get('/api/v1/mcp', methodNotAllowed);
-  app.delete('/api/v1/mcp', methodNotAllowed);
+  app.get('/api/v1/mcp', { onSend: mcpNoStore }, methodNotAllowed);
+  app.delete('/api/v1/mcp', { onSend: mcpNoStore }, methodNotAllowed);
 
   app.addHook('onClose', async () => {
     await mcpDispatcher.close();

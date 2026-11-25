@@ -47,13 +47,15 @@ const litList = (values: readonly string[]): string => values.map(lit).join(', '
 const tableOf = (base: string, build: string): string => `${base}_b${build}`;
 
 /**
- * A build table that is gone (ClickHouse UNKNOWN_TABLE 60 / UNKNOWN_DATABASE 81)
- * means the build is not served: ServiceUnavailable, never a guessed total.
+ * A build table that is gone (ClickHouse UNKNOWN_TABLE 60 / UNKNOWN_DATABASE 81),
+ * or not readable by the API's ClickHouse user (ACCESS_DENIED 497: a build
+ * activated before its per-build grant, SEC-GRANTS-PROC-2211), means the build
+ * is not served: ServiceUnavailable, never a guessed total.
  */
 const notServed = <T>(result: Result<T, ApiError>): Result<T, ApiError> =>
   result.isErr() &&
   result.error.type === 'Database' &&
-  /\(code (60|81)\)/u.test(result.error.message)
+  /\(code (60|81|497)\)/u.test(result.error.message)
     ? err(serviceUnavailable('the active money build is not available; retry later'))
     : result;
 

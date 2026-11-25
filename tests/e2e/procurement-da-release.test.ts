@@ -2,7 +2,14 @@
  * E2E — direct acquisitions release 1 against a REAL Postgres: the repository's
  * SQL runs (types, casts, grouping, window counts, timestamp text), the D6
  * filter and supplier buckets hold in SQL, and the reader works both before
- * and after `supplier_privacy` and the pending columns exist.
+ * and after `supplier_disclosure` and the pending columns exist.
+ *
+ * Parties are read only through `da_parties_public`. Before: that view is
+ * readable but `supplier_disclosure` is not (here the view is unfiltered, so a
+ * reader that trusted it alone would leak): every supplier must be withheld.
+ * After: the platform's views (SEC-GRANTS-PROC-2211) and the `*_shown`
+ * columns exist, and the reader runs as a login holding EXACTLY the approved
+ * grants, so a read of any ungranted column or table fails the test.
  *
  * The schema is a MINIMAL SHAPE built from the serving contract
  * (DIRECT_ACQUISITION_SERVING_CONTRACT.md: column names and types), not the
@@ -12,7 +19,7 @@
  */
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { Kysely, PostgresDialect, sql } from 'kysely';
+import { CompiledQuery, Kysely, PostgresDialect, sql } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
@@ -33,6 +40,7 @@ import {
   PURCHASES,
   SECRET,
   SOLE_TRADER,
+  UNVERIFIED,
 } from '../fixtures/procurement/da-release.js';
 
 import type { DaPartyRecord } from '@/modules/procurement/core/da-release.js';
@@ -112,7 +120,17 @@ const DDL = `
     quantity_correction boolean,
     primary key (purchase_id, item_index)
   );
-  create table procurement_v3.da_release (data_as_of timestamptz not null);
+  create table procurement_v3.da_release (
+    data_as_of timestamptz not null,
+    rows bigint, dated bigint, counted bigint, accepted bigint, with_cpv bigint, with_geo bigint,
+    money numeric, money_dated numeric, money_geo numeric, free_text_rule text,
+    registry_as_of timestamptz
+  );
+  -- Before the D6 view: a public party view the reader may read, but no
+  -- supplier_disclosure, so D6 must withhold every supplier the view lists.
+  create view procurement_v3.da_parties_public with (security_barrier = true) as
+    select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status, name_as_written
+    from procurement_v3.da_parties;
 `;
 
 const parties = (): Map<string, { kind: 'buyer' | 'supplier'; party: DaPartyRecord }> => {
@@ -128,7 +146,7 @@ const parties = (): Map<string, { kind: 'buyer' | 'supplier'; party: DaPartyReco
 
 const load = async (trx: Kysely<ProdDatabase>): Promise<void> => {
   await sql.raw(DDL).execute(trx);
-  await sql`insert into procurement_v3.da_release values ('2026-11-18T03:10:00.123456Z')`.execute(
+  await sql`insert into procurement_v3.da_release (data_as_of) values ('2026-11-18T03:10:00.123456Z')`.execute(
     trx
   );
   for (const { kind, party } of parties().values()) {
@@ -177,7 +195,32 @@ const load = async (trx: Kysely<ProdDatabase>): Promise<void> => {
   );
 };
 
-/** Add the pending columns, as the loader change will. */
+/** The registry name the API serves for the public company (never its name as written). */
+const COMPANY_REGISTRY_NAME = 'EXEMPLU REGISTRU SA';
+
+/** The API's login under the approved SEC-GRANTS-PROC-2211 v3 grants (DA release part). */
+const API_LOGIN = 'procurement_api_e2e';
+const APPROVED_GRANTS = `
+  create role procurement_api_read nologin;
+  grant usage on schema procurement_v3 to procurement_api_read;
+  grant select (data_as_of, rows, dated, counted, accepted, with_cpv, with_geo, money, money_dated,
+    money_geo, free_text_rule, registry_as_of) on procurement_v3.da_release to procurement_api_read;
+  grant select (purchase_id, native_id, code, source_name, source_url, outcome, state_label,
+    publication_day, finalization_day, ca_decision_at, supplier_decision_at, reported_value, counted,
+    counted_value, not_counted_reason, value_corrected, value_review_rule, symbolic_price, title_shown,
+    title_public, description_public, category_code, category_as_written, acquisition_type_label,
+    listed_now, buyer_party_id, supplier_party_id) on procurement_v3.da_purchases to procurement_api_read;
+  grant select (purchase_id, item_index, item_name_shown, item_name_public, item_unit_shown,
+    item_unit_public, quantity, requested_quantity, unit_price, catalogue_price, supplier_rejected,
+    quantity_correction, superseded_at) on procurement_v3.da_items to procurement_api_read;
+  grant select (rule, effect, public_description_en, public_description_ro)
+    on procurement_v3.da_value_rules to procurement_api_read;
+  grant select on procurement_v3.supplier_disclosure, procurement_v3.da_parties_public,
+    procurement_v3.party_public_names to procurement_api_read;
+  create role ${API_LOGIN} login password '${API_LOGIN}' in role procurement_api_read;
+`;
+
+/** Add the pending columns and the platform's public views, as the loader and migration will. */
 const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
   await sql`alter table procurement_v3.da_items add column superseded_at timestamptz`.execute(trx);
   // A line the sync no longer sees: kept, never served.
@@ -185,48 +228,68 @@ const addPendingColumns = async (trx: Kysely<ProdDatabase>): Promise<void> => {
     values (${PURCHASES[1]?.purchaseId ?? ''}, 3, ${`${SECRET} superseded line`}, 1, 1, now())`.execute(
     trx
   );
-  // The site-wide D6 source: the company is public, the sole trader and the bad code are not,
-  // and UNVERIFIED's code is absent (absent means withheld).
+  // The site-wide D6 classification: the company is public, the sole trader and the bad code are
+  // not, and UNVERIFIED's code is absent (absent means withheld). The API never reads it.
   await sql`create table procurement_v3.supplier_privacy (
-    fiscal_code_clean text primary key, supplier_kind text, public boolean not null,
-    method text, classified_at timestamptz)`.execute(trx);
-  for (const [party, isPublic] of [
-    [COMPANY, true],
-    [SOLE_TRADER, false],
-    [NATURAL_PERSON, false],
-    [BAD_CODE_SUPPLIER, false],
+    fiscal_code_clean text primary key, supplier_id bigint not null, supplier_kind text,
+    public boolean not null, method text, classified_at timestamptz)`.execute(trx);
+  for (const [id, party, isPublic, kind] of [
+    [1, COMPANY, true, 'company'],
+    [2, SOLE_TRADER, false, 'sole_trader'],
+    [3, NATURAL_PERSON, false, 'natural_person'],
+    [4, BAD_CODE_SUPPLIER, false, 'unverified'],
   ] as const)
-    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, public)
-      values (${party.fiscalCode}, ${isPublic})`.execute(trx);
-  // Free-text gates: only purchase 1's title and line 0's name are marked public.
-  await sql`alter table procurement_v3.da_purchases add column title_public boolean`.execute(trx);
-  await sql`alter table procurement_v3.da_purchases add column description_public boolean`.execute(
+    await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, supplier_id, public, supplier_kind)
+      values (${party.fiscalCode}, ${id}, ${isPublic}, ${kind})`.execute(trx);
+  // The platform's public views (migration 20261121T090060, procurement-prod's final columns).
+  await sql`create view procurement_v3.supplier_disclosure with (security_barrier = true) as
+    select fiscal_code_clean, supplier_id from procurement_v3.supplier_privacy
+    where public and supplier_kind = 'company'`.execute(trx);
+  await sql`create or replace view procurement_v3.da_parties_public with (security_barrier = true) as
+    select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+           case when party_kind = 'buyer' then name_as_written end as name_as_written
+    from procurement_v3.da_parties
+    where party_kind = 'buyer'
+       or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
     trx
   );
-  await sql`alter table procurement_v3.da_items add column item_name_public boolean`.execute(trx);
-  await sql`alter table procurement_v3.da_items add column item_unit_public boolean`.execute(trx);
-  await sql`update procurement_v3.da_purchases set title_public = true where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(
-    trx
-  );
-  await sql`update procurement_v3.da_purchases set description_public = false where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(
-    trx
-  );
-  await sql`update procurement_v3.da_items set item_unit_public = true where item_index = 0`.execute(
-    trx
-  );
-  await sql`update procurement_v3.da_items set item_name_public = true where item_index = 0`.execute(
-    trx
-  );
+  await sql`create table procurement_v3.party_public_names (
+    fiscal_code_clean text primary key, registry_name text,
+    buyer_name_public boolean, supplier_name_public boolean)`.execute(trx);
+  await sql`insert into procurement_v3.party_public_names values
+    (${COMPANY.fiscalCode}, ${COMPANY_REGISTRY_NAME}, true, true),
+    (${SOLE_TRADER.fiscalCode}, ${`${SECRET} REGISTRY PFA`}, false, false)`.execute(trx);
+  // Free text through the platform's *_shown columns: only purchase 1's title and line 0's
+  // name and unit are public. A shown text whose flag is false is never served either.
+  await sql`alter table procurement_v3.da_purchases
+    add column title_shown text, add column title_public boolean,
+    add column description_shown text, add column description_public boolean`.execute(trx);
+  await sql`alter table procurement_v3.da_items
+    add column item_name_shown text, add column item_name_public boolean,
+    add column item_unit_shown text, add column item_unit_public boolean`.execute(trx);
+  await sql`update procurement_v3.da_purchases set title_public = true, title_shown = title,
+    description_public = true, description_shown = description
+    where purchase_id = ${PURCHASES[0]?.purchaseId ?? ''}`.execute(trx);
+  await sql`update procurement_v3.da_purchases set title_public = false,
+    title_shown = ${`${SECRET} shown but not public`}
+    where purchase_id = ${PURCHASES[2]?.purchaseId ?? ''}`.execute(trx);
+  await sql`update procurement_v3.da_items set item_unit_public = true, item_unit_shown = unit,
+    item_name_public = true, item_name_shown = name where item_index = 0`.execute(trx);
   await sql`alter table procurement_v3.da_purchases add column listed_now boolean`.execute(trx);
   for (const row of PURCHASES)
     await sql`update procurement_v3.da_purchases set listed_now = ${row.listedNow} where purchase_id = ${row.purchaseId}`.execute(
       trx
     );
+  await sql.raw(APPROVED_GRANTS).execute(trx);
 };
 
+/** The reader: the owner login before the views, the approved-grant login after. */
+let reader: Kysely<ProdDatabase> | undefined;
+
 const deps = (): DaReleaseDeps => {
-  if (db === undefined) throw new Error('no database');
-  return { repo: makeDaReleaseRepo(db, true) };
+  const current = reader ?? db;
+  if (current === undefined) throw new Error('no database');
+  return { repo: makeDaReleaseRepo(current, true) };
 };
 
 beforeAll(async () => {
@@ -251,6 +314,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await reader?.destroy();
   await db?.destroy();
   await container?.stop();
 });
@@ -357,7 +421,7 @@ const checkCommon = async (forbidden: readonly string[]) => {
   expect(refused.total).toBe(1);
 };
 
-describe('before supplier_privacy and the pending columns exist', () => {
+describe('before supplier_disclosure and the pending columns exist', () => {
   it('serves every case and withholds every supplier, companies included (fails closed)', async () => {
     await checkCommon([SECRET, COMPANY.name ?? '~']);
     const list = (await listDaPurchases(deps(), ALL))._unsafeUnwrap();
@@ -392,16 +456,29 @@ describe('before supplier_privacy and the pending columns exist', () => {
   });
 });
 
-describe('after supplier_privacy and the pending columns exist', () => {
-  it('names only companies and serves listed_now', async () => {
-    if (db === undefined) throw new Error('no database');
+describe('after the public views and the pending columns exist, under the approved grants', () => {
+  it('names only companies, by registry name, and serves listed_now', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
     await addPendingColumns(db);
-    await checkCommon([SECRET]);
+    reader = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 2,
+        }),
+      }),
+    });
+    await checkCommon([SECRET, COMPANY.name ?? '~']);
     const list = (await listDaPurchases(deps(), ALL))._unsafeUnwrap();
     expect(list.items.find((item) => item.purchaseId === PURCHASES[7]?.purchaseId)?.listedNow).toBe(
       false
     );
     const first = list.items.find((item) => item.purchaseId === PURCHASES[0]?.purchaseId);
+    // The description is never read, even where the platform marks it public.
     expect(first).toMatchObject({
       title: 'Public title 1',
       titleWithheld: null,
@@ -425,7 +502,7 @@ describe('after supplier_privacy and the pending columns exist', () => {
         item.supplier?.name === null || item.supplier === null ? [] : [item.supplier.name]
       )
     );
-    expect(named).toEqual(new Set([COMPANY.name]));
+    expect(named).toEqual(new Set([COMPANY_REGISTRY_NAME]));
 
     const pfa = (
       await listDaPurchases(deps(), {
@@ -458,5 +535,1002 @@ describe('after supplier_privacy and the pending columns exist', () => {
       [null, true, '1'],
     ]);
     expect(JSON.stringify(bySupplier)).not.toContain(SECRET);
+    expect(bySupplier.groups[0]?.party?.name).toBe(COMPANY_REGISTRY_NAME);
+  });
+});
+
+describe('list orders page exactly as one ORDER BY, across the keyed/unkeyed boundary', () => {
+  it('serves every sort in the single-statement order, page by page', async () => {
+    if (db === undefined) throw new Error('no database');
+    // Undated and uncounted purchases, so every sort crosses its keyed/unkeyed boundary.
+    for (const [index, id] of ['u1', 'u2', 'u3'].entries())
+      await sql`insert into procurement_v3.da_purchases
+          (purchase_id, source_name, native_id, code, outcome, counted, not_counted_reason, buyer_party_id)
+        values (${`${'e'.repeat(62)}u${String(index)}`}, ${SOURCE}, ${`undated-${id}`}, ${`DA-U-${id}`},
+          'unknown', false, 'detail_unusable', ${PURCHASES[0]?.buyer?.portalPartyId ?? null})`.execute(
+        db
+      );
+    const undated = await sql<{ n: string }>`select count(*)::text as n
+      from procurement_v3.da_purchases where finalization_day is null`.execute(db);
+    expect(Number(undated.rows[0]?.n)).toBeGreaterThanOrEqual(3);
+    for (const [sort, key, direction] of [
+      ['finalizationDesc', 'finalization_day', 'desc'],
+      ['finalizationAsc', 'finalization_day', 'asc'],
+      ['countedValueDesc', 'counted_value', 'desc'],
+    ] as const) {
+      const expected = (
+        await sql<{ id: string }>`select purchase_id as id from procurement_v3.da_purchases
+          order by ${sql.raw(key)} ${sql.raw(direction)} nulls last,
+                   purchase_id ${sql.raw(direction)}`.execute(db)
+      ).rows.map((row) => row.id);
+      // Two page sizes, so the boundary falls inside a page and on a page edge.
+      for (const pageSize of [2, 4]) {
+        const pages: string[][] = [];
+        for (let page = 1; (page - 1) * pageSize < expected.length + pageSize; page += 1) {
+          const list = (await listDaPurchases(deps(), { sort, page, pageSize }))._unsafeUnwrap();
+          pages.push(list.items.map((item) => item.purchaseId));
+        }
+        // Page by page, not flattened: each page holds exactly its slice of the one ORDER BY.
+        const slices = pages.map((_, i) => expected.slice(i * pageSize, (i + 1) * pageSize));
+        expect({ sort, pageSize, pages }).toEqual({ sort, pageSize, pages: slices });
+      }
+    }
+  });
+});
+
+/**
+ * PROC-AP75: whole-table supplier totals from the per-party rollup. Every eligible request (no
+ * filter, or a month-aligned finalization range) answers exactly as the purchases did, the rollup
+ * is read only while da_release says it was built for this publication, and anything else falls
+ * back. Sequential like the file: runs after the API login exists.
+ */
+describe('supplier totals from the per-party rollup (PROC-AP75)', () => {
+  it('answers exactly as the purchases, only while fresh and eligible', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const statements: string[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+      log: (event) => {
+        statements.push(event.query.sql);
+      },
+    });
+    const ask = (filter: Record<string, string>, page: number, pageSize: number) =>
+      daPurchaseTotals(
+        { repo: makeDaReleaseRepo(logged, true) },
+        {
+          groupBy: 'supplier',
+          filter,
+          page,
+          pageSize,
+        }
+      );
+    const ELIGIBLE = [
+      {},
+      { finalizationFrom: '2025-01-01', finalizationTo: '2025-12-31' },
+      { finalizationFrom: '2025-07-01' },
+      { finalizationTo: '2025-06-30' },
+      // A leap February ends on the 29th.
+      { finalizationFrom: '2021-01-01', finalizationTo: '2024-02-29' },
+      // A month holding only an emptied bucket: zero counts, no group (never a refused total).
+      { finalizationFrom: '2025-08-01', finalizationTo: '2025-08-31' },
+      // A month whose one counted value has one decimal (see below): both paths print cents.
+      { finalizationFrom: '2026-11-01', finalizationTo: '2026-11-30' },
+    ];
+    // A day inside a month, or any other filter: the purchases answer.
+    const INELIGIBLE = [
+      { finalizationFrom: '2025-07-08' },
+      { finalizationTo: '2025-07-09' },
+      { finalizationTo: '2025-02-27' },
+      { finalizationFrom: '2025-01-01', cpvDivision: '44' },
+    ];
+    const battery = async () => {
+      const out: unknown[] = [];
+      for (const filter of [...ELIGIBLE, ...INELIGIBLE])
+        for (const [page, pageSize] of [
+          [1, 100],
+          [1, 1],
+          [2, 1],
+          [3, 1],
+          [9, 1],
+        ] as const)
+          out.push(await ask(filter, page, pageSize));
+      return out;
+    };
+    const read = (text: string) => text.includes('da_rollup_supplier_party_month"');
+    try {
+      // As on prod, the purchases' counted value is unconstrained numeric (scale <= 2 by a CHECK),
+      // so a value the portal gave with one decimal sums with one decimal on the purchases path.
+      await sql`alter table procurement_v3.da_purchases alter column counted_value type numeric`.execute(
+        db
+      );
+      await sql`update procurement_v3.da_purchases set counted_value = 5200.0
+        where finalization_day = '2026-11-13'`.execute(db);
+      const purchases = await battery();
+      expect(JSON.stringify(purchases)).toContain('"countedValue":"5200.00"');
+      expect(JSON.stringify(purchases)).not.toContain('"countedValue":"5200.0"');
+      for (const answer of purchases) expect((answer as { isOk: () => boolean }).isOk()).toBe(true);
+
+      // The platform's rollup and its freshness marker, as 065 and the migration build them.
+      await sql`create table procurement_v3.da_rollup_supplier_party_month as
+        select source_name, supplier_party_id,
+               date_trunc('month', finalization_day)::date as month,
+               count(*) as purchases,
+               count(*) filter (where counted) as counted_purchases,
+               coalesce(sum(counted_value) filter (where counted), 0)::numeric(20, 2) as counted_value,
+               count(*) filter (where counted and symbolic_price) as counted_symbolic_purchases
+        from procurement_v3.da_purchases group by 1, 2, 3`.execute(db);
+      // An emptied bucket keeps its row with zeros, under a party and a month nothing else has.
+      await sql`insert into procurement_v3.da_rollup_supplier_party_month
+        values ('elicitatie_api_pub', 'emptied-party', '2025-08-01', 0, 0, 0, 0)`.execute(db);
+      await sql`alter table procurement_v3.da_release add column supplier_party_rollup_for timestamptz`.execute(
+        db
+      );
+      await sql`update procurement_v3.da_release set supplier_party_rollup_for = data_as_of`.execute(
+        db
+      );
+
+      // Not granted yet (the PRJ-54YB cutover adds it): the purchases answer, unchanged.
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(read)).toBe(false);
+
+      // The rollup readable but not its freshness marker: still the purchases.
+      await sql`grant select on procurement_v3.da_rollup_supplier_party_month to procurement_api_read`.execute(
+        db
+      );
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(read)).toBe(false);
+      await sql`grant select (supplier_party_rollup_for) on procurement_v3.da_release to procurement_api_read`.execute(
+        db
+      );
+      statements.length = 0;
+      const rolled = await battery();
+      expect(rolled).toEqual(purchases);
+      // Every eligible request read the rollup, and never the purchases; no other request did.
+      for (const filter of ELIGIBLE) {
+        statements.length = 0;
+        await ask(filter, 1, 100);
+        expect(statements.some(read), JSON.stringify(filter)).toBe(true);
+        expect(
+          statements.some((text) => text.includes('"procurement_v3"."da_purchases"')),
+          JSON.stringify(filter)
+        ).toBe(false);
+      }
+      for (const filter of INELIGIBLE) {
+        statements.length = 0;
+        await ask(filter, 1, 100);
+        expect(statements.some(read), JSON.stringify(filter)).toBe(false);
+      }
+
+      // A rollup built for another publication is never read.
+      await sql`update procurement_v3.da_release
+        set supplier_party_rollup_for = data_as_of - interval '1 day'`.execute(db);
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(read)).toBe(false);
+    } finally {
+      await logged.destroy();
+    }
+  });
+});
+
+/**
+ * PROC-AP75 (2 s p95): unfiltered supplier totals from the all-time per-party table. Every page
+ * answers exactly as the purchases did; ranges keep the month rollup; the table is read only while
+ * its marker says it was built for this publication; without supplier_disclosure everyone is
+ * withheld; a disclosed page row the public view does not name is refused, never served. Runs after
+ * the month-rollup test (its marker is stale by then, so the reference is the purchases).
+ */
+describe('unfiltered supplier totals from the all-time per-party table (PROC-AP75)', () => {
+  it('answers exactly as the purchases, only while fresh, and fails closed', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const statements: string[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+      log: (event) => {
+        statements.push(event.query.sql);
+      },
+    });
+    const PAGES = [
+      [1, 100],
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [4, 1],
+      [9, 1],
+    ] as const;
+    const battery = async () => {
+      const out: unknown[] = [];
+      for (const [page, pageSize] of PAGES)
+        out.push(
+          await daPurchaseTotals(
+            { repo: makeDaReleaseRepo(logged, true) },
+            { groupBy: 'supplier', filter: {}, page, pageSize }
+          )
+        );
+      // Overall only (no grouping): the same figures, from the same tables.
+      out.push(
+        await daPurchaseTotals(
+          { repo: makeDaReleaseRepo(logged, true) },
+          { groupBy: null, filter: {}, page: 1, pageSize: 25 }
+        )
+      );
+      return out;
+    };
+    const RANGE = { finalizationFrom: '2025-01-01', finalizationTo: '2025-12-31' };
+    const ungroupedRange = async () =>
+      daPurchaseTotals(
+        { repo: makeDaReleaseRepo(logged, true) },
+        { groupBy: null, filter: RANGE, page: 1, pageSize: 25 }
+      );
+    const allTime = (text: string) => text.includes('"da_rollup_supplier_party"');
+    const month = (text: string) => text.includes('"da_rollup_supplier_party_month"');
+    try {
+      await sql`create table procurement_v3.da_rollup_supplier_party as
+        select p.source_name, p.supplier_party_id,
+               (p.supplier_party_id is not null and exists (
+                  select 1 from procurement_v3.da_parties_public x
+                  where x.source_name = p.source_name and x.party_kind = 'supplier'
+                    and x.portal_party_id = p.supplier_party_id
+                    and x.fiscal_code_status = 'valid' and x.fiscal_code_clean is not null)) as disclosed,
+               count(*) as purchases,
+               count(*) filter (where counted) as counted_purchases,
+               coalesce(sum(counted_value) filter (where counted), 0)::numeric(20, 2) as counted_value,
+               count(*) filter (where counted and symbolic_price) as counted_symbolic_purchases
+        from procurement_v3.da_purchases p group by 1, 2`.execute(db);
+      await sql`insert into procurement_v3.da_rollup_supplier_party
+        values ('elicitatie_api_pub', 'emptied-party', false, 0, 0, 0, 0)`.execute(db);
+      await sql`alter table procurement_v3.da_release add column supplier_party_totals_for timestamptz`.execute(
+        db
+      );
+      await sql`grant select on procurement_v3.da_rollup_supplier_party to procurement_api_read`.execute(
+        db
+      );
+      // Marker unset (and the month rollup stale from the test above): the purchases answer.
+      statements.length = 0;
+      const purchases = await battery();
+      for (const answer of purchases) expect((answer as { isOk: () => boolean }).isOk()).toBe(true);
+      const rangedPurchases = await ungroupedRange();
+      expect(rangedPurchases._unsafeUnwrap().groups).toEqual([]);
+      expect(statements.some(allTime) || statements.some(month)).toBe(false);
+      // The marker fresh but not readable by this login (the cutover grants it): still the purchases.
+      await sql`update procurement_v3.da_release set supplier_party_totals_for = data_as_of`.execute(
+        db
+      );
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(allTime)).toBe(false);
+      await sql`grant select (supplier_party_totals_for) on procurement_v3.da_release to procurement_api_read`.execute(
+        db
+      );
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(allTime)).toBe(true);
+      expect(statements.some((text) => text.includes('"procurement_v3"."da_purchases"'))).toBe(
+        false
+      );
+      // A range is not unfiltered: never the all-time table, but the month rollup when it is fresh
+      // too (both markers fresh: each answers its own requests).
+      await sql`update procurement_v3.da_release set supplier_party_rollup_for = data_as_of`.execute(
+        db
+      );
+      for (const [index, [page, pageSize]] of PAGES.entries()) {
+        statements.length = 0;
+        const answer = await daPurchaseTotals(
+          { repo: makeDaReleaseRepo(logged, true) },
+          { groupBy: 'supplier', filter: {}, page, pageSize }
+        );
+        expect(answer, `page ${String(page)}`).toEqual(purchases[index]);
+        expect(statements.some(allTime), `page ${String(page)}`).toBe(true);
+        expect(statements.some(month), `page ${String(page)}`).toBe(false);
+      }
+      // Overall only over a month-aligned range: the month rollup, the purchases' figures.
+      statements.length = 0;
+      expect(await ungroupedRange()).toEqual(rangedPurchases);
+      expect(statements.some(month)).toBe(true);
+      expect(statements.some((text) => text.includes('"procurement_v3"."da_purchases"'))).toBe(
+        false
+      );
+      statements.length = 0;
+      const ranged = await daPurchaseTotals(
+        { repo: makeDaReleaseRepo(logged, true) },
+        {
+          groupBy: 'supplier',
+          filter: { finalizationFrom: '2025-01-01', finalizationTo: '2025-12-31' },
+          page: 1,
+          pageSize: 100,
+        }
+      );
+      expect(ranged.isOk()).toBe(true);
+      expect(statements.some(allTime)).toBe(false);
+      expect(statements.some(month)).toBe(true);
+      await sql`update procurement_v3.da_release
+        set supplier_party_rollup_for = data_as_of - interval '1 day'`.execute(db);
+
+      // Without supplier_disclosure everyone is withheld, exactly as the purchases withhold them.
+      await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
+        db
+      );
+      try {
+        const withheld = await battery();
+        await sql`update procurement_v3.da_release set supplier_party_totals_for = null`.execute(
+          db
+        );
+        expect(await battery()).toEqual(withheld);
+        await sql`update procurement_v3.da_release set supplier_party_totals_for = data_as_of`.execute(
+          db
+        );
+        expect(JSON.stringify(withheld)).not.toContain(COMPANY_REGISTRY_NAME);
+        expect(JSON.stringify(withheld)).not.toContain('"company"');
+      } finally {
+        await sql`grant select on procurement_v3.supplier_disclosure to procurement_api_read`.execute(
+          db
+        );
+      }
+
+      // A party the table calls disclosed but the public view does not name: refused, retryably.
+      await sql`update procurement_v3.da_rollup_supplier_party set disclosed = true
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
+      const refused = await daPurchaseTotals(
+        { repo: makeDaReleaseRepo(logged, true) },
+        { groupBy: 'supplier', filter: {}, page: 1, pageSize: 100 }
+      );
+      expect(refused._unsafeUnwrapErr()).toMatchObject({
+        type: 'ServiceUnavailable',
+        message: expect.stringContaining('repeat the request') as unknown,
+      });
+      expect(JSON.stringify(refused)).not.toContain(SOLE_TRADER.fiscalCode ?? '~');
+      await sql`update procurement_v3.da_rollup_supplier_party set disclosed = false
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
+
+      // Groups are ordered by value as numbers, never as text ("9.00" > "10.00" as text), each page
+      // chosen in that order; a value tie goes to the named group (its key; nulls last); a group with
+      // purchases but nothing counted has no value (null, never 0.00).
+      await sql`create table procurement_v3.f_all_time as
+        select * from procurement_v3.da_rollup_supplier_party`.execute(db);
+      const pageOf = async (page: number, pageSize: number) =>
+        (
+          await daPurchaseTotals(
+            { repo: makeDaReleaseRepo(logged, true) },
+            { groupBy: 'supplier', filter: {}, page, pageSize }
+          )
+        )
+          ._unsafeUnwrap()
+          .groups.map((group) => [group.party?.displayKind ?? null, group.countedValue]);
+      await sql`update procurement_v3.da_rollup_supplier_party
+        set counted_value = case when disclosed then 9.00 else 0 end`.execute(db);
+      await sql`update procurement_v3.da_rollup_supplier_party set counted_value = 10.00
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
+      await sql`update procurement_v3.da_rollup_supplier_party
+        set counted_purchases = 0, counted_symbolic_purchases = 0, counted_value = 0
+        where supplier_party_id is null`.execute(db);
+      expect(await pageOf(1, 100)).toEqual([
+        ['natural_person', '10.00'],
+        ['company', '9.00'],
+        [null, null],
+      ]);
+      expect([...(await pageOf(1, 1)), ...(await pageOf(2, 1)), ...(await pageOf(3, 1))]).toEqual(
+        await pageOf(1, 100)
+      );
+      // A tie on value and purchases: the named group's key comes before the withheld bucket's.
+      await sql`update procurement_v3.da_rollup_supplier_party
+        set counted_value = 10.00, purchases = 3, counted_purchases = 3
+        where disclosed or supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(db);
+      await sql`update procurement_v3.da_rollup_supplier_party set purchases = 0
+        where not disclosed and supplier_party_id is not null
+          and supplier_party_id <> ${SOLE_TRADER.portalPartyId}`.execute(db);
+      expect((await pageOf(1, 100)).slice(0, 2)).toEqual([
+        ['company', '10.00'],
+        ['natural_person', '10.00'],
+      ]);
+      expect((await pageOf(1, 1))[0]).toEqual(['company', '10.00']);
+      // (The fixture view names one supplier, so a tie between two named groups cannot be built
+      // here: a disclosed row the view does not name is refused, as tested above.)
+      // Every group with purchases but nothing counted has no value, named and withheld alike.
+      await sql`update procurement_v3.da_rollup_supplier_party
+        set counted_purchases = 0, counted_symbolic_purchases = 0, counted_value = 0`.execute(db);
+      const uncounted = (
+        await daPurchaseTotals(
+          { repo: makeDaReleaseRepo(logged, true) },
+          { groupBy: 'supplier', filter: {}, page: 1, pageSize: 100 }
+        )
+      )._unsafeUnwrap();
+      expect(uncounted.overall.countedValue).toBeNull();
+      expect(
+        uncounted.groups.map((group) => [group.party?.displayKind ?? null, group.countedValue])
+      ).toEqual([
+        // No values: by purchases (the no-supplier row kept its count), then the tie as above.
+        [null, null],
+        ['company', null],
+        ['natural_person', null],
+      ]);
+      await sql`delete from procurement_v3.da_rollup_supplier_party`.execute(db);
+      await sql`insert into procurement_v3.da_rollup_supplier_party select * from procurement_v3.f_all_time`.execute(
+        db
+      );
+      await sql`drop table procurement_v3.f_all_time`.execute(db);
+      expect(await battery()).toEqual(purchases);
+
+      // A table built for another publication is never read.
+      await sql`update procurement_v3.da_release
+        set supplier_party_totals_for = data_as_of - interval '1 day'`.execute(db);
+      statements.length = 0;
+      expect(await battery()).toEqual(purchases);
+      expect(statements.some(allTime)).toBe(false);
+    } finally {
+      await logged.destroy();
+    }
+  });
+});
+
+describe('naming step 2b: da_parties_public.supplier_disclosed (20261124T120020/120030)', () => {
+  it('gates on the column, shows undisclosed codes at row level only, and fails closed', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const owner = db;
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+    });
+    const api = (): DaReleaseDeps => ({ repo: makeDaReleaseRepo(logged, true) });
+    const SUPPLIER_TOTALS = { groupBy: 'supplier' as const, filter: {}, ...ALL };
+    const suppliersOf = async () =>
+      new Map(
+        (await listDaPurchases(api(), ALL))
+          ._unsafeUnwrap()
+          .items.map((item) => [item.purchaseId, item.supplier])
+      );
+    const view = (rows: 'gate' | 'step2b') => sql`
+      create or replace view procurement_v3.da_parties_public with (security_barrier = true) as
+      select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+             case when party_kind = 'buyer' then name_as_written end as name_as_written,
+             case when party_kind = 'supplier' then coalesce(fiscal_code_clean in (
+               select fiscal_code_clean from procurement_v3.supplier_disclosure), false) end
+               as supplier_disclosed
+      from procurement_v3.da_parties
+      where party_kind = 'buyer'
+         or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)
+         ${
+           rows === 'step2b'
+             ? sql`or (fiscal_code_status = 'valid' and fiscal_code_clean in (
+                 select fiscal_code_clean from procurement_v3.supplier_names_public))`
+             : sql``
+         }`;
+    const before = {
+      list: await suppliersOf(),
+      totals: (await daPurchaseTotals(api(), SUPPLIER_TOTALS))._unsafeUnwrap(),
+    };
+    try {
+      await sql`create table procurement_v3.supplier_names_public (
+        fiscal_code_clean text primary key, naming text, display_name text, code_shown boolean)`.execute(
+        owner
+      );
+      await sql`insert into procurement_v3.supplier_names_public values
+        (${COMPANY.fiscalCode}, 'named', ${COMPANY_REGISTRY_NAME}, true),
+        (${SOLE_TRADER.fiscalCode}, 'masked', 'EXEMPLU M*** PFA', true),
+        (${UNVERIFIED.fiscalCode}, 'withheld', null, true)`.execute(owner);
+      await sql`grant select on procurement_v3.supplier_names_public to procurement_api_read`.execute(
+        owner
+      );
+      // Phase A, 120020: the column only. Every listed supplier is disclosed, so the answers
+      // are the gate's as before (names now from the view: the company keeps its name).
+      await view('gate').execute(owner);
+      const phaseA = await suppliersOf();
+      expect([...phaseA.values()].map((s) => s?.displayKind)).toEqual(
+        [...before.list.values()].map((s) => s?.displayKind)
+      );
+      expect((await daPurchaseTotals(api(), SUPPLIER_TOTALS))._unsafeUnwrap()).toEqual(
+        before.totals
+      );
+
+      // Phase B, 120030: rows for valid codes with a naming row, supplier_disclosed false.
+      await view('step2b').execute(owner);
+      const phaseB = await suppliersOf();
+      const byCode = (code: string | null) =>
+        PURCHASES.filter((p) => p.supplier?.fiscalCode === code).map((p) =>
+          phaseB.get(p.purchaseId)
+        );
+      for (const served of byCode(SOLE_TRADER.fiscalCode))
+        expect(served).toEqual({
+          displayKind: 'person_masked',
+          partyId: null,
+          name: 'EXEMPLU M*** PFA',
+          fiscalCode: SOLE_TRADER.fiscalCode,
+        });
+      for (const served of byCode(UNVERIFIED.fiscalCode))
+        expect(served).toEqual({
+          displayKind: 'code_only',
+          partyId: null,
+          name: null,
+          fiscalCode: UNVERIFIED.fiscalCode,
+        });
+      // A person's code and a failed checksum stay withheld; the company is unchanged.
+      for (const served of [
+        ...byCode(NATURAL_PERSON.fiscalCode),
+        ...byCode(BAD_CODE_SUPPLIER.fiscalCode),
+      ])
+        expect(served?.displayKind).toBe('natural_person');
+      expect(byCode(COMPANY.fiscalCode)).toEqual(
+        PURCHASES.filter((p) => p.supplier?.fiscalCode === COMPANY.fiscalCode).map((p) =>
+          before.list.get(p.purchaseId)
+        )
+      );
+      // Never counted or ranked on its own: supplier totals are exactly as before.
+      const totalsB = (await daPurchaseTotals(api(), SUPPLIER_TOTALS))._unsafeUnwrap();
+      expect(totalsB).toEqual(before.totals);
+      expect(JSON.stringify(totalsB)).not.toContain(SOLE_TRADER.fiscalCode ?? '~');
+      // Never a filter: an undisclosed code lists and totals nothing.
+      for (const code of [SOLE_TRADER.fiscalCode, UNVERIFIED.fiscalCode]) {
+        const filtered = (
+          await listDaPurchases(api(), { ...ALL, filter: { supplierFiscalCode: code ?? '' } })
+        )._unsafeUnwrap();
+        expect(filtered.items).toEqual([]);
+      }
+      // Nor as the supplier of a buyer x supplier pair (read by resolved ids): its row is visible
+      // here with supplier_disclosed false. The disclosed company's pair still lists its rows.
+      const pairBuyer =
+        PURCHASES.find((p) => p.supplier?.fiscalCode === SOLE_TRADER.fiscalCode)?.buyer
+          ?.fiscalCode ?? '';
+      for (const code of [SOLE_TRADER.fiscalCode, UNVERIFIED.fiscalCode]) {
+        const filter = { buyerFiscalCode: pairBuyer, supplierFiscalCode: code ?? '' };
+        const listed = (await listDaPurchases(api(), { ...ALL, filter }))._unsafeUnwrap();
+        expect([listed.total, listed.items.length]).toEqual([0, 0]);
+        const summed = (await daPurchaseTotals(api(), { ...ALL, filter }))._unsafeUnwrap();
+        expect(summed.overall.purchaseCount).toBe('0');
+      }
+      const companyPair = (
+        await listDaPurchases(api(), {
+          ...ALL,
+          filter: { buyerFiscalCode: pairBuyer, supplierFiscalCode: COMPANY.fiscalCode ?? '' },
+        })
+      )._unsafeUnwrap();
+      expect(new Set(companyPair.items.map((item) => item.purchaseId))).toEqual(
+        new Set(
+          PURCHASES.filter(
+            (p) =>
+              p.supplier?.fiscalCode === COMPANY.fiscalCode && p.buyer?.fiscalCode === pairBuyer
+          ).map((p) => p.purchaseId)
+        )
+      );
+      expect(companyPair.total).toBeGreaterThan(0);
+      // supplier_disclosure revoked while the gate column stays readable: D6 fails closed, and the
+      // pair matches nothing (the column alone is never trusted).
+      await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
+        owner
+      );
+      try {
+        const filter = { buyerFiscalCode: pairBuyer, supplierFiscalCode: COMPANY.fiscalCode ?? '' };
+        const closed = (await listDaPurchases(api(), { ...ALL, filter }))._unsafeUnwrap();
+        expect([closed.total, closed.items.length]).toEqual([0, 0]);
+        const closedTotals = (await daPurchaseTotals(api(), { ...ALL, filter }))._unsafeUnwrap();
+        expect(closedTotals.overall.purchaseCount).toBe('0');
+      } finally {
+        await sql`grant select on procurement_v3.supplier_disclosure to procurement_api_read`.execute(
+          owner
+        );
+      }
+
+      // The all-time table calling a step 2b party disclosed (a writer bug): its page is
+      // refused, the code never served (the view's gate column disagrees).
+      await sql`update procurement_v3.da_release set supplier_party_totals_for = data_as_of`.execute(
+        owner
+      );
+      await sql`update procurement_v3.da_rollup_supplier_party set disclosed = true
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(owner);
+      const disagreed = await daPurchaseTotals(api(), SUPPLIER_TOTALS);
+      expect(disagreed._unsafeUnwrapErr()).toMatchObject({
+        type: 'ServiceUnavailable',
+        message: expect.stringContaining('repeat the request') as unknown,
+      });
+      expect(JSON.stringify(disagreed)).not.toContain(SOLE_TRADER.fiscalCode ?? '~');
+      await sql`update procurement_v3.da_rollup_supplier_party set disclosed = false
+        where supplier_party_id = ${SOLE_TRADER.portalPartyId}`.execute(owner);
+      // Aligned again, the all-time table answers as the purchases did.
+      expect((await daPurchaseTotals(api(), SUPPLIER_TOTALS))._unsafeUnwrap()).toEqual(
+        before.totals
+      );
+      await sql`update procurement_v3.da_release
+        set supplier_party_totals_for = data_as_of - interval '1 day'`.execute(owner);
+
+      // The column exists but this login may not read it: every supplier is withheld.
+      await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
+        owner
+      );
+      await sql`grant select (source_name, party_kind, portal_party_id, fiscal_code_clean,
+        fiscal_code_status, name_as_written) on procurement_v3.da_parties_public
+        to procurement_api_read`.execute(owner);
+      const denied = await suppliersOf();
+      expect(new Set([...denied.values()].map((s) => s?.displayKind ?? null))).toEqual(
+        new Set(['natural_person', null])
+      );
+      const deniedFilter = (
+        await listDaPurchases(api(), {
+          ...ALL,
+          filter: { supplierFiscalCode: COMPANY.fiscalCode ?? '' },
+        })
+      )._unsafeUnwrap();
+      expect(deniedFilter.items).toEqual([]);
+      // The column denied: a buyer x supplier pair matches nothing either (fails closed).
+      const deniedPair = (
+        await listDaPurchases(api(), {
+          ...ALL,
+          filter: {
+            buyerFiscalCode:
+              PURCHASES.find((p) => p.supplier?.fiscalCode === COMPANY.fiscalCode)?.buyer
+                ?.fiscalCode ?? '',
+            supplierFiscalCode: COMPANY.fiscalCode ?? '',
+          },
+        })
+      )._unsafeUnwrap();
+      expect([deniedPair.total, deniedPair.items.length]).toEqual([0, 0]);
+      const deniedPairTotals = (
+        await daPurchaseTotals(api(), {
+          ...ALL,
+          filter: {
+            buyerFiscalCode:
+              PURCHASES.find((p) => p.supplier?.fiscalCode === COMPANY.fiscalCode)?.buyer
+                ?.fiscalCode ?? '',
+            supplierFiscalCode: COMPANY.fiscalCode ?? '',
+          },
+        })
+      )._unsafeUnwrap();
+      expect(deniedPairTotals.overall.purchaseCount).toBe('0');
+    } finally {
+      await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
+        owner
+      );
+      await sql`drop view procurement_v3.da_parties_public`.execute(owner);
+      await sql`create view procurement_v3.da_parties_public with (security_barrier = true) as
+        select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+               case when party_kind = 'buyer' then name_as_written end as name_as_written
+        from procurement_v3.da_parties
+        where party_kind = 'buyer'
+           or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
+        owner
+      );
+      await sql`grant select on procurement_v3.da_parties_public to procurement_api_read`.execute(
+        owner
+      );
+      await sql`drop table if exists procurement_v3.supplier_names_public`.execute(owner);
+      await logged.destroy();
+    }
+  });
+});
+
+/**
+ * A buyer x supplier pair resolves both parties' ids first (25 Nov): with both codes in subqueries
+ * the planner drove the read from a large supplier's side and filtered the buyer per row (1.9 s on
+ * prod for a 501,760-purchase supplier; two such pages reached the 10 s timeout). The rows, order
+ * and totals must equal the subquery statement's, and the buyer-day index must drive the read.
+ */
+describe('a buyer x supplier pair reads by resolved party ids', () => {
+  it('answers exactly as the subquery statement, driven by the buyer-day index', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const owner = db;
+    const buyer = PURCHASES.find(
+      (row) => row.supplier?.portalPartyId === COMPANY.portalPartyId
+    )?.buyer;
+    if (buyer?.fiscalCode === null || buyer?.fiscalCode === undefined)
+      throw new Error('no pair in the fixture');
+    const buyerCode = buyer.fiscalCode;
+    const companyCode = COMPANY.fiscalCode ?? '';
+    // The pair's codes on more than one party id and source: a second buyer id in the same source;
+    // both codes in 'archive' too (that source's own ids). A third source has the buyer only. The
+    // buyer's archive id also appears as a buyer id in the main source, where it is not the buyer's.
+    await sql`insert into procurement_v3.da_parties
+        (source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status)
+      values (${SOURCE}, 'buyer', 'buyer-alt', ${buyerCode}, 'valid'),
+        ('archive', 'buyer', 'buyer-arch', ${buyerCode}, 'valid'),
+        ('archive', 'supplier', 'sup-arch', ${companyCode}, 'valid'),
+        ('third', 'buyer', 'buyer-third', ${buyerCode}, 'valid'),
+        (${SOURCE}, 'supplier', 'sup-alt', ${companyCode}, 'valid')`.execute(owner);
+    // Volume: the company as a national supplier (12,000 purchases over 1,200 other buyers), 40
+    // dated and 12 undated purchases of the pair, the cross-source rows, and the platform's two
+    // party-day indexes.
+    await sql`insert into procurement_v3.da_purchases
+        (purchase_id, source_name, native_id, code, outcome, counted, counted_value, not_counted_reason,
+         symbolic_price, finalization_day, buyer_party_id, supplier_party_id)
+      select 'vol' || g, ${SOURCE}, 'vol-' || g, 'DA-VOL-' || g,
+        case when g % 3 = 0 then 'refused' else 'accepted' end, g % 3 <> 0,
+        case when g % 3 <> 0 then g + 0.25 end, case when g % 3 = 0 then 'not_accepted' end,
+        g % 3 <> 0 and g % 7 = 0,
+        case when g between 41 and 52 then null else date '2024-01-01' + (g % 700) end,
+        case when g <= 52 then ${buyer.portalPartyId} else 'vb-' || (g % 1200) end,
+        ${COMPANY.portalPartyId}
+      from generate_series(1, 12000) g`.execute(owner);
+    await sql`insert into procurement_v3.da_purchases
+        (purchase_id, source_name, native_id, code, outcome, counted, counted_value, finalization_day,
+         buyer_party_id, supplier_party_id)
+      values
+        ('x-alt', ${SOURCE}, 'x-alt', 'DA-X-ALT', 'accepted', true, 5, date '2025-02-02', 'buyer-alt', ${COMPANY.portalPartyId}),
+        ('x-arch', 'archive', 'x-arch', 'DA-X-ARCH', 'accepted', true, 6, date '2025-02-03', 'buyer-arch', 'sup-arch'),
+        ('x-arch-other', 'archive', 'x-arch-other', 'DA-X-ARCH-OTHER', 'accepted', true, 7, date '2025-02-04', 'buyer-arch', ${COMPANY.portalPartyId}),
+        ('x-third', 'third', 'x-third', 'DA-X-THIRD', 'accepted', true, 8, date '2025-02-05', 'buyer-third', 'sup-arch'),
+        ('x-cross', ${SOURCE}, 'x-cross', 'DA-X-CROSS', 'accepted', true, 9, date '2025-02-06', 'buyer-arch', ${COMPANY.portalPartyId}),
+        ('x-sup-alt', ${SOURCE}, 'x-sup-alt', 'DA-X-SUP-ALT', 'accepted', true, 10, date '2025-02-07', ${buyer.portalPartyId}, 'sup-alt')`.execute(
+      owner
+    );
+    await sql`create index da_purchases_buyer_day_idx on procurement_v3.da_purchases
+      (source_name, buyer_party_id, finalization_day)`.execute(owner);
+    await sql`create index da_purchases_supplier_day_idx on procurement_v3.da_purchases
+      (source_name, supplier_party_id, finalization_day)`.execute(owner);
+    await sql`analyze procurement_v3.da_purchases`.execute(owner);
+
+    const statements: { sql: string; parameters: readonly unknown[] }[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+      log: (event) => {
+        if (event.level === 'query')
+          statements.push({ sql: event.query.sql, parameters: event.query.parameters });
+      },
+    });
+    const api = (): DaReleaseDeps => ({ repo: makeDaReleaseRepo(logged, true) });
+    try {
+      const pair = { buyerFiscalCode: buyerCode, supplierFiscalCode: companyCode };
+      // The subquery statement the list used before, as the API login: the expected rows.
+      const scope = (where: ReturnType<typeof sql>) => sql`from procurement_v3.da_purchases p
+            where (p.source_name, p.buyer_party_id) in (select pp.source_name, pp.portal_party_id
+                from procurement_v3.da_parties_public pp where pp.party_kind = 'buyer'
+                  and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${buyerCode})
+              and (p.source_name, p.supplier_party_id) in (select pp.source_name, pp.portal_party_id
+                from procurement_v3.da_parties_public pp where pp.party_kind = 'supplier'
+                  and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${companyCode})
+              and ${where}`;
+      const expected = async (where: ReturnType<typeof sql>) =>
+        (
+          await sql<{ id: string }>`select p.purchase_id as id ${scope(where)}
+            order by p.finalization_day desc nulls last, p.purchase_id desc`.execute(logged)
+        ).rows.map((row) => row.id);
+      const expectedMeasures = async (where: ReturnType<typeof sql>) =>
+        (
+          await sql<{
+            counted_value: string | null;
+            counted_count: string;
+            symbolic_price_count: string;
+            purchase_count: string;
+            months: number;
+          }>`select sum(p.counted_value) filter (where p.counted)::numeric(20,2)::text as counted_value,
+              count(*) filter (where p.counted)::text as counted_count,
+              count(*) filter (where p.counted and p.symbolic_price)::text as symbolic_price_count,
+              count(*)::text as purchase_count,
+              (count(distinct to_char(p.finalization_day, 'YYYY-MM'))
+                + case when bool_or(p.finalization_day is null) then 1 else 0 end)::integer as months
+            ${scope(where)}`.execute(logged)
+        ).rows[0];
+      const expectedMonths = async (where: ReturnType<typeof sql>) =>
+        (
+          await sql<{
+            key: string | null;
+            counted_value: string | null;
+            counted_count: string;
+            symbolic_price_count: string;
+            purchase_count: string;
+          }>`select to_char(p.finalization_day, 'YYYY-MM') as key,
+              sum(p.counted_value) filter (where p.counted)::numeric(20,2)::text as counted_value,
+              count(*) filter (where p.counted)::text as counted_count,
+              count(*) filter (where p.counted and p.symbolic_price)::text as symbolic_price_count,
+              count(*)::text as purchase_count
+            ${scope(where)} group by 1 order by 1 asc nulls last`.execute(logged)
+        ).rows.map((row) => ({
+          key: row.key,
+          countedValue: row.counted_value,
+          countedCount: row.counted_count,
+          symbolicPriceCount: row.symbolic_price_count,
+          purchaseCount: row.purchase_count,
+        }));
+      const cases = [
+        [
+          'finalizationTo alone',
+          { ...pair, finalizationTo: '2025-06-30' },
+          sql`p.finalization_day <= date '2025-06-30'`,
+        ],
+        [
+          'finalizationFrom and outcomes',
+          { ...pair, finalizationFrom: '2024-06-01', outcomes: ['accepted' as const] },
+          sql`p.finalization_day >= date '2024-06-01' and p.outcome = 'accepted'`,
+        ],
+        // Undated rows too: pages past the dated ones take the carry count.
+        ['no other filter', pair, sql`true`],
+        [
+          'padded codes',
+          { buyerFiscalCode: `0${buyerCode}`, supplierFiscalCode: `00${companyCode}` },
+          sql`true`,
+        ],
+      ] as const;
+      for (const [label, filter, where] of cases) {
+        const want = await expected(where);
+        expect(want.length, label).toBeGreaterThan(0);
+        // Every page and its total, page size 7 (the pair's dated rows end inside a page).
+        const pages: string[][] = [];
+        for (let page = 1; (page - 1) * 7 < want.length; page += 1) {
+          const answer = await listDaPurchases(api(), {
+            filter,
+            sort: 'finalizationDesc',
+            page,
+            pageSize: 7,
+          });
+          if (answer.isErr()) throw new Error(`${label}: ${JSON.stringify(answer.error)}`);
+          expect(answer.value.total, `${label} page ${String(page)}`).toBe(want.length);
+          pages.push(answer.value.items.map((item) => item.purchaseId));
+        }
+        const slices = pages.map((_, i) => want.slice(i * 7, (i + 1) * 7));
+        expect({ label, pages }).toEqual({ label, pages: slices });
+        // The cross-source rows: the other id of the code in the same source and the archive pair
+        // count; a code's id in another source, and a source without the supplier, do not.
+        const all = new Set(want);
+        expect([all.has('x-alt'), all.has('x-arch'), all.has('x-sup-alt')], label).toEqual([
+          true,
+          true,
+          true,
+        ]);
+        expect([all.has('x-arch-other'), all.has('x-third'), all.has('x-cross')], label).toEqual([
+          false,
+          false,
+          false,
+        ]);
+        // Every measure, and the month groups across their last page.
+        const measures = await expectedMeasures(where);
+        const totals = (await daPurchaseTotals(api(), { filter, ...ALL }))._unsafeUnwrap();
+        expect(totals.overall, label).toEqual({
+          countedValue: measures?.counted_value ?? null,
+          countedCount: measures?.counted_count,
+          symbolicPriceCount: measures?.symbolic_price_count,
+          purchaseCount: measures?.purchase_count,
+        });
+        const months: unknown[] = [];
+        let lastPage = 0;
+        for (let page = 1; ; page += 1) {
+          const grouped = (
+            await daPurchaseTotals(api(), { filter, groupBy: 'month', page, pageSize: 5 })
+          )._unsafeUnwrap();
+          months.push(
+            ...grouped.groups.map((g) => ({
+              key: g.key,
+              countedValue: g.countedValue,
+              countedCount: g.countedCount,
+              symbolicPriceCount: g.symbolicPriceCount,
+              purchaseCount: g.purchaseCount,
+            }))
+          );
+          expect(grouped.groupCount, label).toBe(measures?.months);
+          lastPage = page;
+          if (!grouped.hasMore) break;
+        }
+        expect({ label, months }).toEqual({ label, months: await expectedMonths(where) });
+        // One page past the last group: no groups, the same group count.
+        const past = (
+          await daPurchaseTotals(api(), {
+            filter,
+            groupBy: 'month',
+            page: lastPage + 1,
+            pageSize: 5,
+          })
+        )._unsafeUnwrap();
+        expect([past.groups.length, past.groupCount, past.hasMore], label).toEqual([
+          0,
+          measures?.months,
+          false,
+        ]);
+      }
+      // No party for one code: nothing, without a statement on the purchases' subqueries.
+      for (const filter of [
+        { buyerFiscalCode: '9999999', supplierFiscalCode: companyCode },
+        { buyerFiscalCode: buyerCode, supplierFiscalCode: SOLE_TRADER.fiscalCode ?? '' },
+      ]) {
+        const none = (await listDaPurchases(api(), { filter, ...ALL }))._unsafeUnwrap();
+        expect([none.total, none.items.length]).toEqual([0, 0]);
+        const noneTotals = (await daPurchaseTotals(api(), { filter, ...ALL }))._unsafeUnwrap();
+        expect(noneTotals.overall.purchaseCount).toBe('0');
+      }
+
+      // Every statement over the purchases binds BOTH parties' ids (pages, carry count, total count,
+      // totals and groups), and none keeps a party subquery.
+      statements.length = 0;
+      for (let page = 1; page <= 9; page += 1)
+        await listDaPurchases(api(), { filter: pair, sort: 'finalizationDesc', page, pageSize: 7 });
+      await daPurchaseTotals(api(), { filter: pair, ...ALL });
+      await daPurchaseTotals(api(), { filter: pair, groupBy: 'month', ...ALL });
+      const overPurchases = statements.filter((s) =>
+        s.sql.includes('from "procurement_v3"."da_purchases" p')
+      );
+      expect(overPurchases.length).toBeGreaterThanOrEqual(5);
+      // The carry count (a page starting past the dated rows) and the total count both ran.
+      expect(overPurchases.some((s) => s.sql.includes('count(*)::text as n from ('))).toBe(true);
+      expect(overPurchases.some((s) => s.sql.includes('count(*)::text as total from ('))).toBe(
+        true
+      );
+      for (const s of overPurchases) {
+        expect(s.sql).toContain('p.buyer_party_id = any(');
+        expect(s.sql).toContain('p.supplier_party_id = any(');
+        expect(s.sql).not.toContain('in (select pp.source_name, pp.portal_party_id');
+      }
+
+      // The page statement's plan: the buyer-day index drives it, keyed on the buyer's ids.
+      statements.length = 0;
+      await listDaPurchases(api(), { filter: { ...pair, finalizationTo: '2025-06-30' }, ...ALL });
+      const listStatement = statements.find(
+        (s) => s.sql.includes('order by') && s.sql.includes('p.purchase_id, p.native_id')
+      );
+      if (listStatement === undefined) throw new Error('no list statement');
+      const plan = await logged.executeQuery<Record<string, unknown>>(
+        CompiledQuery.raw(`explain (format json) ${listStatement.sql}`, [
+          ...listStatement.parameters,
+        ])
+      );
+      const scans: { index: string; condition: string }[] = [];
+      const walk = (node: Readonly<Record<string, unknown>>): void => {
+        const index = node['Index Name'];
+        if (typeof index === 'string' && index.startsWith('da_purchases_')) {
+          const condition = node['Index Cond'];
+          scans.push({ index, condition: typeof condition === 'string' ? condition : '' });
+        }
+        const children = node['Plans'];
+        if (Array.isArray(children))
+          for (const child of children as Readonly<Record<string, unknown>>[]) walk(child);
+      };
+      const document = plan.rows[0]?.['QUERY PLAN'] as { Plan: Record<string, unknown> }[];
+      walk(document[0]?.Plan ?? {});
+      expect(scans.map((scan) => scan.index)).toContain('da_purchases_buyer_day_idx');
+      // A source whose supplier side is small may use the supplier-day index for its own branch
+      // (the archive's one row); the national supplier's id never keys it.
+      for (const scan of scans.filter((s) => s.index === 'da_purchases_supplier_day_idx'))
+        expect(scan.condition).not.toContain(COMPANY.portalPartyId);
+      for (const scan of scans.filter((s) => s.index === 'da_purchases_buyer_day_idx'))
+        expect(scan.condition).toContain('buyer_party_id');
+
+      // supplier_disclosure not readable: D6 fails closed, the pair lists and totals nothing.
+      await sql`revoke select on procurement_v3.supplier_disclosure from procurement_api_read`.execute(
+        owner
+      );
+      try {
+        const closed = (await listDaPurchases(api(), { filter: pair, ...ALL }))._unsafeUnwrap();
+        expect([closed.total, closed.items.length]).toEqual([0, 0]);
+        const closedTotals = (
+          await daPurchaseTotals(api(), { filter: pair, ...ALL })
+        )._unsafeUnwrap();
+        expect(closedTotals.overall.purchaseCount).toBe('0');
+      } finally {
+        await sql`grant select on procurement_v3.supplier_disclosure to procurement_api_read`.execute(
+          owner
+        );
+      }
+    } finally {
+      await logged.destroy();
+    }
   });
 });

@@ -63,7 +63,14 @@ describe('the module serves release meta over GraphQL (its own resolver wiring)'
     const module = makeProcurementModule({
       db: makeCapturingDb([], {
         respond: (text) => {
-          if (text.includes('as privacy')) return [{ as_of: AS_OF, privacy: true }];
+          if (
+            text.includes('as disclosed_column') &&
+            !text.includes('as build_id') &&
+            !text.includes('as as_of')
+          )
+            return [{ disclosed_column: 'absent' }];
+          if (text.includes('as privacy'))
+            return [{ as_of: AS_OF, privacy: true, disclosed_column: 'absent' }];
           if (text.includes('has_table_privilege')) return [{ present: true }];
           if (text.includes('as data_as_of')) return [{ data_as_of: AS_OF }];
           if (text.includes('as as_of')) return [{ as_of: AS_OF }];

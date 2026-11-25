@@ -2,7 +2,12 @@ import { makeExecutableSchema, type IExecutableSchemaDefinition } from '@graphql
 import { Kind, type DocumentNode, type OperationDefinitionNode, type FieldNode } from 'graphql';
 import mercuriusPlugin, { type IResolvers, type MercuriusLoaders } from 'mercurius';
 
-import { makeGraphQLErrorFormatter, makeGraphQLValidationRules } from './security.js';
+import {
+  loggedGraphQLErrors,
+  loggedOperationType,
+  makeGraphQLErrorFormatter,
+  makeGraphQLValidationRules,
+} from './security.js';
 
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
@@ -144,11 +149,24 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
     // Context extension for storing document between hooks
     interface GraphQLLoggingContext {
       graphqlDocument?: DocumentNode;
+      /** The operation's top-level field names that are real root fields of the schema. */
+      graphqlFields?: string[];
     }
 
     // Store document in context for logging in onResolution
-    fastify.graphql.addHook('preExecution', (_schema, document, context) => {
+    fastify.graphql.addHook('preExecution', (schema, document, context) => {
       (context as GraphQLLoggingContext).graphqlDocument = document;
+      // Only names the schema defines are logged: an unselected operation of the document is
+      // not checked against a root type the schema lacks, so its names are caller text.
+      const roots = [schema.getQueryType(), schema.getMutationType(), schema.getSubscriptionType()];
+      const known = new Set(
+        roots.flatMap((root) =>
+          root !== null && root !== undefined ? Object.keys(root.getFields()) : []
+        )
+      );
+      (context as GraphQLLoggingContext).graphqlFields = extractFieldNames(document).filter(
+        (name) => known.has(name)
+      );
     });
 
     fastify.graphql.addHook('onResolution', (execution, context) => {
@@ -156,15 +174,14 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       const document = (context as GraphQLLoggingContext).graphqlDocument;
 
       // Extract operation info if document is available
-      let operationName: string | null = null;
+      // No operation name: a caller chooses it (any text, a person's name included).
       let operationType = 'unknown';
       let fields: string[] = [];
 
       if (document !== undefined) {
         const opInfo = extractOperationInfo(document);
-        operationName = opInfo.operationName;
-        operationType = opInfo.operationType;
-        fields = extractFieldNames(document);
+        operationType = loggedOperationType(opInfo.operationType);
+        fields = (context as GraphQLLoggingContext).graphqlFields ?? [];
       }
 
       // Determine if there were errors
@@ -175,7 +192,6 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       const logEntry = {
         graphql: {
           operationType,
-          operationName,
           fields,
           hasErrors,
           errorCount,
@@ -185,14 +201,12 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       // Log at appropriate level
       if (hasErrors) {
         context.reply.log.warn(
-          { ...logEntry, errors: execution.errors },
-          `GraphQL ${operationType} "${operationName ?? 'anonymous'}" completed with ${String(errorCount)} error(s)`
+          // Fixed categories only: an error message can quote a value the caller sent.
+          { ...logEntry, errors: loggedGraphQLErrors(execution.errors) },
+          `GraphQL ${operationType} completed with ${String(errorCount)} error(s)`
         );
       } else {
-        context.reply.log.info(
-          logEntry,
-          `GraphQL ${operationType} "${operationName ?? 'anonymous'}" [${fields.join(', ')}]`
-        );
+        context.reply.log.info(logEntry, `GraphQL ${operationType} [${fields.join(', ')}]`);
       }
     });
   };

@@ -76,7 +76,11 @@ const RedesignEnvSchema = Type.Object({
   PROD_CLICKHOUSE_PASSWORD: Type.Optional(Type.String()),
   PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS: Type.Optional(Type.String()),
   PROCUREMENT_DA_V3_ENABLED: Type.Optional(Type.String()),
+  PROCUREMENT_CA_RECORDS_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_TOTALS_V2: Type.Optional(Type.String()),
+  PROCUREMENT_DATABASE_URL: Type.Optional(Type.String()),
+  PROCUREMENT_LEGACY_ENABLED: Type.Optional(Type.String()),
+  PROCUREMENT_LEGACY_DA_LIST_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_URL: Type.Optional(Type.String()),
   PROCUREMENT_SEARCH_OPENSEARCH_INDEXES: Type.Optional(Type.String()),
@@ -117,8 +121,25 @@ export interface ProcurementComposition {
   readonly daListMaxWindowDays?: number;
   /** Direct acquisitions release 1 (`procurement_v3`) reader; off unless PROCUREMENT_DA_V3_ENABLED=true. */
   readonly daV3Enabled?: boolean;
+  /**
+   * Contract-award records (`procurement_v3.ca_*_public`, PROC-KB0Z); off unless
+   * PROCUREMENT_CA_RECORDS_ENABLED=true, which needs site-wide D6 on as DA v3 does.
+   */
+  readonly caRecordsEnabled?: boolean;
   /** Totals v2 (`procurementTotals`) over the money-fact builds; off unless PROCUREMENT_TOTALS_V2=true. */
   readonly totalsV2Enabled?: boolean;
+  /**
+   * The legacy procurement reads (records, legacy analysis, entity-360 presence);
+   * on unless PROCUREMENT_LEGACY_ENABLED=false. Off, they answer ServiceUnavailable
+   * without a query (SEC-GRANTS-PROC-2211: the public-only grant covers none of them).
+   */
+  readonly legacyEnabled?: boolean;
+  /**
+   * The legacy direct-acquisition list (GraphQL `procurementDirectAcquisitions`, MCP
+   * `search_procurement_direct_acquisitions`); on unless PROCUREMENT_LEGACY_DA_LIST_ENABLED=false.
+   * Off, the list answers ServiceUnavailable without a query and the MCP tool is not listed.
+   */
+  readonly legacyDaListEnabled?: boolean;
   /**
    * Site-wide D6 and the DA free-text gate, on every DA surface, legacy included
    * (PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true). Independent of `daV3Enabled`
@@ -193,6 +214,8 @@ export interface RedesignConfig {
   };
   readonly kernel: {
     readonly prodDatabaseUrl: string;
+    /** PROCUREMENT_DATABASE_URL: procurement's own login (PRJ-54YB); unset shares the kernel pool. */
+    readonly procurementDatabaseUrl?: string;
     readonly meiliHost: string;
     readonly meiliApiKey: string;
     /** Search-only Meili key; the kernel falls back to `meiliApiKey` when unset. */
@@ -314,6 +337,20 @@ const splitCsv = (raw: string | undefined): readonly string[] =>
         .map((s) => s.trim())
         .filter((s) => s !== '');
 
+/**
+ * A parseable postgres URL with a host, in the authority or, as pg also reads it, in a `host` query
+ * parameter (a TCP host or a Unix socket directory). A bad port or form fails `new URL`.
+ */
+const isPostgresUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    const host = url.hostname !== '' || (url.searchParams.get('host') ?? '') !== '';
+    return (url.protocol === 'postgres:' || url.protocol === 'postgresql:') && host;
+  } catch {
+    return false;
+  }
+};
+
 const nonEmpty = (value: string | undefined): string | undefined =>
   value === undefined || value === '' ? undefined : value;
 
@@ -396,9 +433,44 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
       'Invalid redesign env: PROCUREMENT_DA_V3_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true (site-wide D6 goes on first)'
     );
   }
+  const caRecords = e.PROCUREMENT_CA_RECORDS_ENABLED;
+  if (caRecords !== undefined && caRecords !== 'true' && caRecords !== 'false') {
+    throw new Error(
+      "Invalid redesign env: PROCUREMENT_CA_RECORDS_ENABLED must be 'true' or 'false' when set"
+    );
+  }
+  // Winner codes are shown only under site-wide D6, as on the DA v3 path.
+  if (caRecords === 'true' && e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED !== 'true') {
+    throw new Error(
+      'Invalid redesign env: PROCUREMENT_CA_RECORDS_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true'
+    );
+  }
+  // A privacy switch: anything but the two exact values is a boot error, never a guess.
+  const procurementDatabaseUrl = nonEmpty(e.PROCUREMENT_DATABASE_URL);
+  // Never echo the value: it carries a credential.
+  if (procurementDatabaseUrl !== undefined && !isPostgresUrl(procurementDatabaseUrl)) {
+    throw new Error(
+      'Invalid redesign env: PROCUREMENT_DATABASE_URL must be a postgres:// or postgresql:// URL with a host when set'
+    );
+  }
+  const legacy = e.PROCUREMENT_LEGACY_ENABLED;
+  if (legacy !== undefined && legacy !== 'true' && legacy !== 'false') {
+    throw new Error(
+      "Invalid redesign env: PROCUREMENT_LEGACY_ENABLED must be 'true' or 'false' when set"
+    );
+  }
+  const legacyDaList = e.PROCUREMENT_LEGACY_DA_LIST_ENABLED;
+  if (legacyDaList !== undefined && legacyDaList !== 'true' && legacyDaList !== 'false') {
+    throw new Error(
+      "Invalid redesign env: PROCUREMENT_LEGACY_DA_LIST_ENABLED must be 'true' or 'false' when set"
+    );
+  }
   const procurement: ProcurementComposition = {
     ...(daWindow > 0 && { daListMaxWindowDays: daWindow }),
+    ...(legacy === 'false' && { legacyEnabled: false }),
+    ...(legacyDaList === 'false' && { legacyDaListEnabled: false }),
     ...(e.PROCUREMENT_DA_V3_ENABLED === 'true' && { daV3Enabled: true }),
+    ...(caRecords === 'true' && { caRecordsEnabled: true }),
     ...(e.PROCUREMENT_TOTALS_V2 === 'true' && { totalsV2Enabled: true }),
     ...(e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED === 'true' && {
       supplierDisclosureEnforced: true,
@@ -445,6 +517,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
   return {
     kernel: {
       prodDatabaseUrl: e.PROD_DATABASE_URL,
+      ...(procurementDatabaseUrl !== undefined && { procurementDatabaseUrl }),
       searchPolicy: e.PROD_SEARCH_POLICY,
       meiliHost: e.PROD_MEILI_HOST,
       meiliApiKey: e.PROD_MEILI_API_KEY,

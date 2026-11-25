@@ -2,11 +2,14 @@
  * `procurementTotals`: off unless enabled (ServiceUnavailable, no read), and
  * a refused request names its field in the GraphQL extensions.
  */
-import { GraphQLError } from 'graphql';
+import { GraphQLError, Kind, parse, print, type ObjectTypeExtensionNode } from 'graphql';
 import { ok } from 'neverthrow';
 import { describe, expect, it } from 'vitest';
 
-import { makeTotalsResolvers } from '@/modules/procurement/shell/graphql/totals-schema.js';
+import {
+  makeTotalsResolvers,
+  totalsTypeDefs,
+} from '@/modules/procurement/shell/graphql/totals-schema.js';
 
 import type { MoneyTotalsPort } from '@/modules/procurement/core/money-totals.js';
 
@@ -36,5 +39,18 @@ describe('procurementTotals resolver', () => {
       code: 'INVALID_INPUT',
       field: 'procurementKinds',
     });
+  });
+});
+
+describe('procurementTotals schema', () => {
+  it('is nullable at the root, so an error never nulls sibling fields', () => {
+    const doc = parse(totalsTypeDefs);
+    const query = doc.definitions.find(
+      (d): d is ObjectTypeExtensionNode =>
+        d.kind === Kind.OBJECT_TYPE_EXTENSION && d.name.value === 'Query'
+    );
+    const field = query?.fields?.find((f) => f.name.value === 'procurementTotals');
+    // Exactly [ProcurementTotal!]: a nullable list of non-null totals.
+    expect(field === undefined ? null : print(field.type)).toBe('[ProcurementTotal!]');
   });
 });

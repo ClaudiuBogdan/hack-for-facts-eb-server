@@ -12,6 +12,8 @@ import {
   GRAPHQL_ERROR_CODE,
   disclosureKeyOf,
   invalidInput,
+  isWithheldOrganizationIdentifier,
+  normalizeCui,
   type ApiError,
   type FilterInput,
   type KernelMcpTool,
@@ -44,10 +46,11 @@ import {
   type SeriesBucket,
   VALUE_STATES,
 } from '../../core/constants.js';
+import { publicPartyName } from '../../core/free-text-rule.js';
 import { resolveCpv, searchContracts, searchDirectAcquisitions } from '../../core/usecases.js';
 import { withDisplayTitles } from '../records-display.js';
 
-import type { AnalysisRepo, ProcurementRepo } from '../../core/ports.js';
+import type { AnalysisRepo, DaSupplierNamesPort, ProcurementRepo } from '../../core/ports.js';
 
 export interface ProcurementMcpDeps {
   readonly repo: ProcurementRepo;
@@ -55,7 +58,36 @@ export interface ProcurementMcpDeps {
   readonly clientBaseUrl: string;
   /** Site-wide D6 (bucket kinds, no withheld code echoed); absent means not enforced. */
   readonly supplierDisclosure?: SupplierDisclosurePort;
+  /** The D6-gated names of DA supplier buckets (PROC-B51G). */
+  readonly daSupplierNames?: DaSupplierNamesPort;
 }
+
+/** The party fields a legacy record item carries (procedures have no supplier). */
+interface PartyFields {
+  readonly authorityCui?: string | null;
+  readonly authorityName?: string | null;
+  readonly supplierCui?: string | null;
+  readonly supplierName?: string | null;
+}
+
+/**
+ * A record item's parties as served: an identifier the platform withholds (CNP-shaped, kernel
+ * P0 containment) and a name that may carry a personal numeric code never leave the tool, as on
+ * the GraphQL party block. The rest of the item is unchanged.
+ */
+export const withServedParties = <T extends PartyFields>(
+  item: T
+): Omit<T, keyof PartyFields> & PartyFields => {
+  const code = (cui: string | null | undefined): string | null =>
+    cui !== undefined && cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
+  return {
+    ...item,
+    ...(item.authorityCui !== undefined && { authorityCui: code(item.authorityCui) }),
+    ...(item.authorityName !== undefined && { authorityName: publicPartyName(item.authorityName) }),
+    ...(item.supplierCui !== undefined && { supplierCui: code(item.supplierCui) }),
+    ...(item.supplierName !== undefined && { supplierName: publicPartyName(item.supplierName) }),
+  };
+};
 
 /**
  * The `aggregate_procurement` scope shape — field names MUST equal the SDL
@@ -160,12 +192,20 @@ const invalidOut = (kind: string, message: string, field?: string): McpToolOutpu
   errorOut(kind, invalidInput(message, field));
 const n = (x: number): string => String(x);
 
+/** The party-code argument holding a person's code (never a lookup key, never echoed), if any. */
+const personCodeField = (args: Record<string, unknown>): string | undefined =>
+  ['authorityCui', 'supplierCui'].find((field) => {
+    const raw = strArg(args, field);
+    return raw !== '' && isWithheldOrganizationIdentifier(normalizeCui(raw) ?? raw);
+  });
+
 export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly KernelMcpTool[] => {
   const { repo, analysis, clientBaseUrl } = deps;
   const disclosure = deps.supplierDisclosure;
   const analysisDeps = {
     analysisRepo: analysis,
     ...(disclosure !== undefined && { supplierDisclosure: disclosure }),
+    ...(deps.daSupplierNames !== undefined && { daSupplierNames: deps.daSupplierNames }),
   };
   /** The dated D6 keys an answer's DA envelopes were served under. */
   const daKeysOf = (output: McpToolOutput): readonly string[] => {
@@ -254,6 +294,10 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       first: z.number().int().min(1).max(100).optional(),
     },
     async handler(args): Promise<McpToolOutput> {
+      const person = personCodeField(args);
+      if (person !== undefined) {
+        return invalidOut('contract_list', `${person} is not an organization identifier`, person);
+      }
       const filter = buildContractFilter(args);
       const res = await searchContracts(repo, filter, { first: intArg(args, 'first', 20) });
       if (res.isErr()) return errorFrom('contract_list', res.error);
@@ -262,7 +306,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
         kind: 'contract_list',
         query: filter,
         link: `${clientBaseUrl}/procurement/contracts`,
-        items: res.value.items,
+        items: res.value.items.map(withServedParties),
         summary: `${n(res.value.items.length)} contract(s)${res.value.next !== null ? ' (more available)' : ''}.`,
       };
     },
@@ -283,6 +327,10 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
       first: z.number().int().min(1).max(100).optional(),
     },
     async handler(args): Promise<McpToolOutput> {
+      const person = personCodeField(args);
+      if (person !== undefined) {
+        return invalidOut('da_list', `${person} is not an organization identifier`, person);
+      }
       const filter = buildDaFilter(args);
       const res = await searchDirectAcquisitions(repo, filter, {
         first: intArg(args, 'first', 20),
@@ -297,7 +345,7 @@ export const makeProcurementMcpTools = (deps: ProcurementMcpDeps): readonly Kern
             ? Object.fromEntries(Object.entries(filter).filter(([key]) => key !== 'supplierCui'))
             : filter,
         link: `${clientBaseUrl}/procurement/direct-acquisitions`,
-        items: res.value.items,
+        items: res.value.items.map(withServedParties),
         // D6: the key the page was served under (docs 10, monotonic keys).
         meta: {
           disclosureKey:

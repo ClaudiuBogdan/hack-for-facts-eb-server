@@ -4,7 +4,7 @@
  * (its own switch, independent of the DA release flag: a v3 rollback never re-exposes).
  *
  * - A supplier is named (code and name) only when its code is in the public
- *   set from `supplier_privacy`; otherwise it is `natural_person` with no code
+ *   set from `supplier_disclosure`; otherwise it is `natural_person` with no code
  *   and no name. One rule with the v3 surface, so the two never disagree.
  * - Free text is restricted until reviewed (decision 2026-11-10), and legacy
  *   has no per-field public flags, so the title, the detail's free-text fields

@@ -1,7 +1,7 @@
 /**
  * Site-wide D6 — the supplier disclosure port and the flows decorator: off
- * means no query and no change; on, the public set comes from
- * supplier_privacy, is cached per data_as_of, and fails closed (absent table,
+ * means no query and no change; on, the public set comes from the
+ * supplier_disclosure view (read whole: every row is disclosed), is cached per data_as_of, and fails closed (absent table,
  * absent release, read error → empty). A non-public code's incoming
  * direct-acquisition flows are excluded; outgoing flows and public codes are
  * untouched.
@@ -25,14 +25,17 @@ interface World {
   fail: boolean;
 }
 
+/** The code load: the public view, never the classification table itself. */
+const DISCLOSURE = 'from "procurement_v3"."supplier_disclosure"';
+
 const build = (world: World, clock = { t: 0 }) => {
   const captured: CapturedQuery[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
-      if (world.fail && text.includes('supplier_privacy')) throw new Error('boom');
+      if (world.fail && text.includes('supplier_disclosure')) throw new Error('boom');
       if (text.includes('to_regclass')) return [{ release: world.tables, privacy: world.tables }];
       if (text.includes('max(data_as_of)')) return [{ as_of: world.asOf }];
-      if (text.includes('where public is true')) return world.codes.map((code) => ({ code }));
+      if (text.includes(DISCLOSURE)) return world.codes.map((code) => ({ code }));
       return [];
     },
   });
@@ -43,7 +46,7 @@ const build = (world: World, clock = { t: 0 }) => {
 };
 
 const codeLoads = (captured: CapturedQuery[]) =>
-  captured.filter((query) => query.sql.includes('where public is true')).length;
+  captured.filter((query) => query.sql.includes(DISCLOSURE)).length;
 
 describe('supplier disclosure port', () => {
   it('runs no query when not enforced', async () => {
@@ -68,6 +71,19 @@ describe('supplier disclosure port', () => {
     world.codes = ['14399840', '4305857'];
     expect((await disclosure.publicSupplierCodes())._unsafeUnwrap().size).toBe(2);
     expect(codeLoads(captured)).toBe(2);
+  });
+
+  it('reads only the public view, whole, and never the classification table', async () => {
+    const world = { tables: true, asOf: '2026-11-18T03:10:00.000000Z', codes: ['1'], fail: false };
+    const { captured, port } = build(world);
+    await port(true).publicSupplierCodes();
+    const text = captured.map((query) => query.sql).join('\n');
+    const params = captured.flatMap((query) => query.parameters.map(String));
+    expect(text).toContain(DISCLOSURE);
+    expect(text).not.toContain('supplier_privacy');
+    expect(text).not.toMatch(/\bpublic is\b/u);
+    expect(params).toContain('procurement_v3.supplier_disclosure');
+    expect(params).not.toContain('procurement_v3.supplier_privacy');
   });
 
   it('the set carries the publication it was read from (null when none is readable)', async () => {
@@ -134,7 +150,7 @@ describe('supplier disclosure port', () => {
       respond: (text) => {
         if (text.includes('to_regclass')) return [{ release: true, privacy: true }];
         if (text.includes('max(data_as_of)')) return [{ as_of: world.asOf }];
-        if (!text.includes('where public is true')) return [];
+        if (!text.includes(DISCLOSURE)) return [];
         const rows = world.codes.map((code) => ({ code }));
         if (later === undefined && holder.port !== undefined) {
           // The first load has read; the nightly publish withholds the supplier and
@@ -170,7 +186,7 @@ describe('supplier disclosure port', () => {
       respond: (text) => {
         if (text.includes('to_regclass')) return [{ release: true, privacy: true }];
         if (text.includes('max(data_as_of)')) return [{ as_of: world.asOf }];
-        if (text.includes('where public is true')) return world.codes.map((code) => ({ code }));
+        if (text.includes(DISCLOSURE)) return world.codes.map((code) => ({ code }));
         return [];
       },
     });

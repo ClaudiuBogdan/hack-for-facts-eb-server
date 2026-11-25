@@ -139,4 +139,112 @@ describe('direct-acquisition switches', () => {
       }).procurement
     ).toMatchObject({ supplierDisclosureEnforced: true, daV3Enabled: true });
   });
+
+  it('serves legacy by default and retires it only on the exact value false', () => {
+    expect(loadRedesignConfig(base).procurement?.legacyEnabled).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_ENABLED: 'true' }).procurement?.legacyEnabled
+    ).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_ENABLED: 'false' }).procurement
+    ).toMatchObject({ legacyEnabled: false });
+  });
+
+  it('serves the legacy DA list by default and retires it only on the exact value false', () => {
+    expect(loadRedesignConfig(base).procurement?.legacyDaListEnabled).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_DA_LIST_ENABLED: 'true' }).procurement
+        ?.legacyDaListEnabled
+    ).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_DA_LIST_ENABLED: 'false' }).procurement
+    ).toMatchObject({ legacyDaListEnabled: false });
+  });
+
+  it.each(['False', 'off', '0', ''])(
+    'refuses PROCUREMENT_LEGACY_DA_LIST_ENABLED=%j at boot (a privacy switch is never guessed)',
+    (value) => {
+      expect(() =>
+        loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_DA_LIST_ENABLED: value })
+      ).toThrow(/PROCUREMENT_LEGACY_DA_LIST_ENABLED must be 'true' or 'false'/u);
+    }
+  );
+
+  it.each(['False', 'off', '0', ''])(
+    'refuses PROCUREMENT_LEGACY_ENABLED=%j at boot (a privacy switch is never guessed)',
+    (value) => {
+      expect(() => loadRedesignConfig({ ...base, PROCUREMENT_LEGACY_ENABLED: value })).toThrow(
+        /PROCUREMENT_LEGACY_ENABLED must be 'true' or 'false'/u
+      );
+    }
+  );
+
+  it('serves no contract-award records by default, nor without site-wide D6', () => {
+    expect(loadRedesignConfig(base).procurement?.caRecordsEnabled).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_CA_RECORDS_ENABLED: 'false' }).procurement
+        ?.caRecordsEnabled
+    ).toBeUndefined();
+    expect(() => loadRedesignConfig({ ...base, PROCUREMENT_CA_RECORDS_ENABLED: 'true' })).toThrow(
+      /PROCUREMENT_CA_RECORDS_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true/u
+    );
+    expect(
+      loadRedesignConfig({
+        ...base,
+        PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: 'true',
+        PROCUREMENT_CA_RECORDS_ENABLED: 'true',
+      }).procurement
+    ).toMatchObject({ caRecordsEnabled: true });
+  });
+
+  it.each(['True', 'on', '1', ''])(
+    'refuses PROCUREMENT_CA_RECORDS_ENABLED=%j at boot (a privacy switch is never guessed)',
+    (value) => {
+      expect(() => loadRedesignConfig({ ...base, PROCUREMENT_CA_RECORDS_ENABLED: value })).toThrow(
+        /PROCUREMENT_CA_RECORDS_ENABLED must be 'true' or 'false'/u
+      );
+    }
+  );
+});
+
+describe('PROCUREMENT_DATABASE_URL (PRJ-54YB)', () => {
+  const base = { PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod' };
+
+  it('is absent from the kernel config when unset or blank: procurement shares the kernel pool', () => {
+    expect(loadRedesignConfig(base).kernel.procurementDatabaseUrl).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_DATABASE_URL: '' }).kernel.procurementDatabaseUrl
+    ).toBeUndefined();
+  });
+
+  it.each([
+    [
+      'a host and sslmode',
+      'postgresql://procurement@example.invalid/transparenta_prod?sslmode=require',
+    ],
+    ['a host in the query', 'postgresql:///transparenta_prod?host=db.example.invalid&user=reader'],
+    ['a Unix socket directory', 'postgres:///transparenta_prod?host=/var/run/postgresql'],
+    ['a percent-encoded password', 'postgres://reader:p%40ss%2Fw@example.invalid:5432/db'],
+  ])('passes a postgres URL with %s through to the kernel config', (_label, url) => {
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_DATABASE_URL: url }).kernel.procurementDatabaseUrl
+    ).toBe(url);
+  });
+
+  it.each([
+    ['another scheme', 'mysql://secret-user:secret-pass@example.invalid/db'],
+    ['an out-of-range port', 'postgres://secret-user:secret-pass@example.invalid:99999/db'],
+    ['no host', 'postgres://secret-user:secret-pass@/db'],
+    ['an empty host', 'postgres:///secret_db'],
+    ['no URL at all', 'secret-user secret-pass'],
+  ])('refuses %s at boot without echoing it', (_label, value) => {
+    let message = '';
+    try {
+      loadRedesignConfig({ ...base, PROCUREMENT_DATABASE_URL: value });
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+    expect(message).toMatch(/PROCUREMENT_DATABASE_URL must be a postgres/u);
+    expect(message).not.toContain('secret');
+  });
 });

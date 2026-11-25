@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   analysisBreakdown,
+  analysisShare,
   analysisRecords,
   analysisSeries,
   analysisStats,
@@ -25,6 +26,7 @@ import {
 import { busyRetryLater, serviceUnavailable, type ApiError } from '@/modules/shared/index.js';
 
 import { BUILD_ID, fakeAnalysisRepo, generation, statsRead, verdict } from './analysis-fakes.js';
+import { companyNames } from '../../fixtures/procurement/supplier-naming.js';
 
 import type { GenerationQuality } from '@/modules/procurement/core/gate-v2.js';
 import type { ActiveGeneration, AnalysisRecordRow } from '@/modules/procurement/core/ports.js';
@@ -72,6 +74,7 @@ const fakeSource = (
     calls,
     source: {
       generation: () => Promise.resolve(gen),
+      namesOf: () => okp(companyNames([])),
       statsFor: (_route, _scope, g) => {
         calls.push(`statsFor:${g.buildId}`);
         return okp(
@@ -364,5 +367,58 @@ describe('routing on a DA-v3 generation', () => {
       generation().capabilities
     );
     expect(plain.isOk()).toBe(true);
+  });
+});
+
+describe('frameworkRole while the base build is not read (legacy retired)', () => {
+  const ROLE = { grain: 'contract', frameworkRole: 'framework_ceiling' } as const;
+  const LEGACY_NOTE = 'legacy build-8 population';
+
+  it('abstains the contract grain for a role scope, naming no build population', async () => {
+    const { deps } = setup({ base: null });
+    const blocks = (await analysisStats(deps, { scope: ROLE }))._unsafeUnwrap().blocks;
+    expect(blocks.map((block) => [block.grain, block.recordCount])).toEqual([['contract', null]]);
+    expect(JSON.stringify(blocks)).not.toContain(LEGACY_NOTE);
+    // An implicit-grain role request routes to the contract grain only (never DA unfiltered).
+    const implicit = (
+      await analysisStats(deps, { scope: { frameworkRole: 'framework_ceiling' } })
+    )._unsafeUnwrap().blocks;
+    expect(implicit.map((block) => block.grain)).toEqual(['contract']);
+  });
+
+  it('answers a role request retryable while the base build is busy', async () => {
+    const busy = busyRetryLater('procurement analytics is busy; retry shortly', 2);
+    const base = fakeAnalysisRepo();
+    const deps = {
+      analysisRepo: makeDaRoutingAnalysisRepo(
+        { ...base.repo, activeGeneration: () => Promise.resolve(err(busy)) },
+        fakeSource().source
+      ),
+    };
+    expect((await analysisStats(deps, { scope: ROLE }))._unsafeUnwrapErr()).toEqual(busy);
+    expect(
+      (
+        await analysisBreakdown(deps, {
+          scope: { grain: 'contract', frameworkRole: 'all' },
+          dimension: 'frameworkRole',
+        })
+      )._unsafeUnwrapErr()
+    ).toEqual(busy);
+  });
+
+  it('validates a role share as populations, as the role-publishing build would', async () => {
+    const { deps } = setup({ base: null });
+    // Ceilings over all roles: a strict subset (the role narrows) — answered, the grain abstains.
+    const narrower = await analysisShare(deps, {
+      numerator: ROLE,
+      denominator: { grain: 'contract', frameworkRole: 'all' },
+    });
+    expect(narrower.isOk()).toBe(true);
+    // All roles plus a buyer over the purchases-only default: 'all' widens, never a subset.
+    const widened = await analysisShare(deps, {
+      numerator: { grain: 'contract', frameworkRole: 'all', authorityCui: '4305857' },
+      denominator: { grain: 'contract' },
+    });
+    expect(widened.isErr() && widened.error.type).toBe('InvalidInput');
   });
 });

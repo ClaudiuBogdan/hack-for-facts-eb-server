@@ -284,8 +284,13 @@ export const routeAnalysis = (
   measure?: MeasureId,
   capabilities: GenerationCapabilities = NO_GENERATION_CAPABILITIES
 ): Result<readonly AnalysisRoute[], ApiError> => {
+  // Refused only against a live base build that lacks the column. Without a base generation
+  // (legacy procurement retired, or its build unreadable or busy) the capability cannot be
+  // judged: the contract and framework grains answer their own unavailability (abstain, or a
+  // retryable busy) like any other request, never a malformed-request error (PROC-KB0Z).
   if (
     !capabilities.frameworkRole &&
+    capabilities.analysisBaseUnavailable !== true &&
     (scope.frameworkRole !== undefined || dimension === 'frameworkRole')
   ) {
     return err(

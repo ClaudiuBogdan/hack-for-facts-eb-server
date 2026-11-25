@@ -10,6 +10,7 @@ import { GraphQLError } from 'graphql';
 
 import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
 
+import { markNoStore } from './no-store.js';
 import {
   daPurchaseTotals,
   daReleaseStatus,
@@ -37,18 +38,25 @@ export const daReleaseTypeDefs = /* GraphQL */ `
     The supplier_privacy publication in force; null when D6 is off or its source is absent (every
     DA supplier is then withheld). Key caches by (privacyEnforced, privacyAsOf, dataAsOf):
     privacyAsOf is null both while D6 is off and while it is on but unreadable; never cache a DA
-    answer received while privacyEnforced is true and privacyAsOf is null.
+    answer received while privacyEnforced is true and privacyAsOf is null. Supplier names come from
+    the live registry and can be withdrawn without any key moving: keys cover codes, counts and
+    values, never names. Do not keep a supplier name beyond the response that carried it.
     """
     privacyAsOf: DateTime
   }
 
   """
-  A buyer or supplier as served. Supplier names follow D6: a supplier is named only when it is a
-  company with a valid fiscal code; every other supplier is natural_person with name, fiscalCode
-  and partyId all null. Never fill a withheld name from another source.
+  A buyer or supplier as served. Suppliers follow D6: a supplier D6 withholds is natural_person
+  with name, fiscalCode and partyId all null. A disclosed supplier is company (its registry name,
+  or a null name), person_masked (a masked name) or code_only (a null name), each with its
+  fiscalCode. Show only the name served here; never fill or unmask a name from another source.
   """
   type ProcurementDaParty {
-    "authority (every buyer) | company (a named supplier) | natural_person (a withheld supplier)"
+    """
+    authority (every buyer) | company (a supplier with its registry name) | person_masked (a
+    supplier with a masked name) | code_only (a supplier shown by its code, no name) |
+    natural_person (a withheld supplier). Treat any other value as showing no name.
+    """
     displayKind: String!
     "The portal's party id; null when withheld."
     partyId: String
@@ -160,6 +168,9 @@ export const daReleaseTypeDefs = /* GraphQL */ `
   The D6 state a release answer was served under. disclosureKey is the release's dataAsOf when
   supplier_privacy was readable in its snapshot, else unavailable (everyone withheld; never cache).
   Dated keys only move forward: keep the newest seen, never cache an answer with an older key.
+  Supplier names come from the live registry and can be withdrawn without any key moving: keys
+  cover codes, counts and values, never names. Do not keep a supplier name beyond the response that
+  carried it.
   """
   type ProcurementDaReleaseMeta {
     disclosureKey: String
@@ -316,6 +327,17 @@ const withMeta = <T extends { readonly disclosureKey: string }>(answer: T) => ({
 });
 
 export const makeDaReleaseResolvers = (deps: DaReleaseDeps) => ({
+  ProcurementDaParty: {
+    // PROC-VDWQ: a named supplier (company) makes the answer never cacheable; buyers do not.
+    name: (party: { displayKind: string; name: string | null }, _a: unknown, context: unknown) => {
+      if (
+        (party.displayKind === 'company' || party.displayKind === 'person_masked') &&
+        party.name !== null
+      )
+        markNoStore(context);
+      return party.name;
+    },
+  },
   Query: {
     procurementDaRelease: () => daReleaseStatus(deps),
     procurementDaPurchases: async (

@@ -10,11 +10,13 @@
  * `counted_value` is ever summed; reported values and item lines never are.
  *
  * D6 (site-wide): a supplier's name and fiscal code are served only when its
- * code is in `supplier_privacy` with `public = true` (the data platform's one
+ * code is disclosed: the supplier has a row in `da_parties_public`, whose
+ * suppliers are the codes in `supplier_disclosure` (the data platform's one
  * classification, shared with the legacy surfaces). Every other supplier,
- * including any supplier when that table is absent, is served as a natural
- * person with no name, no fiscal code and no party id. Buyers are
- * public authorities: the name is served, the code only when it is valid.
+ * including any supplier when that view is unreadable, is served as a natural
+ * person with no name, no fiscal code and no party id. A named supplier's name
+ * is its public registry name (`party_public_names`). Buyers are public
+ * authorities: the name is served, the code only when it is valid.
  *
  * Pure: no I/O. A row that breaks the contract's invariants is refused, never
  * served half-right.
@@ -22,9 +24,20 @@
 
 import { err, ok, type Result } from 'neverthrow';
 
-import { databaseError, type ApiError } from '@/modules/shared/index.js';
+import {
+  databaseError,
+  isWithheldOrganizationIdentifier,
+  type ApiError,
+} from '@/modules/shared/index.js';
 
 import { DA_NATURAL_PERSON_BUCKET } from './constants.js';
+import { publicPartyName } from './free-text-rule.js';
+import {
+  servedSupplierName,
+  undisclosedNaming,
+  type ServedSupplierKind,
+  type SupplierNaming,
+} from './supplier-naming.js';
 
 // ── Contract enums ───────────────────────────────────────────────────────────
 
@@ -40,6 +53,7 @@ export const DA_NOT_COUNTED_REASONS = [
   'state_disagrees',
   'finalization_day_disagrees',
   'value_disagrees',
+  'removed_from_portal',
 ] as const;
 export type DaNotCountedReasonCode = (typeof DA_NOT_COUNTED_REASONS)[number];
 
@@ -57,8 +71,9 @@ export const DA_NOT_COUNTED_REASON_LABELS: Readonly<
     ro: 'Respinsă sau expirată: achiziția nu s-a realizat.',
   },
   value_not_qualified: {
-    en: "The value's currency and VAT basis are not yet confirmed for this period (before 2025).",
-    ro: 'Moneda și baza TVA ale valorii nu sunt încă confirmate pentru această perioadă (înainte de 2025).',
+    // 22 Nov 2026: no cause named (the 2018–2024 holds, and other pre-2025 cases the build allows).
+    en: "The currency and VAT basis of this purchase's value are not confirmed.",
+    ro: 'Moneda și baza TVA ale valorii acestei achiziții nu sunt confirmate.',
   },
   reviewed_entry_error: {
     en: 'Left out after review: see the rule.',
@@ -75,6 +90,11 @@ export const DA_NOT_COUNTED_REASON_LABELS: Readonly<
   state_disagrees: DISAGREES,
   finalization_day_disagrees: DISAGREES,
   value_disagrees: DISAGREES,
+  // D3 (20 Nov 2026): delisted purchases; the platform sets it before every other reason.
+  removed_from_portal: {
+    en: 'The purchase is no longer on any portal list.',
+    ro: 'Achiziția nu mai apare în nicio listă a portalului.',
+  },
 };
 
 export const DA_RULE_EFFECTS = ['correct', 'exclude', 'keep'] as const;
@@ -98,7 +118,7 @@ export type DaTotalsDimension = (typeof DA_TOTALS_GROUPS)[number];
 /**
  * The basis of counted (and corrected) values only. A reported value is as the
  * portal published it: its currency and VAT basis are confirmed only where the
- * purchase is counted (before 2025 they are not, see `value_not_qualified`).
+ * purchase is counted (see `value_not_qualified`).
  */
 export const DA_COUNTED_VALUE_BASIS = 'RON excluding VAT';
 
@@ -107,14 +127,24 @@ export const DA_NATURAL_PERSON_LABEL = { en: 'natural person', ro: 'persoană fi
 
 // ── Records (repo → core) ────────────────────────────────────────────────────
 
-/** One `da_parties` row as read; never served directly. */
+/** One public party as read (`da_parties_public`); never served directly. */
 export interface DaPartyRecord {
   readonly portalPartyId: string;
   readonly name: string | null;
   readonly fiscalCode: string | null;
   readonly fiscalCodeStatus: string | null;
-  /** The code is in `supplier_privacy` with `public = true`. False when absent, or when the table is. */
+  /** D6 in SQL: the supplier has a public row and its code is valid. False for a buyer. */
   readonly supplierPublic: boolean;
+  /**
+   * Naming step 2b, row level only: the supplier's code is shown without D6 disclosing it
+   * (`da_parties_public.supplier_disclosed` false). Never counted, ranked, filtered or scoped.
+   */
+  readonly supplierUndisclosed?: boolean;
+  /**
+   * A disclosed supplier's naming, read by code after the page (`supplierNamesByCode`); when
+   * set, its name is the one served. Absent on buyers and on withheld suppliers.
+   */
+  readonly naming?: SupplierNaming;
 }
 
 export interface DaRuleRecord {
@@ -206,8 +236,12 @@ const gated = (
   isPublic ? { value: text, withheld: null } : { value: null, withheld: 'privacy' };
 
 export interface DaParty {
-  /** `authority` for buyers; `company` for a named supplier; `natural_person` when D6 withholds it. */
-  readonly displayKind: 'authority' | 'company' | 'natural_person';
+  /**
+   * `authority` for buyers. A supplier D6 discloses: `company` (its registry name, or no name),
+   * `person_masked` (a masked name) or `code_only` (no name), see `core/supplier-naming.ts`.
+   * `natural_person` when D6 withholds it.
+   */
+  readonly displayKind: 'authority' | ServedSupplierKind | 'natural_person';
   /** The portal's party id; null when withheld. */
   readonly partyId: string | null;
   /** Null when withheld (D6) or when the source gives no name. */
@@ -309,11 +343,22 @@ export interface DaTotalsGroup extends DaTotals {
 // ── D6 ───────────────────────────────────────────────────────────────────────
 
 /**
- * Whether D6 lets a supplier be named: its code is public in `supplier_privacy`
+ * A party's code as served: a valid one, and never a person's (longer than an organization code,
+ * kernel P0 containment), whatever the status says.
+ */
+const servedFiscalCode = (party: DaPartyRecord): string | null =>
+  party.fiscalCodeStatus === 'valid' &&
+  party.fiscalCode !== null &&
+  !isWithheldOrganizationIdentifier(party.fiscalCode)
+    ? party.fiscalCode
+    : null;
+
+/**
+ * Whether D6 lets a supplier be named: its code is disclosed (`da_parties_public`)
  * (and, defensively, present and valid; public implies both).
  */
 export const isNamedSupplier = (party: DaPartyRecord): boolean =>
-  party.supplierPublic && party.fiscalCode !== null && party.fiscalCodeStatus === 'valid';
+  party.supplierPublic && servedFiscalCode(party) !== null;
 
 const WITHHELD: DaParty = {
   displayKind: 'natural_person',
@@ -322,21 +367,44 @@ const WITHHELD: DaParty = {
   fiscalCode: null,
 };
 
-export const toSupplier = (party: DaPartyRecord): DaParty =>
-  isNamedSupplier(party)
-    ? {
-        displayKind: 'company',
-        partyId: party.portalPartyId,
-        name: party.name,
-        fiscalCode: party.fiscalCode,
-      }
-    : WITHHELD;
+export const toSupplier = (party: DaPartyRecord): DaParty => {
+  if (!isNamedSupplier(party)) return undisclosedSupplier(party);
+  const naming = party.naming;
+  // A code the names view does not let us show: served like a supplier D6 withholds.
+  if (naming?.kind === 'hidden') return WITHHELD;
+  return {
+    displayKind: naming?.kind ?? 'company',
+    partyId: party.portalPartyId,
+    // "Never a CNP": a name written with a personal numeric code is withheld.
+    name: naming === undefined ? publicPartyName(party.name) : servedSupplierName(naming),
+    fiscalCode: party.fiscalCode,
+  };
+};
+
+/**
+ * Naming step 2b: a supplier whose code is shown without D6 disclosing it is served by its code,
+ * as `person_masked` or `code_only` (`undisclosedNaming`); anything less is withheld.
+ */
+const undisclosedSupplier = (party: DaPartyRecord): DaParty => {
+  const code = servedFiscalCode(party);
+  if (party.supplierUndisclosed !== true || party.supplierPublic || code === null) return WITHHELD;
+  if (party.naming === undefined) return WITHHELD;
+  const naming = undisclosedNaming(party.naming);
+  if (naming.kind !== 'person_masked' && naming.kind !== 'code_only') return WITHHELD;
+  return {
+    displayKind: naming.kind,
+    // Not disclosed: the code is the only identifier served (no portal party id).
+    partyId: null,
+    name: servedSupplierName(naming),
+    fiscalCode: code,
+  };
+};
 
 export const toBuyer = (party: DaPartyRecord): DaParty => ({
   displayKind: 'authority',
   partyId: party.portalPartyId,
-  name: party.name,
-  fiscalCode: party.fiscalCodeStatus === 'valid' ? party.fiscalCode : null,
+  name: publicPartyName(party.name),
+  fiscalCode: servedFiscalCode(party),
 });
 
 // ── Mapping with invariants ──────────────────────────────────────────────────
@@ -487,6 +555,10 @@ export const toTotalsGroup = (
   if (groupBy === 'supplier') {
     if (record.supplierBucket === 'none')
       return ok({ ...totals.value, key: null, party: null, noSupplier: true });
+    // A disclosed supplier whose code the names view does not let us show would be a ranked
+    // group of one supplier's totals: refused whole, never relabelled after grouping.
+    if (record.supplierBucket === 'named' && record.party?.naming?.kind === 'hidden')
+      return err(refused('supplier group'));
     // A named bucket is re-checked here: the SQL bucket and this rule must agree.
     const party =
       record.supplierBucket === 'named' && record.party !== null

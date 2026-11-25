@@ -20,6 +20,7 @@ import type { ElicitatiePage } from './elicitatie-page.js';
 import type { BasisCoverageRow, GenerationQuality } from './gate-v2.js';
 import type { ProcurementSearchFilter } from './search.js';
 import type { SourceCaptureReceipts } from './source-capture.js';
+import type { ServedSupplierKind, SupplierNaming } from './supplier-naming.js';
 import type {
   ContractDetail,
   CpvCodeLabel,
@@ -322,6 +323,12 @@ export interface AnalysisRecordRow {
   readonly authorityName: string | null;
   readonly supplierCui: string | null;
   readonly supplierName: string | null;
+  /**
+   * Set by the records usecase when the supplier's code is a person's (longer than an
+   * organization code): `supplierName` is then null, and only the display step may fill it, with
+   * the masked name production serves for that contract. Never served. Absent otherwise.
+   */
+  readonly supplierPerson?: true;
   readonly valueRon: string | null;
   readonly status: string | null;
   /** Contract grain only. */
@@ -329,10 +336,12 @@ export interface AnalysisRecordRow {
   readonly cpvCode: string | null;
   /**
    * Direct acquisitions on procurement_v3 only: how the supplier is served
-   * under D6 — `company` (code and name served) or `natural_person` (both
-   * null); null when the purchase names no supplier. Absent on other sources.
+   * under D6 — `company` (code, and its registry name when public),
+   * `person_masked` (code and masked name), `code_only` (code, no name) or
+   * `natural_person` (both null); null when the purchase names no supplier.
+   * Absent on other sources.
    */
-  readonly supplierDisplayKind?: 'company' | 'natural_person' | null;
+  readonly supplierDisplayKind?: ServedSupplierKind | 'natural_person' | null;
   /**
    * Direct acquisitions on procurement_v3 only: the CPV label as written,
    * shown in the title's place while free text is withheld (`title` is null).
@@ -355,6 +364,21 @@ export interface AnalysisRecordsRead {
 export interface ProcedureCanonicality {
   readonly isCanonical: boolean;
   readonly dupGroupId: string | null;
+}
+
+/**
+ * The public registry names of direct-acquisition supplier codes (PROC-B51G): a code is
+ * present only when its supplier name is public (`party_public_names.supplier_name_public`).
+ * Read per answer and never cached: names move without any publication key moving. Answered
+ * only while publication `buildId` (the one the buckets were read from) is still current and
+ * supplier_disclosure still readable, in one snapshot; otherwise a retryable ServiceUnavailable,
+ * so a name never outlives the D6 state its bucket was decided under.
+ */
+export interface DaSupplierNamesPort {
+  namesOf(
+    buildId: string,
+    codes: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, SupplierNaming>, ApiError>>;
 }
 
 /**

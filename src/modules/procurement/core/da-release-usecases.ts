@@ -347,7 +347,10 @@ export const daPurchaseTotals = async (
   const fault = checkPage(request.page, request.pageSize, null);
   if (fault !== null) return err(fault);
   const shape = { groupBy, page: request.page, pageSize: request.pageSize };
-  const cache = isEmptyFilter(filter.value) ? deps.totalsCache : undefined;
+  // Supplier groups carry registry names (party_public_names reads the registry live: a
+  // name or privacy change does not move data_as_of), so they are never cached.
+  const cache =
+    isEmptyFilter(filter.value) && groupBy !== 'supplier' ? deps.totalsCache : undefined;
 
   return inSnapshot(deps, async (reader, envelope) => {
     const key = `${envelope.dataAsOf}|${String(reader.supplierPrivacyTable())}|${groupBy ?? ''}|${String(shape.page)}|${String(shape.pageSize)}`;

@@ -2,11 +2,15 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+import { parse as parseYaml } from 'yaml';
+
 import {
   assertSafeSealedYaml,
   assertSealedDocument,
   bitwardenLocation,
   buildSecretDocument,
+  checkKustomizationResources,
+  expectedKustomizationResources,
   createRedactor,
   normalizeRegistry,
   fetchBitwardenSecrets,
@@ -183,8 +187,9 @@ const EXTERNAL_KEY =
   '/secrets/transparenta-eu-etl/prod/transparenta-eu-etl-prod/transparenta-eu-etl-infra/transparenta-companies-clickhouse-reader';
 const READER_ID = '888f24cd-c8df-4fc4-88aa-b4d700e02103';
 
-const registryWith = (entries) =>
+const registryWith = (entries, extra = {}) =>
   normalizeRegistry({
+    ...extra,
     version: 1,
     target: {
       namespace: 'transparenta-eu-dev',
@@ -451,4 +456,120 @@ test('strict sealed contract rejects identity swaps, broader scope, raw fields a
       /metadata contract failed/
     );
   }
+});
+
+const EXTERNAL = {
+  name: 'transparenta-prod-api-dev-credentials',
+  sealedBy: 'owner lane',
+  source: 'derived in memory from a BWS record',
+  reseal: 'owner lane',
+};
+
+test('an externally sealed entry is listed in the kustomization but never generated', () => {
+  const registry = registryWith([readerEntry()], { externallySealed: [EXTERNAL] });
+  assert.deepEqual(registry.externallySealed, [EXTERNAL]);
+  assert.deepEqual(expectedKustomizationResources(registry), [
+    'chronos-companies-clickhouse-reader-credentials.sealed.yaml',
+    'transparenta-prod-api-dev-credentials.sealed.yaml',
+  ]);
+  // Exactly registered plus externally sealed, in any order.
+  checkKustomizationResources(registry, [
+    'transparenta-prod-api-dev-credentials.sealed.yaml',
+    'chronos-companies-clickhouse-reader-credentials.sealed.yaml',
+  ]);
+  for (const resources of [
+    ['chronos-companies-clickhouse-reader-credentials.sealed.yaml'],
+    [
+      'chronos-companies-clickhouse-reader-credentials.sealed.yaml',
+      'transparenta-prod-api-dev-credentials.sealed.yaml',
+      'unlisted.sealed.yaml',
+    ],
+    'not-a-list',
+  ]) {
+    assert.throws(
+      () => checkKustomizationResources(registry, resources),
+      /must list exactly all registered and externally sealed/u
+    );
+  }
+  // Without the declaration, the externally sealed file is an unlisted extra.
+  assert.throws(
+    () =>
+      checkKustomizationResources(registryWith([readerEntry()]), [
+        'chronos-companies-clickhouse-reader-credentials.sealed.yaml',
+        'transparenta-prod-api-dev-credentials.sealed.yaml',
+      ]),
+    /must list exactly/u
+  );
+  // The whole batch never includes it; naming it is refused before any credential is fetched.
+  assert.deepEqual(
+    selectSecrets(registry, []).map((entry) => entry.name),
+    ['chronos-companies-clickhouse-reader-credentials']
+  );
+  assert.throws(
+    () => selectSecrets(registry, ['transparenta-prod-api-dev-credentials']),
+    /Sealed outside this registry/u
+  );
+});
+
+test('malformed externally sealed entries are refused when the registry is loaded', () => {
+  const malformed = [
+    [{ externallySealed: 'transparenta-prod-api-dev-credentials' }, /must be an array/u],
+    [{ externallySealed: [{ ...EXTERNAL, source: 37 }] }, /externallySealed\[0\]\.source/u],
+    [{ externallySealed: [{ ...EXTERNAL, reseal: '' }] }, /externallySealed\[0\]\.reseal/u],
+    [{ externallySealed: [{ name: EXTERNAL.name }] }, /externallySealed\[0\]\.sealedBy/u],
+    [{ externallySealed: [EXTERNAL, EXTERNAL] }, /duplicate names/u],
+    // One file, two spellings: names must be Kubernetes Secret names.
+    [
+      { externallySealed: [{ ...EXTERNAL, name: './transparenta-prod-api-dev-credentials' }] },
+      /Kubernetes Secret name/u,
+    ],
+    [{ externallySealed: [{ ...EXTERNAL, name: 'Transparenta-Prod' }] }, /Kubernetes Secret name/u],
+    [{ externallySealed: [{ ...EXTERNAL, name: 'a/b' }] }, /Kubernetes Secret name/u],
+    [
+      {
+        externallySealed: [
+          { ...EXTERNAL, name: 'chronos-companies-clickhouse-reader-credentials' },
+        ],
+      },
+      /overlaps registry\.secrets/u,
+    ],
+  ];
+  for (const [extra, message] of malformed) {
+    assert.throws(() => registryWith([readerEntry()], extra), message);
+  }
+});
+
+test('registered Secret names are Kubernetes Secret names too', () => {
+  for (const name of [
+    './chronos-companies-clickhouse-reader-credentials',
+    '../x',
+    'UPPER',
+    '-lead',
+  ]) {
+    assert.throws(
+      () => registryWith([readerEntry({ name })]),
+      /secrets\[0\]\.name must be a Kubernetes Secret name/u
+    );
+  }
+});
+
+test('the committed Chronos kustomization lists exactly the registered and externally sealed files', async () => {
+  const registry = normalizeRegistry(
+    parseJson(
+      await readFile(
+        new URL('../k8s/overlays/chronos-dev/secrets.registry.json', import.meta.url),
+        'utf8'
+      ),
+      'secret registry'
+    )
+  );
+  assert.deepEqual(
+    registry.externallySealed.map((entry) => entry.name),
+    ['transparenta-prod-api-dev-credentials']
+  );
+  const kustomization = await readFile(
+    new URL('../k8s/overlays/chronos-dev/secrets/kustomization.yaml', import.meta.url),
+    'utf8'
+  );
+  checkKustomizationResources(registry, parseYaml(kustomization).resources);
 });

@@ -8,7 +8,7 @@ import { ok } from 'neverthrow';
 import { Webhook } from 'svix';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 
-import { buildApp, createApp } from '@/app/build-app.js';
+import { buildApp, createApp, getRequestPath } from '@/app/build-app.js';
 import { deserialize } from '@/infra/cache/serialization.js';
 import { createTestAuthProvider } from '@/modules/auth/index.js';
 import { startNotificationDeliveryRuntime } from '@/modules/notification-delivery/index.js';
@@ -2104,6 +2104,63 @@ describe('App Factory', () => {
       expect(completed).toHaveLength(1);
       expect(completed[0]?.res?.statusCode).toBe(200);
       expect(typeof completed[0]?.responseTime).toBe('number');
+
+      await app.close();
+    });
+
+    it('cuts a request target at its query or a raw fragment', () => {
+      expect(getRequestPath('/probe?q=synthetic')).toBe('/probe');
+      expect(getRequestPath('/probe#q=synthetic')).toBe('/probe');
+      expect(getRequestPath('/probe#a?q=synthetic')).toBe('/probe');
+      expect(getRequestPath('/probe%3Fpart;v=1?q=synthetic')).toBe('/probe%3Fpart;v=1');
+      expect(getRequestPath('/health/live')).toBe('/health/live');
+    });
+
+    it('logs the path only, never the query string', async () => {
+      const logs = createLogCollector();
+
+      const app = await buildAppWithFakeRuntimes({
+        fastifyOptions: {
+          logger: { level: 'info', stream: logs.stream },
+          disableRequestLogging: true,
+        },
+        deps: {
+          budgetDb: makeFakeBudgetDb(),
+          datasetRepo: makeFakeDatasetRepo(),
+          config: makeTestConfig(),
+        },
+      });
+
+      app.get('/probe-query', async () => ({ ok: true }));
+      await app.ready();
+
+      // A synthetic personal code in a query parameter (as a caller may type into any filter).
+      const response = await app.inject({
+        method: 'GET',
+        url: '/probe-query?buyerFiscalCode=1960101123456&q=ion%40example.ro',
+      });
+
+      await flushLogs();
+
+      // A missing route answers with its path only (non-production names the route).
+      const missing = await app.inject({
+        method: 'GET',
+        url: '/missing-route?buyerFiscalCode=1960101123456',
+      });
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json<{ message: string }>().message).toBe(
+        'Route GET /missing-route not found'
+      );
+
+      await flushLogs();
+
+      expect(response.statusCode).toBe(200);
+      expect(getLogsForPath(logs.entries, '/probe-query', 'incoming request')).toHaveLength(1);
+      expect(getLogsForPath(logs.entries, '/probe-query', 'request completed')).toHaveLength(1);
+      const raw = JSON.stringify(logs.entries);
+      expect(raw).not.toContain('1960101123456');
+      expect(raw).not.toContain('buyerFiscalCode');
+      expect(raw).not.toContain('example.ro');
 
       await app.close();
     });

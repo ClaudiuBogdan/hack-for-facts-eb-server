@@ -181,8 +181,11 @@ export const totalsTypeDefs = /* GraphQL */ `
   }
 
   extend type Query {
-    "Totals v2: up to 8 requests, all read from one money build."
-    procurementTotals(requests: [ProcurementTotalRequestInput!]!): [ProcurementTotal!]!
+    """
+    Totals v2: up to 8 requests, all read from one money build. Nullable, so a
+    totals error (busy, build not served) nulls only this field, not its siblings.
+    """
+    procurementTotals(requests: [ProcurementTotalRequestInput!]!): [ProcurementTotal!]
   }
 `;
 

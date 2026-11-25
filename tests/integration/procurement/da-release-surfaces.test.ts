@@ -286,7 +286,7 @@ describe('free-text privacy gate', () => {
   });
 });
 
-describe('D6 without supplier_privacy (fails closed)', () => {
+describe('D6 without supplier_disclosure (fails closed)', () => {
   let surfaces: Surfaces;
   beforeAll(async () => {
     surfaces = await build({ supplierPrivacyTable: false });
@@ -448,7 +448,7 @@ describe('release disclosure keys (docs 10, monotonic keys)', () => {
     }
   });
 
-  it('reads unavailable without supplier_privacy (everyone withheld; never cache)', async () => {
+  it('reads unavailable without supplier_disclosure (everyone withheld; never cache)', async () => {
     const surfaces = await build({ supplierPrivacyTable: false });
     try {
       const keys = await keysOn(surfaces);
@@ -457,6 +457,57 @@ describe('release disclosure keys (docs 10, monotonic keys)', () => {
       expect(keys.fromMcp).toEqual(keys.fromGql);
     } finally {
       await surfaces.app.close();
+    }
+  });
+});
+
+describe('PROC-VDWQ: a GraphQL answer naming a DA supplier is never cacheable', () => {
+  const request = async (s: Surfaces, method: 'GET' | 'POST', query: string) => {
+    const res =
+      method === 'POST'
+        ? await s.app.inject({
+            method: 'POST',
+            url: '/graphql',
+            headers: { 'content-type': 'application/json' },
+            payload: JSON.stringify({ query }),
+          })
+        : await s.app.inject({ method: 'GET', url: `/graphql?query=${encodeURIComponent(query)}` });
+    const body = res.json<GqlResponse>();
+    expect(body.errors).toBeUndefined();
+    return { raw: res.body, cacheControl: res.headers['cache-control'] };
+  };
+  const NAMED = `{ procurementDaPurchases(pageSize: 100) { items { supplier { displayKind name } } } }`;
+  const GROUPS = `{ procurementDaTotals(groupBy: supplier, pageSize: 100) { groups { party { displayKind name } } } }`;
+  const UNNAMED = `{ procurementDaPurchases(pageSize: 100) { items { buyer { name } supplier { displayKind fiscalCode } } } }`;
+
+  it('marks list pages and supplier groups that carry a company name no-store, GET and POST', async () => {
+    const surfaces = await build({ supplierPrivacyTable: true });
+    try {
+      for (const method of ['GET', 'POST'] as const)
+        for (const query of [NAMED, GROUPS]) {
+          const answer = await request(surfaces, method, query);
+          expect(answer.raw, `${method} ${query}`).toContain(COMPANY.name ?? '~');
+          expect(answer.cacheControl, `${method} ${query}`).toBe('no-store');
+        }
+    } finally {
+      await surfaces.app.close();
+    }
+  });
+
+  it('leaves answers without a supplier name as they were (buyer names, codes, withheld)', async () => {
+    const surfaces = await build({ supplierPrivacyTable: true });
+    const closed = await build({ supplierPrivacyTable: false });
+    try {
+      for (const method of ['GET', 'POST'] as const) {
+        expect((await request(surfaces, method, UNNAMED)).cacheControl).toBeUndefined();
+        // Without supplier_disclosure every supplier is withheld: no name, no mark.
+        const withheld = await request(closed, method, NAMED);
+        expect(withheld.raw).not.toContain(COMPANY.name ?? '~');
+        expect(withheld.cacheControl).toBeUndefined();
+      }
+    } finally {
+      await surfaces.app.close();
+      await closed.app.close();
     }
   });
 });

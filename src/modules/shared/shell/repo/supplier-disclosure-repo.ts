@@ -1,7 +1,9 @@
 /**
  * Site-wide D6 (owner, 2026-11-18): the supplier codes the API may name as a
- * direct-acquisition supplier, read from the data platform's
- * `procurement_v3.supplier_privacy` (`public = true`).
+ * direct-acquisition supplier, read from the data platform's public view
+ * `procurement_v3.supplier_disclosure` (the public companies of its
+ * `supplier_privacy` classification; SEC-GRANTS-PROC-2211). Every row is
+ * disclosed, so it is read whole.
  *
  * The set is rewritten in the nightly publish together with
  * `procurement_v3.da_release.data_as_of`, so it is cached per `data_as_of`: each
@@ -92,7 +94,7 @@ export const makeSupplierDisclosureRepo = (
           const present = await sql<{ release: boolean; privacy: boolean }>`
             select to_regclass(${`${SCHEMA}.da_release`}) is not null as release,
                    coalesce(
-                     has_table_privilege(to_regclass(${`${SCHEMA}.supplier_privacy`}), 'SELECT'),
+                     has_table_privilege(to_regclass(${`${SCHEMA}.supplier_disclosure`}), 'SELECT'),
                      false
                    ) as privacy`.execute(trx);
           const tables = present.rows[0];
@@ -104,8 +106,8 @@ export const makeSupplierDisclosureRepo = (
           if (asOf === null) return WITHHELD(now());
           if (cached?.asOf === asOf) return { ...cached, loadedAt: now() };
           const rows = await sql<{ code: string }>`
-            select fiscal_code_clean as code from ${sql.table(`${SCHEMA}.supplier_privacy`)}
-            where public is true and fiscal_code_clean is not null`.execute(trx);
+            select fiscal_code_clean as code from ${sql.table(`${SCHEMA}.supplier_disclosure`)}
+            where fiscal_code_clean is not null`.execute(trx);
           return {
             asOf,
             codes: new FiscalCodeSet(
@@ -295,14 +297,16 @@ export const withSearchDisclosure = (
 export const makeDisclosedReadRepos = (
   db: Kysely<ProdDatabase>,
   enforced: boolean,
-  log: DisclosureLog = console
+  log: DisclosureLog = console,
+  /** The procurement grant's pool, which reads `supplier_disclosure` (PRJ-54YB); `db` by default. */
+  disclosureDb: Kysely<ProdDatabase> = db
 ): {
   readonly supplierDisclosure: SupplierDisclosurePort;
   readonly flowsRepo: FlowsRepo;
   readonly documentRepo: DocumentRepo;
   readonly searchRepo: SearchRepo;
 } => {
-  const supplierDisclosure = makeSupplierDisclosureRepo(db, enforced, Date.now, log);
+  const supplierDisclosure = makeSupplierDisclosureRepo(disclosureDb, enforced, Date.now, log);
   return {
     supplierDisclosure,
     flowsRepo: withSupplierDisclosure(makeFlowsRepo(db), supplierDisclosure),

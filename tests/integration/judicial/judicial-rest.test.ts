@@ -11,11 +11,13 @@
  * Expectations are literal.
  */
 
+import { zstdCompressSync } from 'node:zlib';
+
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import { err, ok } from 'neverthrow';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildRedesignApp } from '@/app/build-redesign-app.js';
+import { buildRedesignApp, registerCompression } from '@/app/build-redesign-app.js';
 import { makeJudicialRestPlugin } from '@/modules/judicial/shell/rest/routes.js';
 import { databaseError, invalidInput } from '@/modules/shared/index.js';
 
@@ -409,6 +411,25 @@ describe('judicial REST — envelopes and statuses', () => {
     expect(res.statusCode).toBe(500);
     expect(res.json()).toMatchObject({ ok: false, error: 'Database' });
     expect(res.body).not.toMatch(/boom|secret/u);
+  });
+
+  it('a refusal before the handler stays a client error (415), never a Database 500', async () => {
+    app = fastifyLib({ logger: false });
+    await registerCompression(app);
+    await app.register(makeJudicialRestPlugin({ repos: makeRepos() }), { prefix: PREFIX });
+    await app.ready();
+    const res = await app.inject({
+      method: 'GET',
+      url: `${PREFIX}/courts`,
+      headers: { 'content-encoding': 'zstd' },
+      payload: zstdCompressSync(Buffer.from('{}')),
+    });
+    expect(res.statusCode).toBe(415);
+    expect(res.json()).toMatchObject({
+      ok: false,
+      error: 'RequestRejected',
+      message: 'request rejected',
+    });
   });
 
   it('serializes stored JSON values, text IDs and exceptional native spellings unchanged', async () => {

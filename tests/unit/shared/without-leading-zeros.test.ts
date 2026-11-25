@@ -30,7 +30,7 @@ describe('the public-supplier set', () => {
       respond: (text) => {
         if (text.includes('to_regclass')) return [{ release: true, privacy: true }];
         if (text.includes('max(data_as_of)')) return [{ as_of: '2026-11-18T03:10:00.000000Z' }];
-        if (text.includes('where public is true')) return [{ code: '14399840' }];
+        if (text.includes('"supplier_disclosure"')) return [{ code: '14399840' }];
         return [];
       },
     });

@@ -21,6 +21,7 @@ import { err, ok, type Result } from 'neverthrow';
 import {
   databaseError,
   invalidInput,
+  isWithheldOrganizationIdentifier,
   upstreamError,
   type ApiError,
   type ProdDatabase,
@@ -29,9 +30,10 @@ import {
 import { contractDisplayTitleCandidatesSelect } from './contract-display-title-projection.js';
 import { modificationDeltaPctSql } from './filter-helpers.js';
 import { mapContract, mapDirectAcquisition, mapModification, mapProcedure } from './mappers.js';
+import { servedSupplierNameColumn, servedSupplierNameSql } from './party-name-sql.js';
 import { supportedProcedureIdSql } from './procedure-link-policy.js';
 import { SEARCH_COUNT_CAP } from '../../core/constants.js';
-import { isFreeTextWithheld } from '../../core/free-text-rule.js';
+import { carriesPersonalCode, isFreeTextWithheld } from '../../core/free-text-rule.js';
 import { HIGHLIGHT_CLOSE, HIGHLIGHT_OPEN } from '../../core/opensearch-query.js';
 import {
   assertDaOffsetSelective,
@@ -166,11 +168,28 @@ const cpvCodePredicate = (alias: string, code: string): RawBuilder<unknown> => {
   return sql`${col} like ${prefix} escape '\\'`;
 };
 
+/**
+ * A `q` column. A party name, and a modification's free-text description, is matched with its digits
+ * removed, so no digit in `q` can match inside one (a personal code written into it); numbers are
+ * matched in their own columns. A supplier
+ * name is matched as served (masked for a person), never raw.
+ */
+const qColumn = (alias: string, column: string): RawBuilder<unknown> => {
+  if (column === 'supplier_name') return digitsStripped(servedSupplierNameSql(alias));
+  // Free text that is also served through the free-text rule: no digit may confirm a code in it.
+  if (column === 'authority_name' || column === 'modification_type') {
+    return digitsStripped(ref(alias, column));
+  }
+  return ref(alias, column);
+};
+const digitsStripped = (name: RawBuilder<unknown>): RawBuilder<unknown> =>
+  sql`regexp_replace(${name}, '[0-9]', '', 'g')`;
+
 /** `q` → an escaped, bounded ILIKE across the grain's short text columns. */
 const qPredicate = (grain: SearchGrain, alias: string, q: string): RawBuilder<unknown> => {
   const pattern = escapeLikePattern(q);
   const clauses = Q_COLUMNS[grain].map(
-    (column) => sql`${ref(alias, column)} ilike ${pattern} escape '\\'`
+    (column) => sql`${qColumn(alias, column)} ilike ${pattern} escape '\\'`
   );
   return sql`(${sql.join(clauses, sql` or `)})`;
 };
@@ -218,6 +237,7 @@ interface Hydrated<Out> {
   readonly items: Out[];
   readonly missing: number;
   readonly publicTitles?: ReadonlyMap<string, string>;
+  readonly codedNames?: ReadonlyMap<string, ReadonlySet<NameField>>;
 }
 
 /** pk (as a string) → raw title, for the hydrated rows whose title the rule allows. */
@@ -237,28 +257,81 @@ export const publicTitlesOf = (
 const untagged = (fragment: string): string =>
   fragment.replaceAll(HIGHLIGHT_OPEN, '').replaceAll(HIGHLIGHT_CLOSE, '');
 
+/** The name fields a highlight can quote, by their raw column. */
+const NAME_COLUMNS = [
+  ['authorityName', 'authority_name'],
+  ['supplierName', 'supplier_name'],
+] as const;
+type NameField = (typeof NAME_COLUMNS)[number][0];
+
+/**
+ * pk (as a string) → the hydrated row's name fields whose fragments are withheld, whatever part of
+ * the name they quote: a name that may carry a personal numeric code ("never a CNP"), and a
+ * person's supplier name (served masked; the index holds it raw).
+ */
+export const codedNamesOf = (
+  rows: readonly Record<string, unknown>[],
+  pkColumn: string
+): Map<string, ReadonlySet<NameField>> =>
+  new Map(
+    rows.flatMap((row) => {
+      const supplierCode = row['supplier_cui'];
+      // A supplier name with no served code, or a person's, may be served masked: a fragment of the
+      // indexed raw name never is (a superset of the masked rows: the row's attrs are not read).
+      const personSupplier =
+        typeof supplierCode !== 'string' || isWithheldOrganizationIdentifier(supplierCode);
+      const coded = new Set(
+        NAME_COLUMNS.flatMap(([field, column]) => {
+          const name = row[column];
+          if (field === 'supplierName' && personSupplier) return [field];
+          return typeof name === 'string' && carriesPersonalCode(name) ? [field] : [];
+        })
+      );
+      return coded.size > 0 ? [[String(row[pkColumn]), coded] as const] : [];
+    })
+  );
+
 /**
  * A title fragment is served only when it quotes the row's CURRENT public
  * title (PROC-37DX): never for a row Postgres no longer serves, whose title it
  * withholds, or whose title changed since the index was built (a stale hit
  * quotes the old text). A fragment is part of a withheld title even when it
  * does not carry the marker itself.
+ *
+ * A name fragment is withheld when it, or the row's raw name, may carry a
+ * personal numeric code ("never a CNP"); other name fragments are served.
  */
 export const withPublicTitleHighlights = (
   highlights: readonly SearchHighlight[],
-  publicTitles: ReadonlyMap<string, string> | undefined
+  publicTitles: ReadonlyMap<string, string> | undefined,
+  codedNames?: ReadonlyMap<string, ReadonlySet<NameField>>
 ): SearchHighlight[] =>
   highlights.flatMap((highlight) => {
-    if (highlight.title === undefined) return [highlight];
-    if (publicTitles?.get(highlight.id)?.includes(untagged(highlight.title)) === true) {
-      return [highlight];
-    }
-    const rest: SearchHighlight = {
+    const coded = codedNames?.get(highlight.id);
+    const nameServed = (field: NameField, fragment: string): boolean =>
+      coded?.has(field) !== true && !carriesPersonalCode(untagged(fragment));
+    const title =
+      highlight.title !== undefined &&
+      publicTitles?.get(highlight.id)?.includes(untagged(highlight.title)) === true
+        ? highlight.title
+        : undefined;
+    const served: SearchHighlight = {
       id: highlight.id,
-      ...(highlight.authorityName !== undefined && { authorityName: highlight.authorityName }),
-      ...(highlight.supplierName !== undefined && { supplierName: highlight.supplierName }),
+      ...(title !== undefined && { title }),
+      ...(highlight.authorityName !== undefined &&
+        nameServed('authorityName', highlight.authorityName) && {
+          authorityName: highlight.authorityName,
+        }),
+      ...(highlight.supplierName !== undefined &&
+        nameServed('supplierName', highlight.supplierName) && {
+          supplierName: highlight.supplierName,
+        }),
     };
-    return rest.authorityName !== undefined || rest.supplierName !== undefined ? [rest] : [];
+    return served.title !== undefined ||
+      served.authorityName !== undefined ||
+      served.supplierName !== undefined
+      ? [served]
+      : [];
   });
 
 const FACT_TABLES: Readonly<Partial<Record<SearchGrain, { table: string; pk: string }>>> = {
@@ -417,7 +490,7 @@ const contractSelect = [
   'c.authority_cui',
   'c.authority_name',
   'c.supplier_cui',
-  'c.supplier_name',
+  servedSupplierNameColumn('c'),
   'c.cpv_code',
   'c.currency',
   sql<string | null>`c.value_ron::text`.as('value_ron'),
@@ -448,7 +521,7 @@ const daSelect = [
   'd.authority_cui',
   'd.authority_name',
   'd.supplier_cui',
-  'd.supplier_name',
+  servedSupplierNameColumn('d'),
   'd.cpv_code',
   'd.currency',
   sql<string | null>`d.value_ron::text`.as('value_ron'),
@@ -479,7 +552,7 @@ const modificationSelect = [
   // matched on a name alone).
   'm.authority_name',
   'm.supplier_cui',
-  'm.supplier_name',
+  servedSupplierNameColumn('m'),
   'm.contract_no',
   'm.notice_no',
   sql<string | null>`m.modification_date::text`.as('modification_date'),
@@ -594,7 +667,12 @@ export const makeOffsetSearchRepo = (
       logger?.warn({ grain, missing }, 'search index lists rows postgres no longer serves');
     }
     // The mapper withholds the title; its highlight must go too (PROC-37DX).
-    return { items, missing, publicTitles: publicTitlesOf(rows, pkColumn) };
+    return {
+      items,
+      missing,
+      publicTitles: publicTitlesOf(rows, pkColumn),
+      codedNames: codedNamesOf(rows, pkColumn),
+    };
   };
 
   /**
@@ -653,7 +731,7 @@ export const makeOffsetSearchRepo = (
     }
     const page = result.value;
     try {
-      const { items, missing, publicTitles } = await hydrate(page.pks);
+      const { items, missing, publicTitles, codedNames } = await hydrate(page.pks);
       // A hydration miss means the index and the database disagree about
       // membership. The page is short by construction, so the engine's count
       // can no longer be claimed exact — degrade it rather than assert a total
@@ -666,7 +744,7 @@ export const makeOffsetSearchRepo = (
         total: exact ? page.total : null,
         estimated: !exact,
         facets: page.facets,
-        highlights: withPublicTitleHighlights(page.highlights, publicTitles),
+        highlights: withPublicTitleHighlights(page.highlights, publicTitles, codedNames),
         provenance: { engine: 'opensearch' as const, asOf: page.asOf },
       });
     } catch (error) {
@@ -789,7 +867,7 @@ export const makeOffsetSearchRepo = (
       others.length === 0
         ? sql`false`
         : sql`(${sql.join(
-            others.map((column) => sql`${ref(b.alias, column)} ilike ${pattern} escape '\\'`),
+            others.map((column) => sql`${qColumn(b.alias, column)} ilike ${pattern} escape '\\'`),
             sql` or `
           )})`;
     /** Append the kept rows' keys; true when the batch was the last one. */

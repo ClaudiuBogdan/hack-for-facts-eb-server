@@ -5,16 +5,21 @@
  *
  * One read-only, repeatable-read transaction per request (`snapshot`). The
  * snapshot also probes the columns the contract still lists as pending
- * (`da_purchases.listed_now`, line and free-text flags) so the reader works
- * before and after they land. Parties join on (source_name, party_kind,
- * portal_party_id). Columns are named: the contract's unserved columns
- * (estimates, amount/currency/VAT basis, rule conditions, keys, internal review
- * columns, party contacts and addresses) are never selected.
+ * (`da_purchases.listed_now`, line and free-text columns) so the reader works
+ * before and after they land. Parties come from `da_parties_public` and join on
+ * (source_name, party_kind, portal_party_id); a supplier party id with no public
+ * row is a withheld supplier. Named suppliers' names come from
+ * `party_public_names`, by code, after a page is read. Columns are named: the
+ * contract's unserved columns (estimates, amount/currency/VAT basis, rule
+ * conditions, keys, internal review columns, raw free text) are never selected;
+ * free text is read only from the platform's `*_shown` columns, and purchase
+ * descriptions are never read.
  *
  * D6 in SQL (`namedSupplier`) is used only to filter and to bucket totals;
  * every party that reaches a response is re-checked by the core rule.
  */
 
+import { Decimal } from 'decimal.js';
 import { sql, type Kysely, type RawBuilder } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
@@ -30,26 +35,38 @@ import {
 
 import {
   daV3Table,
+  DA_PARTIES_PUBLIC,
   DA_RELEASE_SCHEMA,
+  disclosedPartySql,
+  DISCLOSED_COLUMN_STATE_SQL,
+  disclosedColumnOf,
   namedSupplierSql,
-  probeSupplierPrivacy,
-  supplierPrivacyJoin,
+  probeSupplierDisclosedColumn,
+  type DisclosedColumn,
+  probeSupplierDisclosure,
+  undisclosedSupplierSql,
+  purchaseParties,
+  SUPPLIER_DISCLOSURE_NAME,
+  supplierNamesByCode,
 } from './da-v3-sql.js';
 import { DA_LIST_MAX_DEPTH } from '../../core/da-release-usecases.js';
+import {
+  isNamedSupplier,
+  type DaItemRecord,
+  type DaPartyRecord,
+  type DaPurchaseRecord,
+  type DaTotalsGroupRecord,
+  type DaTotalsRecord,
+} from '../../core/da-release.js';
 
 import type {
   DaPurchaseFilter,
   DaReleaseReader,
   DaReleaseRepo,
   DaTotalsQuery,
+  DaTotalsRecords,
 } from '../../core/da-release-ports.js';
-import type {
-  DaItemRecord,
-  DaPartyRecord,
-  DaPurchaseRecord,
-  DaTotalsGroupRecord,
-  DaTotalsRecord,
-} from '../../core/da-release.js';
+import type { SupplierNaming } from '../../core/supplier-naming.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -57,7 +74,7 @@ export { DA_RELEASE_SCHEMA } from './da-v3-sql.js';
 
 const table = daV3Table;
 const PURCHASES = table('da_purchases');
-const PARTIES = table('da_parties');
+const PARTIES = DA_PARTIES_PUBLIC;
 const RULES = table('da_value_rules');
 const ITEMS = table('da_items');
 const RELEASE = table('da_release');
@@ -72,6 +89,9 @@ const readError = (error: unknown): ApiError => {
   // Undefined schema/table/column: the serving tables are not deployed (yet).
   if (code === '42P01' || code === '42703' || code === '3F000')
     return serviceUnavailable('Direct acquisitions release 1 tables are not deployed.');
+  // Insufficient privilege: a relation or column outside the API's grant is not served.
+  if (code === '42501')
+    return serviceUnavailable('Direct acquisitions data is not readable by this API.');
   if (code === '57014') return timeoutError('Direct acquisitions read timed out.');
   return databaseError('Direct acquisitions read failed', error);
 };
@@ -92,22 +112,29 @@ interface PartyColumns {
   fiscal_code_clean: string | null;
   fiscal_code_status: string | null;
   supplier_public: boolean;
+  supplier_undisclosed?: boolean;
 }
 
-/** The selected columns of one party alias, prefixed. Contacts and addresses are never read. */
-const PARTY_COLUMNS = [
-  'portal_party_id',
-  'name_as_written',
-  'fiscal_code_clean',
-  'fiscal_code_status',
-];
-/** `supplier_public` for `s` comes from `supplier_privacy` (alias `sv`); a buyer is never classified. */
-const partyColumns = (alias: 'b' | 's', supplierPrivacy: boolean) =>
+/** The selected columns of one public party alias, prefixed (the views carry no contacts or addresses). */
+const PARTY_COLUMNS = ['name_as_written', 'fiscal_code_clean', 'fiscal_code_status'];
+/**
+ * A buyer is its public row. A supplier's id is the purchase's own supplier
+ * party id, so a withheld supplier (no public row) still reads as a party and
+ * is served withheld; `supplier_public` is D6 in SQL. A buyer is never classified.
+ */
+const partyColumns = (alias: 'b' | 's', columns: Columns) =>
   sql.join([
+    sql`${alias === 's' ? sql`p.supplier_party_id` : sql`b.portal_party_id`} as ${sql.id(`${alias}_portal_party_id`)}`,
     ...PARTY_COLUMNS.map(
       (column) => sql`${sql.ref(`${alias}.${column}`)} as ${sql.id(`${alias}_${column}`)}`
     ),
-    sql`${alias === 's' && supplierPrivacy ? sql`coalesce(sv.public, false)` : sql`false`} as ${sql.id(`${alias}_supplier_public`)}`,
+    sql`${alias === 's' ? namedSupplier(columns) : sql`false`} as ${sql.id(`${alias}_supplier_public`)}`,
+    // Naming step 2b only: before the column exists the select list is as it was.
+    ...(columns.supplierDisclosed
+      ? [
+          sql`${alias === 's' ? undisclosedSupplierSql(columns.supplierDisclosure, true) : sql`false`} as ${sql.id(`${alias}_supplier_undisclosed`)}`,
+        ]
+      : []),
   ]);
 
 const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | null => {
@@ -123,6 +150,7 @@ const partyOf = (row: Record<string, unknown>, prefix: string): DaPartyRecord | 
     fiscalCode: text('fiscal_code_clean'),
     fiscalCodeStatus: text('fiscal_code_status'),
     supplierPublic: row[`${prefix}_supplier_public`] === true,
+    ...(row[`${prefix}_supplier_undisclosed`] === true && { supplierUndisclosed: true }),
   };
 };
 
@@ -209,31 +237,38 @@ const toPurchaseRecord = (row: PurchaseRow): DaPurchaseRecord => ({
 });
 
 interface Columns {
-  /** `supplier_privacy` exists. Absent: every supplier is withheld (D6 fails closed). */
-  readonly supplierPrivacy: boolean;
+  /** `supplier_disclosure` is readable. Not: every supplier is withheld (D6 fails closed). */
+  readonly supplierDisclosure: boolean;
+  /**
+   * `da_parties_public.supplier_disclosed` exists (naming step 2b): the gate is that column, and a
+   * supplier row without it shows its code at row level only. Absent: the row is the gate.
+   */
+  readonly supplierDisclosed: boolean;
+  /** The column's probed state, so the after-read check can see a change (see `probeRelease`). */
+  readonly disclosedColumn: DisclosedColumn;
   readonly listedNow: boolean;
   /** `da_items.superseded_at`: lines the sync no longer sees; only current lines are served. */
   readonly itemSupersededAt: boolean;
   /**
-   * Free-text gates (decision 2026-11-10: free text is restricted until the
-   * loader marks a field public). Absent column, or a false/null flag: the
-   * text is never selected and the field is served withheld.
+   * Free text (decision 2026-11-10: restricted until the platform marks a field
+   * public). Read only from the platform's `*_shown` column, and only while its
+   * public flag exists too; otherwise the text is never selected and the field
+   * is served withheld. Purchase descriptions are never read.
    */
-  readonly titlePublic: boolean;
-  readonly descriptionPublic: boolean;
-  readonly itemNamePublic: boolean;
-  /** `da_items.item_unit_public`: the unit is free text too (procurement-prod, 18 Nov). */
-  readonly itemUnitPublic: boolean;
+  readonly titleShown: boolean;
+  readonly itemNameShown: boolean;
+  /** The unit is free text too (procurement-prod, 18 Nov). */
+  readonly itemUnitShown: boolean;
 }
 
-/** A gated free-text column: the text leaves the database only when its row's flag is true. */
-const gatedText = (present: boolean, flag: string, column: string, alias: string) =>
+/**
+ * A shown free-text column: the platform's `*_shown` text, served only where
+ * its row's flag is true as well (defence in depth over the platform's mask).
+ */
+const shownText = (present: boolean, flag: string, column: string, alias: string) =>
   present
     ? sql`case when ${sql.ref(flag)} is true then ${sql.ref(column)} end as ${sql.id(alias)}, coalesce(${sql.ref(flag)}, false) as ${sql.id(`${alias}_public`)}`
     : sql`null::text as ${sql.id(alias)}, false as ${sql.id(`${alias}_public`)}`;
-
-/** The supplier's classification row; joined only when the table exists. */
-const privacyJoin = (columns: Columns) => supplierPrivacyJoin(columns.supplierPrivacy);
 
 /** Dates and timestamps as text, so the driver never builds a JS Date. Money stays numeric text. */
 const purchaseSelect = (columns: Columns) => sql`
@@ -252,44 +287,70 @@ const purchaseSelect = (columns: Columns) => sql`
     r.public_description_ro as rule_description_ro,
     p.symbolic_price,
     ${columns.listedNow ? sql`p.listed_now` : sql`null::boolean`} as listed_now,
-    ${gatedText(columns.titlePublic, 'p.title_public', 'p.title', 'title')},
-    ${gatedText(columns.descriptionPublic, 'p.description_public', 'p.description', 'description')},
+    ${shownText(columns.titleShown, 'p.title_public', 'p.title_shown', 'title')},
+    null::text as description, false as description_public,
     p.category_code, p.category_as_written, p.acquisition_type_label,
-    ${partyColumns('b', false)},
-    ${partyColumns('s', columns.supplierPrivacy)}
+    ${partyColumns('b', columns)},
+    ${partyColumns('s', columns)}
   from ${PURCHASES} p
-  left join ${PARTIES} b
-    on b.source_name = p.source_name and b.party_kind = 'buyer'
-   and b.portal_party_id = p.buyer_party_id
-  left join ${PARTIES} s
-    on s.source_name = p.source_name and s.party_kind = 'supplier'
-   and s.portal_party_id = p.supplier_party_id
-  ${privacyJoin(columns)}
+  ${purchaseParties(true, undefined, columns.supplierDisclosed)}
   left join ${RULES} r on r.rule = p.value_review_rule`;
 
-/** The list orders; purchase_id breaks every tie, so pages never overlap. */
-const LIST_ORDER = {
-  finalizationDesc: sql`p.finalization_day desc nulls last, p.purchase_id desc`,
-  finalizationAsc: sql`p.finalization_day asc nulls last, p.purchase_id asc`,
-  countedValueDesc: sql`p.counted_value desc nulls last, p.purchase_id desc`,
+/**
+ * The list orders, served as `finalization_day desc|asc nulls last` and `counted_value desc nulls
+ * last`, purchase_id breaking every tie (pages never overlap). Each runs in two phases: the rows
+ * with a key by an order an index serves, then the rows without one by purchase_id, the offset
+ * carried across. A single `desc nulls last` order cannot use da_purchases_finalization_day_idx
+ * (a descending scan puts nulls first), so it sorted all 22.6M purchases and timed out; phase 1
+ * takes 135 ms cold (procurement-prod, prod, 22 Nov; PROC-AP75). countedValueDesc's phase 1
+ * matches the (counted_value desc, purchase_id desc) where-counted index (a counted value exists
+ * only when counted).
+ */
+const LIST_PHASES = {
+  finalizationDesc: {
+    keyed: sql`p.finalization_day is not null`,
+    keyedOrder: sql`p.finalization_day desc, p.purchase_id desc`,
+    restOrder: sql`p.purchase_id desc`,
+  },
+  finalizationAsc: {
+    keyed: sql`p.finalization_day is not null`,
+    keyedOrder: sql`p.finalization_day asc, p.purchase_id asc`,
+    restOrder: sql`p.purchase_id asc`,
+  },
+  countedValueDesc: {
+    keyed: sql`p.counted and p.counted_value is not null`,
+    keyedOrder: sql`p.counted_value desc, p.purchase_id desc`,
+    restOrder: sql`p.purchase_id desc`,
+  },
 } as const;
 
-/** D6 in SQL, over supplier alias `s` and its `supplier_privacy` row `sv`: see `isNamedSupplier` in core. */
-const namedSupplier = (columns: Columns) => namedSupplierSql(columns.supplierPrivacy);
+/** D6 in SQL, over the public supplier alias `s`: see `isNamedSupplier` in core. */
+const namedSupplier = (columns: Columns) =>
+  namedSupplierSql(columns.supplierDisclosure, columns.supplierDisclosed);
 
 /** The filter's conditions over `p`, with `b` and `s` joined. */
 const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown> => {
   const conditions: RawBuilder<unknown>[] = [sql`true`];
   // By party ids: the planner reaches the purchases through the party index instead of
   // filtering a year of purchases on the joined party row (procurement-prod measured, 18 Nov).
+  // A supplier also needs the D6 column once it exists: a row that only shows its code is never
+  // a filter (naming step 2b).
   const partyIds = (kind: 'buyer' | 'supplier', column: RawBuilder<unknown>, code: string) =>
     sql`(p.source_name, ${column}) in (select pp.source_name, pp.portal_party_id from ${PARTIES} pp
-        where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${withoutLeadingZeros(code)})`;
+        where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${withoutLeadingZeros(code)}${
+          kind === 'supplier' ? disclosedPartySql(columns.supplierDisclosed) : sql``
+        })`;
   if (filter.buyerFiscalCode !== undefined)
     conditions.push(partyIds('buyer', sql`p.buyer_party_id`, filter.buyerFiscalCode));
+  // The party-id match IS the D6 test: before naming step 2b the view held a supplier row only
+  // for a disclosed code; once it carries supplier_disclosed the subquery requires that column
+  // (`disclosedPartySql`). It also requires fiscal_code_status = 'valid' and an equal, non-null
+  // code on the same unique party key, so no row probes `s` to filter. Unreadable D6: none.
   if (filter.supplierFiscalCode !== undefined)
     conditions.push(
-      sql`${partyIds('supplier', sql`p.supplier_party_id`, filter.supplierFiscalCode)} and ${namedSupplier(columns)}`
+      columns.supplierDisclosure
+        ? partyIds('supplier', sql`p.supplier_party_id`, filter.supplierFiscalCode)
+        : sql`false`
     );
   if (filter.cpvDivision !== undefined)
     conditions.push(sql`left(p.category_code, 2) = ${filter.cpvDivision}`);
@@ -305,15 +366,80 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
   return sql.join(conditions, sql` and `);
 };
 
-const scopeFrom = (columns: Columns) => sql`
+interface PartyKey {
+  source_name: string;
+  portal_party_id: string;
+}
+
+/** The public party rows of one code: what the filter's `partyIds` subquery reads, as rows. */
+const partyKeys = async (
+  trx: Db,
+  kind: 'buyer' | 'supplier',
+  code: string,
+  columns: Columns
+): Promise<PartyKey[]> =>
+  (
+    await sql<PartyKey>`
+      select pp.source_name, pp.portal_party_id from ${PARTIES} pp
+      where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid'
+        and pp.fiscal_code_clean = ${withoutLeadingZeros(code)}${
+          kind === 'supplier' ? disclosedPartySql(columns.supplierDisclosed) : sql``
+        }`.execute(trx)
+  ).rows;
+
+/**
+ * The filter's conditions, with a buyer x supplier pair resolved to party ids first. With both
+ * codes in subqueries the planner estimated a nationally large supplier's side at a few hundred
+ * rows and drove the read from it, filtering the buyer per row (a 501,760-purchase supplier: 464k
+ * rows read, 1.9 s, and two such pages at once reached the 10 s timeout on dev, 25 Nov). With the
+ * ids bound, it reads the buyer-day index with real estimates (186 ms; 3 ms for a small pair).
+ * The ids are read in the same snapshot, from the same view and with the same D6 condition as the
+ * subqueries, so the rows are the same. A filter with one code or none keeps the subqueries.
+ */
+const resolvedWhereOf = async (
+  trx: Db,
+  filter: DaPurchaseFilter,
+  columns: Columns
+): Promise<RawBuilder<unknown>> => {
+  const { buyerFiscalCode, supplierFiscalCode, ...rest } = filter;
+  if (
+    buyerFiscalCode === undefined ||
+    supplierFiscalCode === undefined ||
+    !columns.supplierDisclosure
+  )
+    return whereOf(filter, columns);
+  const buyers = await partyKeys(trx, 'buyer', buyerFiscalCode, columns);
+  const suppliers = await partyKeys(trx, 'supplier', supplierFiscalCode, columns);
+  const idsOf = (keys: readonly PartyKey[], source: string) =>
+    keys.filter((key) => key.source_name === source).map((key) => key.portal_party_id);
+  const sources = [...new Set(buyers.map((key) => key.source_name))].filter((source) =>
+    suppliers.some((key) => key.source_name === source)
+  );
+  const pair =
+    sources.length === 0
+      ? sql`false`
+      : sql`(${sql.join(
+          sources.map(
+            (source) =>
+              sql`(p.source_name = ${source} and p.buyer_party_id = any(${idsOf(buyers, source)}::text[])
+                and p.supplier_party_id = any(${idsOf(suppliers, source)}::text[]))`
+          ),
+          sql` or `
+        )})`;
+  return sql`${whereOf(rest, columns)} and ${pair}`;
+};
+
+/** Whole-table aggregates (totals): plain joins, so the view is built once per statement. */
+const SCOPE_FROM = sql`
   from ${PURCHASES} p
-  left join ${PARTIES} b
-    on b.source_name = p.source_name and b.party_kind = 'buyer'
-   and b.portal_party_id = p.buyer_party_id
-  left join ${PARTIES} s
-    on s.source_name = p.source_name and s.party_kind = 'supplier'
-   and s.portal_party_id = p.supplier_party_id
-  ${privacyJoin(columns)}`;
+  ${purchaseParties(false)}`;
+
+/**
+ * A list's capped count, with no party join: no filter reads the joined `b` or `s` (a party filter
+ * resolves party ids through its own subquery on the public view).
+ */
+const COUNT_FROM = sql`
+  from ${PURCHASES} p`;
 
 const MEASURES = sql`
   sum(p.counted_value) filter (where p.counted)::text as counted_value,
@@ -328,8 +454,19 @@ interface MeasureRow {
   purchase_count: string;
 }
 
+/**
+ * A summed counted value with at least cents, never rounded: purchases carry their value at the
+ * scale the portal gave (a sum of `13465400.0`s prints `13465400.0`), the rollup at two decimals,
+ * and both must read alike.
+ */
+const atLeastCents = (text: string | null): string | null => {
+  if (text === null) return null;
+  const value = new Decimal(text);
+  return value.toFixed(Math.max(2, value.decimalPlaces()));
+};
+
 const toMeasures = (row: MeasureRow): DaTotalsRecord => ({
-  countedValue: row.counted_value,
+  countedValue: atLeastCents(row.counted_value),
   countedCount: row.counted_count,
   symbolicPriceCount: row.symbolic_price_count,
   purchaseCount: row.purchase_count,
@@ -341,6 +478,202 @@ const exactCount = (text: string | undefined): Result<number, ApiError> => {
     ? ok(value)
     : err(databaseError('Direct acquisitions count is not an exact integer.'));
 };
+
+// ── Supplier totals from the per-party rollup (PROC-AP75) ────────────────────
+
+const SUPPLIER_PARTY_ROLLUP = table('da_rollup_supplier_party_month');
+const SUPPLIER_PARTY_ROLLUP_NAME = `${DA_RELEASE_SCHEMA}.da_rollup_supplier_party_month`;
+const RELEASE_NAME = `${DA_RELEASE_SCHEMA}.da_release`;
+
+/** `YYYY-MM-DD` is the last day of its month (UTC calendar; integer arithmetic only). */
+const isMonthEnd = (day: string): boolean => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(day);
+  if (match === null) return false;
+  const [year, month, date] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  return new Date(Date.UTC(year, month, 0)).getUTCDate() === date;
+};
+
+/**
+ * Supplier totals the per-party rollup can answer: no filter, or only a finalization range whose
+ * bounds fall on month boundaries (the rollup holds months). Any other filter reads the purchases.
+ */
+// The overall figures do not depend on the grouping, so an ungrouped request (overall only) reads
+// the same per-party tables as a supplier-grouped one: a scan of every purchase timed out at 10 s.
+const rollupEligible = (query: DaTotalsQuery): boolean => {
+  if (query.groupBy !== 'supplier' && query.groupBy !== null) return false;
+  const { finalizationFrom, finalizationTo, ...rest } = query.filter;
+  // Any other filter field set (a key present with an undefined value is no filter).
+  if (Object.values(rest).some((value: unknown) => value !== undefined)) return false;
+  return (
+    (finalizationFrom === undefined || finalizationFrom.endsWith('-01')) &&
+    (finalizationTo === undefined || isMonthEnd(finalizationTo))
+  );
+};
+
+/**
+ * The rollup answers only when this login can read it and the release says it was built for this
+ * very publication (`supplier_party_rollup_for = data_as_of`), both read in the totals' own
+ * snapshot. Otherwise the purchases answer, as before the rollup existed. The rollup holds cents
+ * (numeric(20,2)) and is exact: counted_value scale ≤ 2 is enforced by
+ * procurement_v3.da_purchases_counted_value_scale_check (20261121T090000, validated on prod).
+ */
+const rollupFresh = async (trx: Db, tableName: string, marker: string): Promise<boolean> => {
+  const readable = await sql<{ usable: boolean | null }>`
+    select coalesce(has_table_privilege(to_regclass(${tableName}), 'SELECT'), false)
+      and case when exists (
+            select 1 from pg_attribute a
+            where a.attrelid = to_regclass(${RELEASE_NAME}) and a.attname = ${marker}
+              and a.attnum > 0 and not a.attisdropped)
+          then has_column_privilege(to_regclass(${RELEASE_NAME}), ${marker}, 'SELECT')
+          else false end as usable`.execute(trx);
+  if (readable.rows[0]?.usable !== true) return false;
+  const fresh = await sql<{ fresh: boolean | null }>`
+    select ${sql.ref(`r.${marker}`)} = r.data_as_of as fresh
+    from ${RELEASE} r
+    where r.data_as_of = (select max(data_as_of) from ${RELEASE})`.execute(trx);
+  return fresh.rows.length === 1 && fresh.rows[0]?.fresh === true;
+};
+
+const supplierPartyRollupFresh = (trx: Db): Promise<boolean> =>
+  rollupFresh(trx, SUPPLIER_PARTY_ROLLUP_NAME, 'supplier_party_rollup_for');
+
+/**
+ * The rollup's rows in the range, summed per (source_name, supplier_party_id) FIRST, as relation
+ * `p` with the MEASURES of the purchases they sum; only then the supplier's public party row `s`.
+ * An emptied bucket (purchases 0) is skipped; a month range matches the day range it stands for
+ * (a NULL month, no finalization day, only when unbounded, as `p.finalization_day >= …` would).
+ */
+const rollupWhere = (filter: DaPurchaseFilter): RawBuilder<unknown> => {
+  const conditions: RawBuilder<unknown>[] = [sql`r.purchases > 0`];
+  if (filter.finalizationFrom !== undefined)
+    conditions.push(sql`r.month >= ${filter.finalizationFrom}::date`);
+  if (filter.finalizationTo !== undefined)
+    conditions.push(sql`r.month <= date_trunc('month', ${filter.finalizationTo}::date)::date`);
+  return sql.join(conditions, sql` and `);
+};
+
+const rollupFrom = (filter: DaPurchaseFilter): RawBuilder<unknown> => {
+  return sql`
+  from (select r.source_name, r.supplier_party_id,
+               sum(r.counted_value) filter (where r.counted_purchases > 0) as counted_value,
+               sum(r.counted_purchases) as counted_count,
+               sum(r.counted_symbolic_purchases) as symbolic_price_count,
+               sum(r.purchases) as purchase_count
+        from ${SUPPLIER_PARTY_ROLLUP} r
+        where ${rollupWhere(filter)}
+        group by 1, 2) p
+  left join ${PARTIES} s
+    on s.source_name = p.source_name and s.party_kind = 'supplier'
+   and s.portal_party_id = p.supplier_party_id`;
+};
+
+/**
+ * The overall line straight from the rollup's rows: it needs no party, so no per-party sums and no
+ * view join (prod, 22 Nov: 0.3 s against 2.2 s through the sums).
+ */
+const rollupOverall = (filter: DaPurchaseFilter): RawBuilder<unknown> => sql`
+  select (sum(r.counted_value) filter (where r.counted_purchases > 0))::text as counted_value,
+         coalesce(sum(r.counted_purchases), 0)::text as counted_count,
+         coalesce(sum(r.counted_symbolic_purchases), 0)::text as symbolic_price_count,
+         coalesce(sum(r.purchases), 0)::text as purchase_count
+  from ${SUPPLIER_PARTY_ROLLUP} r
+  where ${rollupWhere(filter)}`;
+
+/** MEASURES over the per-party sums (null counted value: no counted purchase). */
+const ROLLUP_MEASURES = sql`
+  sum(p.counted_value)::text as counted_value,
+  sum(p.counted_count)::text as counted_count,
+  sum(p.symbolic_price_count)::text as symbolic_price_count,
+  sum(p.purchase_count)::text as purchase_count`;
+
+// ── Unfiltered supplier totals from the all-time per-party table (PROC-AP75) ──
+
+const SUPPLIER_PARTY_TOTALS = table('da_rollup_supplier_party');
+const SUPPLIER_PARTY_TOTALS_NAME = `${DA_RELEASE_SCHEMA}.da_rollup_supplier_party`;
+
+/** Unfiltered supplier totals: every filter field unset. */
+const unfiltered = (query: DaTotalsQuery): boolean =>
+  (query.groupBy === 'supplier' || query.groupBy === null) &&
+  Object.values(query.filter).every((value: unknown) => value === undefined);
+
+/** The all-time table answers while readable and built for this publication (same snapshot). */
+const supplierPartyTotalsFresh = (trx: Db): Promise<boolean> =>
+  rollupFresh(trx, SUPPLIER_PARTY_TOTALS_NAME, 'supplier_party_totals_for');
+
+/**
+ * The all-time per-party table's groups `g`, one row each: a disclosed party is its own named
+ * group (keyed and ordered exactly as the purchases name it, `source_name:party id`), every other
+ * party one withheld group, the purchases with no supplier one none group. `disclosed` is the D6
+ * named predicate the data platform evaluated at publish (a public party row with a valid code);
+ * it counts only while supplier_disclosure is readable now, else every supplier is withheld. The
+ * table holds no codes: the page's parties are probed below.
+ */
+const allTimeGroups = (named: RawBuilder<unknown>): RawBuilder<unknown> => sql`
+  with t as materialized (
+    select source_name, supplier_party_id, purchases, counted_purchases, counted_value,
+           counted_symbolic_purchases, ${named} as named
+    from ${SUPPLIER_PARTY_TOTALS} where purchases > 0),
+  g as (
+    select source_name || ':' || supplier_party_id as group_key, 'named'::text as g_bucket,
+           source_name, supplier_party_id,
+           case when counted_purchases > 0 then counted_value end as counted_value,
+           counted_purchases as counted_count, counted_symbolic_purchases as symbolic_price_count,
+           purchases as purchase_count
+    from t where named and supplier_party_id is not null
+    union all
+    select null, 'withheld', null, null,
+           sum(counted_value) filter (where counted_purchases > 0), sum(counted_purchases),
+           sum(counted_symbolic_purchases), sum(purchases)
+    from t where not named and supplier_party_id is not null having count(*) > 0
+    union all
+    select null, 'none', null, null,
+           sum(counted_value) filter (where counted_purchases > 0), sum(counted_purchases),
+           sum(counted_symbolic_purchases), sum(purchases)
+    from t where supplier_party_id is null having count(*) > 0)`;
+
+/** The groups' order, on relation `alias`'s numeric columns (never a text alias of the select). */
+const allTimeOrder = (alias: string): RawBuilder<unknown> => {
+  const column = (name: string) => sql.ref(`${alias}.${name}`);
+  return sql`${column('counted_value')} desc nulls last, ${column('purchase_count')} desc,
+    ${column('group_key')} asc nulls last, ${column('g_bucket')} asc nulls last`;
+};
+
+/** One page of the all-time groups, each named one with its public party row (fenced probe). */
+const allTimePage = (
+  named: RawBuilder<unknown>,
+  limit: number,
+  offset: number,
+  disclosedColumn: boolean
+): RawBuilder<unknown> => sql`
+  ${allTimeGroups(named)},
+  page as (select * from g order by ${allTimeOrder('g')} limit ${limit} offset ${offset})
+  select page.group_key, page.g_bucket,
+         s.portal_party_id as g_portal_party_id, s.name_as_written as g_name_as_written,
+         s.fiscal_code_clean as g_fiscal_code_clean, s.fiscal_code_status as g_fiscal_code_status,
+         page.g_bucket = 'named' as g_supplier_public,
+         page.counted_value::text as counted_value, page.counted_count::text as counted_count,
+         page.symbolic_price_count::text as symbolic_price_count,
+         page.purchase_count::text as purchase_count,
+         (select count(*) from g)::text as group_count
+  from page
+  left join lateral (
+    select x.portal_party_id, x.name_as_written, x.fiscal_code_clean, x.fiscal_code_status
+    from ${PARTIES} x
+    where page.g_bucket = 'named' and x.source_name = page.source_name
+      and x.party_kind = 'supplier' and x.portal_party_id = page.supplier_party_id${
+        // A party the table calls disclosed but the view's gate does not: no row, so refused.
+        disclosedColumn ? sql` and x.supplier_disclosed is true` : sql``
+      }
+    offset 0) s on true
+  order by ${allTimeOrder('page')}`;
+
+/** The overall line straight from the all-time table. */
+const ALL_TIME_OVERALL = sql`
+  select (sum(counted_value) filter (where counted_purchases > 0))::text as counted_value,
+         coalesce(sum(counted_purchases), 0)::text as counted_count,
+         coalesce(sum(counted_symbolic_purchases), 0)::text as symbolic_price_count,
+         coalesce(sum(purchases), 0)::text as purchase_count
+  from ${SUPPLIER_PARTY_TOTALS} where purchases > 0`;
 
 // ── Totals grouping ──────────────────────────────────────────────────────────
 
@@ -369,7 +702,7 @@ const groupSelect = (groupBy: NonNullable<DaTotalsQuery['groupBy']>, columns: Co
       const when = (column: string) => sql`case when ${named} then ${sql.ref(`s.${column}`)} end`;
       return {
         select: sql`case when ${named} then s.source_name || ':' || s.portal_party_id end as group_key,
-          case when s.portal_party_id is null then 'none' when ${named} then 'named' else 'withheld' end as g_bucket,
+          case when p.supplier_party_id is null then 'none' when ${named} then 'named' else 'withheld' end as g_bucket,
           ${when('portal_party_id')} as g_portal_party_id,
           ${when('name_as_written')} as g_name_as_written,
           ${when('fiscal_code_clean')} as g_fiscal_code_clean,
@@ -444,7 +777,118 @@ const toGroupRecord = (
   };
 };
 
+// ── Supplier names ───────────────────────────────────────────────────────────
+
+/**
+ * A disclosed supplier's naming (`supplierNamesByCode`: the names view when this
+ * login may read it, else its public registry name), read by code after the page
+ * (the public party view carries no supplier name). A withheld supplier is
+ * untouched: the core serves it with no name anyway.
+ */
+/** Every requested code has an entry; a missing one fails closed (code only). */
+const nameSupplier = (party: DaPartyRecord, naming: SupplierNaming | undefined): DaPartyRecord => {
+  const served = naming ?? { kind: 'code_only', name: null };
+  return { ...party, name: served.name, naming: served };
+};
+
+const withSupplierNames = async <T>(
+  trx: Db,
+  items: readonly T[],
+  supplierOf: (item: T) => DaPartyRecord | null,
+  withSupplier: (item: T, supplier: DaPartyRecord) => T
+): Promise<Result<T[], ApiError>> => {
+  const named = (item: T): DaPartyRecord | null => {
+    const party = supplierOf(item);
+    return party !== null && (isNamedSupplier(party) || party.supplierUndisclosed === true)
+      ? party
+      : null;
+  };
+  const codes = items.flatMap((item) => named(item)?.fiscalCode ?? []);
+  if (codes.length === 0) return ok([...items]);
+  const names = await attempt(() => supplierNamesByCode(trx, codes));
+  if (names.isErr()) return err(names.error);
+  return ok(
+    items.map((item) => {
+      const party = named(item);
+      const code = party?.fiscalCode ?? null;
+      return party === null || code === null
+        ? item
+        : withSupplier(item, nameSupplier(party, names.value.get(code)));
+    })
+  );
+};
+
+const namePurchases = (trx: Db, rows: readonly DaPurchaseRecord[]) =>
+  withSupplierNames(
+    trx,
+    rows,
+    (row) => row.supplier,
+    (row, supplier) => ({ ...row, supplier })
+  );
+
 // ── Reader ───────────────────────────────────────────────────────────────────
+
+/**
+ * Unfiltered supplier totals from the all-time table, in the totals' snapshot. A named group on
+ * the page whose public party row is missing or no longer names it (never within one publication)
+ * refuses the answer as retryable: it is never served partly named.
+ */
+const allTimeSupplierTotals = async (
+  trx: Db,
+  columns: Columns,
+  query: DaTotalsQuery
+): Promise<Result<DaTotalsRecords, ApiError>> => {
+  const named = columns.supplierDisclosure ? sql`disclosed` : sql`false`;
+  const overall = await attempt(
+    async () => (await sql<MeasureRow>`${ALL_TIME_OVERALL}`.execute(trx)).rows[0]
+  );
+  if (overall.isErr()) return err(overall.error);
+  if (overall.value === undefined)
+    return err(databaseError('Direct acquisitions total returned no row.'));
+  if (query.groupBy === null)
+    return ok({ overall: toMeasures(overall.value), groups: [], groupCount: 0 });
+  const page = await attempt(
+    async () =>
+      (
+        await sql<GroupRow>`${allTimePage(named, query.pageSize, offsetFor(query), columns.supplierDisclosed)}`.execute(
+          trx
+        )
+      ).rows
+  );
+  if (page.isErr()) return err(page.error);
+  const unnamed = page.value.some(
+    (row) =>
+      row.g_bucket === 'named' &&
+      (row.g_portal_party_id === null ||
+        row.g_fiscal_code_status !== 'valid' ||
+        row.g_fiscal_code_clean === null)
+  );
+  if (unnamed) return err(REPUBLISHED());
+  let groupCount = page.value[0]?.group_count;
+  if (groupCount === undefined) {
+    // A page past the end still reports how many groups exist.
+    const counted = await attempt(
+      async () =>
+        (
+          await sql<{ total: string }>`
+            ${allTimeGroups(named)}
+            select count(*)::text as total from g`.execute(trx)
+        ).rows[0]?.total
+    );
+    if (counted.isErr()) return err(counted.error);
+    groupCount = counted.value ?? '0';
+  }
+  const count = exactCount(groupCount);
+  if (count.isErr()) return err(count.error);
+  const groups = await withSupplierNames(
+    trx,
+    page.value.map((row) => toGroupRecord(row, 'supplier')),
+    (group) => group.party,
+    (group, party) => ({ ...group, party })
+  );
+  if (groups.isErr()) return err(groups.error);
+  return ok({ overall: toMeasures(overall.value), groups: groups.value, groupCount: count.value });
+};
 
 const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
   dataAsOf: () =>
@@ -455,28 +899,58 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
       return result.rows[0]?.data_as_of ?? null;
     }),
 
-  supplierPrivacyTable: () => columns.supplierPrivacy,
+  supplierPrivacyTable: () => columns.supplierDisclosure,
 
   listPurchases: async (query) => {
-    const where = whereOf(query.filter, columns);
-    const rows = await attempt(
-      async () =>
-        (
-          await sql<PurchaseRow>`
+    const resolved = await attempt(() => resolvedWhereOf(trx, query.filter, columns));
+    if (resolved.isErr()) return err(resolved.error);
+    const where = resolved.value;
+    const offset = offsetFor(query);
+    const limit = Math.max(0, Math.min(query.pageSize, DA_LIST_MAX_DEPTH - offset));
+    const phases = LIST_PHASES[query.sort];
+    const page = (
+      extra: RawBuilder<unknown>,
+      order: RawBuilder<unknown>,
+      n: number,
+      skip: number
+    ) =>
+      sql<PurchaseRow>`
             ${purchaseSelect(columns)}
-            where ${where}
-            order by ${LIST_ORDER[query.sort]}
-            limit ${Math.max(0, Math.min(query.pageSize, DA_LIST_MAX_DEPTH - offsetFor(query)))}
-            offset ${offsetFor(query)}`.execute(trx)
-        ).rows
-    );
+            where ${where} and ${extra}
+            order by ${order}
+            limit ${n}
+            offset ${skip}`.execute(trx);
+    const rows = await attempt(async () => {
+      const keyed = (await page(phases.keyed, phases.keyedOrder, limit, offset)).rows;
+      if (keyed.length >= limit) return keyed;
+      // The keyed rows before this page: exactly offset + what it read, unless it read none, then
+      // counted (capped at the offset, all the carry needs), with no party join: a party filter
+      // resolves party ids through its own subquery on the public view.
+      let before = offset + keyed.length;
+      if (keyed.length === 0 && offset > 0) {
+        const n = await sql<{ n: string }>`
+            select count(*)::text as n from (
+              select 1 ${COUNT_FROM} where ${where} and ${phases.keyed} limit ${offset}
+            ) as capped`.execute(trx);
+        before = Number(n.rows[0]?.n ?? '0');
+      }
+      const rest = (
+        await page(
+          sql`not (${phases.keyed})`,
+          phases.restOrder,
+          limit - keyed.length,
+          Math.max(0, offset - before)
+        )
+      ).rows;
+      return [...keyed, ...rest];
+    });
     if (rows.isErr()) return err(rows.error);
     const counted = await attempt(
       async () =>
         (
           await sql<{ total: string }>`
             select count(*)::text as total from (
-              select 1 ${scopeFrom(columns)} where ${where} limit ${DA_LIST_MAX_DEPTH + 1}
+              select 1 ${COUNT_FROM} where ${where} limit ${DA_LIST_MAX_DEPTH + 1}
             ) as capped`.execute(trx)
         ).rows[0]?.total
     );
@@ -484,22 +958,28 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     const total = exactCount(counted.value);
     if (total.isErr()) return err(total.error);
     const capped = total.value > DA_LIST_MAX_DEPTH;
+    const named = await namePurchases(trx, rows.value.map(toPurchaseRecord));
+    if (named.isErr()) return err(named.error);
     return ok({
-      rows: rows.value.map(toPurchaseRecord),
+      rows: named.value,
       total: capped ? DA_LIST_MAX_DEPTH : total.value,
       capped,
     });
   },
 
-  purchaseById: (purchaseId) =>
-    attempt(async () => {
+  purchaseById: async (purchaseId) => {
+    const found = await attempt(async () => {
       const result = await sql<PurchaseRow>`
         ${purchaseSelect(columns)}
         where p.purchase_id = ${purchaseId}
         limit 1`.execute(trx);
       const row = result.rows[0];
       return row === undefined ? null : toPurchaseRecord(row);
-    }),
+    });
+    if (found.isErr() || found.value === null) return found;
+    const named = await namePurchases(trx, [found.value]);
+    return named.map((rows) => rows[0] ?? null);
+  },
 
   itemsOf: (purchaseId) =>
     attempt(async () => {
@@ -518,8 +998,8 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
         quantity_correction: boolean | null;
       }>`
         select i.item_index,
-               ${gatedText(columns.itemNamePublic, 'i.item_name_public', 'i.name', 'name')},
-               ${gatedText(columns.itemUnitPublic, 'i.item_unit_public', 'i.unit', 'unit')},
+               ${shownText(columns.itemNameShown, 'i.item_name_public', 'i.item_name_shown', 'name')},
+               ${shownText(columns.itemUnitShown, 'i.item_unit_public', 'i.item_unit_shown', 'unit')},
                i.quantity::text as quantity,
                i.requested_quantity::text as requested_quantity,
                i.unit_price::text as unit_price,
@@ -547,13 +1027,34 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     }),
 
   totals: async (query) => {
-    const where = whereOf(query.filter, columns);
+    // PROC-AP75: unfiltered supplier totals from the all-time per-party table when it was built
+    // for this publication; else the per-month rollup (no filter, or a month-aligned range);
+    // otherwise the purchases, as before.
+    if (unfiltered(query)) {
+      const allTime = await attempt(() => supplierPartyTotalsFresh(trx));
+      if (allTime.isErr()) return err(allTime.error);
+      if (allTime.value) return allTimeSupplierTotals(trx, columns, query);
+    }
+    const fromRollup = rollupEligible(query)
+      ? await attempt(() => supplierPartyRollupFresh(trx))
+      : ok(false);
+    if (fromRollup.isErr()) return err(fromRollup.error);
+    const viaRollup = fromRollup.value;
+    const from = viaRollup ? rollupFrom(query.filter) : SCOPE_FROM;
+    const resolved = viaRollup
+      ? ok(sql`true`)
+      : await attempt(() => resolvedWhereOf(trx, query.filter, columns));
+    if (resolved.isErr()) return err(resolved.error);
+    const where = resolved.value;
+    const measures = viaRollup ? ROLLUP_MEASURES : MEASURES;
     const overall = await attempt(
       async () =>
         (
-          await sql<MeasureRow>`select ${MEASURES} ${scopeFrom(columns)} where ${where}`.execute(
-            trx
-          )
+          await (
+            viaRollup
+              ? sql<MeasureRow>`${rollupOverall(query.filter)}`
+              : sql<MeasureRow>`select ${MEASURES} ${SCOPE_FROM} where ${where}`
+          ).execute(trx)
         ).rows[0]
     );
     if (overall.isErr()) return err(overall.error);
@@ -564,15 +1065,17 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
 
     const groupBy = query.groupBy;
     const { select, width, byValue } = groupSelect(groupBy, columns);
-    const order = byValue
-      ? sql`sum(p.counted_value) filter (where p.counted) desc nulls last, count(*) desc, group_key asc nulls last, g_bucket asc nulls last`
-      : sql`group_key asc nulls last`;
+    const order = !byValue
+      ? sql`group_key asc nulls last`
+      : viaRollup
+        ? sql`sum(p.counted_value) desc nulls last, sum(p.purchase_count) desc, group_key asc nulls last, g_bucket asc nulls last`
+        : sql`sum(p.counted_value) filter (where p.counted) desc nulls last, count(*) desc, group_key asc nulls last, g_bucket asc nulls last`;
     const grouped = await attempt(
       async () =>
         (
           await sql<GroupRow>`
-            select ${select}, ${MEASURES}, count(*) over ()::text as group_count
-            ${scopeFrom(columns)}
+            select ${select}, ${measures}, count(*) over ()::text as group_count
+            ${from}
             where ${where}
             group by ${groupByPositions(width)}
             order by ${order}
@@ -588,7 +1091,7 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
           (
             await sql<{ total: string }>`
               select count(*)::text as total from (
-                select ${select} ${scopeFrom(columns)} where ${where} group by ${groupByPositions(width)}
+                select ${select} ${from} where ${where} group by ${groupByPositions(width)}
               ) as g`.execute(trx)
           ).rows[0]?.total
       );
@@ -597,8 +1100,18 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     }
     const count = exactCount(groupCount);
     if (count.isErr()) return err(count.error);
-    const groups = grouped.value.map((row) => toGroupRecord(row, groupBy));
-    return ok({ overall: toMeasures(overall.value), groups, groupCount: count.value });
+    const groups = await withSupplierNames(
+      trx,
+      grouped.value.map((row) => toGroupRecord(row, groupBy)),
+      (group) => (groupBy === 'supplier' ? group.party : null),
+      (group, party) => ({ ...group, party })
+    );
+    if (groups.isErr()) return err(groups.error);
+    return ok({
+      overall: toMeasures(overall.value),
+      groups: groups.value,
+      groupCount: count.value,
+    });
   },
 });
 
@@ -606,10 +1119,12 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
 const PENDING_COLUMNS = [
   ['da_purchases', 'listed_now', 'listedNow'],
   ['da_items', 'superseded_at', 'itemSupersededAt'],
-  ['da_purchases', 'title_public', 'titlePublic'],
-  ['da_purchases', 'description_public', 'descriptionPublic'],
-  ['da_items', 'item_name_public', 'itemNamePublic'],
-  ['da_items', 'item_unit_public', 'itemUnitPublic'],
+  ['da_purchases', 'title_shown', 'titleShown'],
+  ['da_purchases', 'title_public', 'titleShown'],
+  ['da_items', 'item_name_shown', 'itemNameShown'],
+  ['da_items', 'item_name_public', 'itemNameShown'],
+  ['da_items', 'item_unit_shown', 'itemUnitShown'],
+  ['da_items', 'item_unit_public', 'itemUnitShown'],
 ] as const satisfies readonly (readonly [string, string, keyof Columns])[];
 
 /** Which pending contract columns exist yet. Catalog reads only. */
@@ -625,17 +1140,23 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
     trx
   );
   const present = new Set(result.rows.map((row) => `${row.table_name}.${row.column_name}`));
+  // A key is present only when EVERY column it needs is (a shown text needs its flag too).
   const has = (key: keyof Columns): boolean =>
-    PENDING_COLUMNS.some(([table, column, k]) => k === key && present.has(`${table}.${column}`));
-  const supplierPrivacy = await probeSupplierPrivacy(trx);
+    PENDING_COLUMNS.filter(([, , k]) => k === key).every(([table, column]) =>
+      present.has(`${table}.${column}`)
+    );
+  const disclosedColumn = await probeSupplierDisclosedColumn(trx);
+  // An unreadable gate column withholds every supplier (never the row-presence rule).
+  const supplierDisclosure = disclosedColumn !== 'denied' && (await probeSupplierDisclosure(trx));
   return {
-    supplierPrivacy,
+    supplierDisclosure,
     listedNow: has('listedNow'),
     itemSupersededAt: has('itemSupersededAt'),
-    titlePublic: has('titlePublic'),
-    descriptionPublic: has('descriptionPublic'),
-    itemNamePublic: has('itemNamePublic'),
-    itemUnitPublic: has('itemUnitPublic'),
+    titleShown: has('titleShown'),
+    itemNameShown: has('itemNameShown'),
+    itemUnitShown: has('itemUnitShown'),
+    supplierDisclosed: disclosedColumn === 'readable',
+    disclosedColumn,
   };
 };
 
@@ -647,19 +1168,36 @@ const REPUBLISHED = (): ApiError =>
     'direct-acquisition data was republished during this request; repeat the request'
   );
 
-/** The release and the supplier_privacy grant RIGHT NOW, in one statement. */
+/**
+ * The release, the supplier_disclosure grant and the D6 column's state RIGHT NOW, in one
+ * statement. D6 is readable only with the grant and a column that is absent or readable.
+ */
 const probeRelease = async (
   db: Db
-): Promise<{ readonly asOf: string | null; readonly privacy: boolean }> => {
-  const result = await sql<{ as_of: string | null; privacy: boolean | null }>`
+): Promise<{
+  readonly asOf: string | null;
+  readonly privacy: boolean;
+  readonly column: DisclosedColumn;
+}> => {
+  const result = await sql<{
+    as_of: string | null;
+    privacy: boolean | null;
+    disclosed_column: string | null;
+  }>`
     select ${AS_OF_SQL} as as_of,
            coalesce(
-             has_table_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.supplier_privacy`}), 'SELECT'),
+             has_table_privilege(to_regclass(${SUPPLIER_DISCLOSURE_NAME}), 'SELECT'),
              false
-           ) as privacy
+           ) as privacy,
+           ${DISCLOSED_COLUMN_STATE_SQL} as disclosed_column
     from ${RELEASE}`.execute(db);
   const row = result.rows[0];
-  return { asOf: row?.as_of ?? null, privacy: row?.privacy === true };
+  const column = disclosedColumnOf(row?.disclosed_column);
+  return {
+    asOf: row?.as_of ?? null,
+    privacy: row?.privacy === true && column !== 'denied',
+    column,
+  };
 };
 
 export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
@@ -667,7 +1205,11 @@ export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
   snapshot: async (read, options) => {
     if (!enabled) return err(disabled());
     try {
-      const seen = { asOf: null as string | null, privacy: false };
+      const seen = {
+        asOf: null as string | null,
+        privacy: false,
+        column: 'absent' as DisclosedColumn,
+      };
       const result = await db
         .transaction()
         .setIsolationLevel('repeatable read')
@@ -679,13 +1221,17 @@ export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
             const release = await sql<{ as_of: string | null }>`
               select ${AS_OF_SQL} as as_of from ${RELEASE}`.execute(trx);
             seen.asOf = release.rows[0]?.as_of ?? null;
-            seen.privacy = columns.supplierPrivacy;
+            seen.privacy = columns.supplierDisclosure;
+            seen.column = columns.disclosedColumn;
           }
           return read(makeReader(trx, columns));
         });
       if (options?.settle !== true || result.isErr()) return result;
       const now = await probeRelease(db);
-      return now.asOf === seen.asOf && (now.privacy || !seen.privacy) ? result : err(REPUBLISHED());
+      // A D6 column that appeared, went or changed grant during the read: repeat the request.
+      return now.asOf === seen.asOf && (now.privacy || !seen.privacy) && now.column === seen.column
+        ? result
+        : err(REPUBLISHED());
     } catch (error) {
       return err(readError(error));
     }

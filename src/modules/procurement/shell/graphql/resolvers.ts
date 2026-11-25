@@ -35,6 +35,7 @@ import {
   type RawAnalysisScopeInput,
   type RawSearchFilter,
 } from './arg-translation.js';
+import { hasDaSupplierName, markNoStore, tagDaSupplierName } from './no-store.js';
 import {
   analysisBreakdown,
   analysisConcentration,
@@ -52,6 +53,7 @@ import {
   type SeriesBucket,
 } from '../../core/constants.js';
 import { type ElicitatiePage } from '../../core/elicitatie-page.js';
+import { publicPartyName } from '../../core/free-text-rule.js';
 import {
   assertSortServeable,
   parseOffsetRequest,
@@ -94,6 +96,8 @@ export interface ProcurementResolverDeps {
   readonly supplierDisclosure?: SupplierDisclosurePort;
   /** Route override for alternate analytics backends (ClickHouse dev path). */
   readonly routeAnalysis?: AnalysisDeps['routeAnalysis'];
+  /** The D6-gated names of DA supplier buckets (PROC-B51G). */
+  readonly daSupplierNames?: AnalysisDeps['daSupplierNames'];
 }
 
 /**
@@ -134,7 +138,7 @@ const unwrap = <T>(result: Result<T, ApiError>): T => {
  * the personal identifier is withheld, and with it the ability to use that
  * number as a key.
  */
-type DisplayKind = 'authority' | 'company' | 'natural_person';
+type DisplayKind = 'authority' | 'company' | 'person_masked' | 'code_only' | 'natural_person';
 
 const party = (
   cui: string | null,
@@ -150,7 +154,9 @@ const party = (
   if (displayKind === 'natural_person')
     return { cui: null, name: null, displayName: null, displayKind };
   const served = cui !== null && !isWithheldOrganizationIdentifier(cui) ? cui : null;
-  return { cui: served, name, displayName: name ?? served, displayKind };
+  // "Never a CNP": a name the source wrote with a personal numeric code is withheld whole.
+  const shown = publicPartyName(name);
+  return { cui: served, name: shown, displayName: shown ?? served, displayKind };
 };
 
 /**
@@ -220,6 +226,7 @@ export const makeProcurementResolvers = (
     analysisRepo: analysis,
     ...(deps.routeAnalysis !== undefined && { routeAnalysis: deps.routeAnalysis }),
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
+    ...(deps.daSupplierNames !== undefined && { daSupplierNames: deps.daSupplierNames }),
   };
 
   const modificationsLoader = makeBatchLoader<readonly ProcurementModification[]>(
@@ -327,7 +334,14 @@ export const makeProcurementResolvers = (
         // The DA filter's `publicationDate` facet binds to `finalization_date`.
         const { filter, page, facets } = searchArgs(a, 'publicationDate', 'direct_acquisitions');
         const result = unwrap(await repo.searchDirectAcquisitionsOffset(filter, page, facets));
-        return { ...toPage(result), meta: metaOf(result) };
+        const answer = toPage(result);
+        // PROC-VDWQ: a highlight's supplierName is a DA supplier name.
+        return {
+          ...answer,
+          highlights:
+            answer.highlights?.map((highlight) => tagDaSupplierName({ ...highlight })) ?? null,
+          meta: metaOf(result),
+        };
       },
       procurementModifications: async (_r: unknown, a: SearchArgs) => {
         const { filter, page } = searchArgs(a, 'modificationDate', 'modifications');
@@ -456,7 +470,13 @@ export const makeProcurementResolvers = (
             displayTitle: item.displayTitle,
             authority: party(item.authorityCui, item.authorityName, 'authority'),
             // D6 on the v3 DA grain: natural_person serves no cui or name.
-            supplier: party(item.supplierCui, item.supplierName, item.supplierDisplayKind ?? null),
+            supplier:
+              result.grain === 'direct_acquisition'
+                ? // PROC-VDWQ: its name, when selected, makes the answer never cacheable.
+                  tagDaSupplierName(
+                    party(item.supplierCui, item.supplierName, item.supplierDisplayKind ?? null)
+                  )
+                : party(item.supplierCui, item.supplierName, item.supplierDisplayKind ?? null),
             valueRon: item.valueRon,
             status: item.status,
             recordKind: item.recordKind,
@@ -577,12 +597,48 @@ export const makeProcurementResolvers = (
       id: (d: ProcurementDirectAcquisition) => d.daId,
       authority: (d: ProcurementDirectAcquisition) =>
         party(d.authorityCui, d.authorityName, 'authority'),
+      // PROC-VDWQ: its name, when selected, makes the answer never cacheable.
       supplier: (d: ProcurementDirectAcquisition) =>
-        party(d.supplierCui, d.supplierName, daSupplierKind(d)),
+        tagDaSupplierName(party(d.supplierCui, d.supplierName, daSupplierKind(d))),
       elicitatiePage: (d: ProcurementDirectAcquisition) => directAcquisitionPageLoader.load(d.daId),
     },
     ProcurementDaItem: {
       id: (item: DaItem) => item.daItemId,
+    },
+    // PROC-VDWQ: a DA supplier's name (tagged where built) makes the answer never cacheable; a
+    // displayName that is only the code (no name) does not.
+    ProcurementParty: {
+      name: (p: { name: string | null }, _a: unknown, context: unknown) => {
+        if (p.name !== null && hasDaSupplierName(p)) markNoStore(context);
+        return p.name;
+      },
+      displayName: (
+        p: { name: string | null; displayName: string | null },
+        _a: unknown,
+        context: unknown
+      ) => {
+        if (p.name !== null && hasDaSupplierName(p)) markNoStore(context);
+        return p.displayName;
+      },
+    },
+    // "Never a CNP": a name fragment that may carry a personal code is withheld here too, whatever
+    // repository served it (the markers fold to single separators, so a split code still matches).
+    ProcurementSearchHighlight: {
+      authorityName: (h: { authorityName?: string | null }) =>
+        publicPartyName(h.authorityName ?? null),
+      supplierName: (h: { supplierName?: string | null }, _a: unknown, context: unknown) => {
+        const name = publicPartyName(h.supplierName ?? null);
+        if (name !== null && hasDaSupplierName(h)) markNoStore(context);
+        return name;
+      },
+    },
+    ProcurementBreakdownBucket: {
+      // PROC-VDWQ: a DA supplier bucket's name makes the answer never cacheable.
+      displayName: (bucket: { displayName?: string | null }, _a: unknown, context: unknown) => {
+        const name = bucket.displayName ?? null;
+        if (name !== null) markNoStore(context);
+        return name;
+      },
     },
     ProcurementContractModification: {
       id: (m: ProcurementModification) => m.modificationId,

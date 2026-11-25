@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parseAnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
 import { analysisRecords, analysisStats } from '@/modules/procurement/core/analysis-usecases.js';
+import { hasDaSupplierName } from '@/modules/procurement/shell/graphql/no-store.js';
 import { makeProcurementResolvers } from '@/modules/procurement/shell/graphql/resolvers.js';
 import { makeProcurementMcpTools } from '@/modules/procurement/shell/mcp/tools.js';
 
@@ -76,7 +77,7 @@ describe('analysisRecords', () => {
     ]);
   });
 
-  it('withholds natural-person identifiers but keeps the published names', async () => {
+  it('withholds natural-person identifiers and their raw names (masked only by the display step)', async () => {
     const { repo } = fakeAnalysisRepo({
       records: {
         total: '1',
@@ -84,7 +85,12 @@ describe('analysisRecords', () => {
       },
     });
     const page = (await analysisRecords({ analysisRepo: repo }, { scope: DA }))._unsafeUnwrap();
-    expect(page.items[0]).toMatchObject({ supplierCui: null, supplierName: 'Ion Pop' });
+    // Owner, 24 Nov ("Masked name"): a person's raw name is never served.
+    expect(page.items[0]).toMatchObject({
+      supplierCui: null,
+      supplierName: null,
+      supplierPerson: true,
+    });
   });
 
   it('nulls money and refuses a value order where the spend gate withholds money', async () => {
@@ -159,6 +165,9 @@ describe('procurementRecords transport', () => {
     ({
       contractId: id,
       displayTitle: { text: `Contract ${id}`, source: 'procedure', sourceUrl: null },
+      // A contract record's supplier name comes from this production read (masked there).
+      supplierCui: '14399840',
+      supplierName: 'Firma SRL',
     }) as unknown as ProcurementContract;
 
   it('hydrates contract display titles by id without changing rows or money', async () => {
@@ -202,6 +211,20 @@ describe('procurementRecords transport', () => {
       displayKind: null,
       displayName: 'Firma SRL',
     });
+  });
+
+  it('PROC-VDWQ: tags DA page suppliers (their names mark the reply), not contract page ones', async () => {
+    const pageOf = async (scope: Record<string, unknown>) => {
+      const analysis = fakeAnalysisRepo({ records: { total: '1', rows: [row()] } }).repo;
+      const repo = {
+        contractsByIds: () => Promise.resolve(ok(new Map())),
+      } as unknown as ProcurementRepo;
+      return surfaces(analysis, repo).query.procurementRecords(undefined, { scope });
+    };
+    expect(hasDaSupplierName((await pageOf(DA)).items[0]?.['supplier'])).toBe(true);
+    expect(hasDaSupplierName((await pageOf({ grain: 'contract' })).items[0]?.['supplier'])).toBe(
+      false
+    );
   });
 
   it('serves a D6-withheld DA record supplier with nothing that names it, and the CPV label', async () => {
@@ -304,6 +327,8 @@ describe('procurementRecords transport', () => {
       ({
         contractId: id,
         displayTitle: { text, source: 'native', sourceUrl: null },
+        supplierCui: '14399840',
+        supplierName: 'Firma SRL',
       }) as unknown as ProcurementContract;
     const repo = {
       contractsByIds: () =>

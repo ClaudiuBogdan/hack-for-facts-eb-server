@@ -37,8 +37,8 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 const INTERNAL_MESSAGE = 'direct acquisitions read failed; quote the requestId to report it';
 
-type ParamKind = 'string' | 'stringList' | 'int' | 'boolean';
-type Decoded = Readonly<Record<string, string | number | boolean | readonly string[]>>;
+export type ParamKind = 'string' | 'stringList' | 'int' | 'boolean';
+export type Decoded = Readonly<Record<string, string | number | boolean | readonly string[]>>;
 
 const FILTER_PARAMS: Readonly<Record<string, ParamKind>> = {
   buyerFiscalCode: 'string',
@@ -63,7 +63,7 @@ const PARAMS = {
 const INT_TEXT = /^(?:0|[1-9][0-9]{0,8})$/u;
 
 /** Decode the parsed query against its table; an unknown parameter is refused, never echoed. */
-const decode = (
+export const decode = (
   raw: unknown,
   table: Readonly<Record<string, ParamKind>>
 ): Result<Decoded, ApiError> => {

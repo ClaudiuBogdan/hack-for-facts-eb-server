@@ -6,3 +6,18 @@
 # OpenSSL statically and the server does not speak QUIC, so the vulnerable
 # shared lib is not on any request path. Re-check the base digest before expiry.
 CVE-2026-14456 exp:2026-09-30
+
+# zstd information disclosure via uninitialized memory (libzstd1 1.5.7+dfsg-1).
+# Debian shipped the fix (1.5.7+dfsg-1+deb13u1) but gcr.io/distroless/nodejs24-debian13
+# has not rebuilt on it yet (latest digest sha256:39b04073… checked 2026-11-25 with
+# Trivy 0.69.1: same finding). The Debian libzstd1 is not loaded by the server: the API
+# process's /proc/1/maps on Chronos dev (2026-11-25, image 3d1272d4) maps no zstd library.
+# This entry covers that Debian package only. Node bundles its own zstd 1.5.7, outside this
+# scan; whether that copy is affected is tracked separately against Node's releases. On
+# the client side, the server never compresses responses with zstd, and zstd request
+# bodies are refused with 415 since 335e6537 (requestEncodings in registerCompression).
+# Server-to-server, Node's fetch can still decode a zstd response from our own upstreams
+# (Meilisearch, ClickHouse, the synthetic client), which are not client-controlled.
+# Re-check the base digest before expiry and bump it (as in 29e1c25c) once it carries
+# deb13u1.
+CVE-2026-124851 exp:2026-12-09

@@ -62,10 +62,12 @@ export const procurementTypeDefs = /* GraphQL */ `
     name: String
     displayName: String
     """
-    authority (a buyer) | company (a named supplier) | natural_person (a direct-acquisition
-    supplier withheld under D6: cui, name and displayName are null). Null where no rule
-    classifies the party (contract and modification suppliers). Show a name only for authority
-    or company.
+    authority (a buyer) | company (a supplier, named by its registry name when public) |
+    person_masked (a direct-acquisition supplier with a masked name) | code_only (a
+    direct-acquisition supplier shown by its code, name null) | natural_person (a
+    direct-acquisition supplier withheld under D6: cui, name and displayName are null). Null where
+    no rule classifies the party (contract and modification suppliers). Show a name only for
+    authority, company or person_masked.
     """
     displayKind: String
   }
@@ -473,7 +475,10 @@ export const procurementTypeDefs = /* GraphQL */ `
   The D6 state an answer naming direct-acquisition suppliers was served under. disclosureKey is
   off (D6 not enforced), unavailable (no supplier_privacy publication readable: everyone withheld;
   never cache), or the supplier_privacy publication (ISO UTC). Dated keys only move forward: keep
-  the newest seen, never cache an answer with an older key and never re-key to one.
+  the newest seen, never cache an answer with an older key and never re-key to one. A supplier name
+  can be withdrawn without any key moving (release 1 reads names from the live registry): keys cover
+  codes, counts and values, never names. Do not keep a supplier name beyond the response that
+  carried it.
   """
   type ProcurementDisclosureMeta {
     disclosureKey: String
@@ -800,7 +805,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     provisional: Boolean!
     caveats: [String!]!
     canonicalScope: String!
-    "DA blocks: the D6 state served under (off, unavailable, or the supplier_privacy publication); key DA caches by (buildId, disclosureKey). Never cache a DA answer whose key is unavailable. Null on other grains."
+    "DA blocks: the D6 state served under (off, unavailable, or the supplier_privacy publication); key DA caches by (buildId, disclosureKey). Never cache a DA answer whose key is unavailable. Keys never cover supplier names (a name can be withdrawn without any key moving): do not keep a name beyond its response. Null on other grains."
     disclosureKey: String
   }
 
@@ -879,11 +884,20 @@ export const procurementTypeDefs = /* GraphQL */ `
     "Share of the scope total on the ranking basis (decimal string)."
     shareOfScope: String
     """
-    Direct-acquisition supplier buckets under D6: company (a named supplier) or natural_person
-    (the one bucket of every withheld supplier, key natural_person). Null elsewhere and while D6
-    is off; name and link a supplier bucket only when this is company.
+    Direct-acquisition supplier buckets under D6: company (a supplier with its registry name),
+    person_masked (a supplier with a masked name), code_only (a supplier shown by its code, no
+    name), or natural_person (the one bucket of every withheld supplier, key natural_person).
+    Null elsewhere and while D6 is off. A bucket of any other kind carries no name.
     """
     displayKind: String
+    """
+    With displayKind (PROC-B51G, naming step 2): the registry name of a company bucket (when
+    public) or the masked name of a person_masked bucket; null for code_only, natural_person, a
+    company whose name is not public, and on every other bucket and grain. The only name to show
+    for a DA supplier bucket: never name one through another lookup. Read per answer; keys never
+    cover it, so do not keep it beyond the response that carried it.
+    """
+    displayName: String
   }
   type ProcurementBreakdownBlock {
     grain: ProcurementAnalysisGrain!

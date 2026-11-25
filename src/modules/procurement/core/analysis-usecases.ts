@@ -65,6 +65,7 @@ import {
   type SeriesBucket,
 } from './constants.js';
 import { buildEnvelope, type AnswerEnvelope, type EnvelopeReads } from './envelope.js';
+import { publicPartyName } from './free-text-rule.js';
 import {
   decideAnswer,
   decideMoney,
@@ -86,8 +87,14 @@ import {
   type AnalysisRecordsSort,
   type AnalysisRepo,
   type AnalysisStatsRead,
+  type DaSupplierNamesPort,
 } from './ports.js';
 import { sourceNotes } from './source-capture.js';
+import {
+  servedSupplierName,
+  type ServedSupplierKind,
+  type SupplierNaming,
+} from './supplier-naming.js';
 
 export interface AnalysisDeps {
   readonly analysisRepo: AnalysisRepo;
@@ -103,6 +110,11 @@ export interface AnalysisDeps {
    * echoed back in `canonicalScope`.
    */
   readonly supplierDisclosure?: SupplierDisclosurePort;
+  /**
+   * The D6-gated names of DA supplier buckets (PROC-B51G). Absent: no bucket is named
+   * (`displayName` null); never any other name source.
+   */
+  readonly daSupplierNames?: DaSupplierNamesPort;
 }
 
 /**
@@ -209,7 +221,13 @@ export interface AnalysisBreakdownBucket {
    * DA supplier buckets under D6: `company` for a named supplier, `natural_person`
    * for the one withheld bucket. Absent elsewhere (and while D6 is off on legacy).
    */
-  readonly displayKind?: 'company' | 'natural_person';
+  readonly displayKind?: ServedSupplierKind | 'natural_person';
+  /**
+   * With `displayKind` (PROC-B51G): a company bucket's public registry name, only when its
+   * supplier name is public; null for natural_person and for a company whose name is not public.
+   * The only name a client may show for a DA supplier bucket. Read per answer, never cached.
+   */
+  readonly displayName?: string | null;
 }
 
 export interface AnalysisBreakdownBlock {
@@ -318,7 +336,11 @@ const grainNotes = (
 ): readonly string[] =>
   grain === 'procedure'
     ? [PROCEDURE_LIFECYCLE_NOTE]
-    : grain === 'contract' && !capabilities.frameworkRole
+    : // No base build was read (legacy retired or unreadable): the grain abstains, so no build's
+      // population is described.
+      grain === 'contract' &&
+        !capabilities.frameworkRole &&
+        capabilities.analysisBaseUnavailable !== true
       ? [LEGACY_CONTRACT_POPULATION_NOTE]
       : grain === 'calloff'
         ? [CALLOFF_PARTIAL_NOTE]
@@ -475,7 +497,8 @@ const genWithCoverage = async (
   if (build !== undefined && build !== activeBuild) {
     return err(
       invalidInput(
-        `analysis build ${build} is not the active build (${activeBuild}); re-read the active build and repeat the request`,
+        // The pin is never echoed: any 13 digits pass its form, a personal code included.
+        `the pinned analysis build is not the active build (${activeBuild}); re-read the active build and repeat the request`,
         'build'
       )
     );
@@ -1228,6 +1251,48 @@ const breakdownBlockFor = async (
     route.grain === 'direct_acquisition' &&
     dimension === 'supplier' &&
     (deps.supplierDisclosure?.enforced === true || gen.capabilities.directAcquisitionV3 === true);
+  // The names of the company buckets, gated by supplier_name_public, read for this answer only, in
+  // the publication the buckets came from. Only the v3 grain names suppliers (the ClickHouse D6
+  // path refuses DA supplier breakdowns, and its keys are not that publication's).
+  // A DA supplier keyed by a person's code (should the serving data ever disclose one): the whole
+  // breakdown is refused, naming no code. Relabelling after ranking would still serve per-person
+  // totals and rankings (kernel P0 containment).
+  if (
+    supplierKinds &&
+    buckets.some(
+      (b) =>
+        b.key !== null &&
+        b.key !== DA_NATURAL_PERSON_BUCKET &&
+        isWithheldOrganizationIdentifier(b.key)
+    )
+  ) {
+    return err(
+      databaseError(
+        'Direct-acquisition supplier breakdown refused: the serving data discloses a supplier code that is not an organization identifier.'
+      )
+    );
+  }
+  const companyCodes =
+    supplierKinds && gen.capabilities.directAcquisitionV3 === true
+      ? buckets.flatMap((b) =>
+          b.kind === 'top' && b.key !== null && b.key !== DA_NATURAL_PERSON_BUCKET ? [b.key] : []
+        )
+      : [];
+  let names: ReadonlyMap<string, SupplierNaming> = new Map();
+  if (companyCodes.length > 0 && deps.daSupplierNames !== undefined) {
+    const read = await deps.daSupplierNames.namesOf(gen.buildId, companyCodes);
+    if (read.isErr()) return err(read.error);
+    names = read.value;
+  }
+  // A ranked supplier whose code the names view may not show: the whole breakdown is refused,
+  // naming no code (as for a person's code above), never relabelled after ranking.
+  if (companyCodes.some((code) => names.get(code)?.kind === 'hidden')) {
+    return err(
+      databaseError(
+        'Direct-acquisition supplier breakdown refused: the serving data ranks a supplier whose code may not be shown.'
+      )
+    );
+  }
   const outBuckets: AnalysisBreakdownBucket[] = buckets.map((b) => {
     const basisValue = rankedBy === 'value' ? d(b.valueAwardedSum) : d(b.recordCount);
     // Null-law (review F7): a bucket with NO valued rows emits null money —
@@ -1248,7 +1313,7 @@ const breakdownBlockFor = async (
       shareOfScope: basisTotal.greaterThan(0) ? basisValue.div(basisTotal).toFixed(RATIO_DP) : null,
       ...(supplierKinds &&
         b.kind === 'top' && {
-          displayKind: b.key === DA_NATURAL_PERSON_BUCKET ? 'natural_person' : 'company',
+          ...bucketNaming(b.key, names),
         }),
     };
   });
@@ -1284,6 +1349,23 @@ const breakdownBlockFor = async (
       [...withheldD.caveats, ...scopeNotes(grain, scope, gen)]
     ),
   });
+};
+
+/**
+ * A DA supplier bucket's kind and name (PROC-B51G, naming step 2): the one withheld bucket is
+ * `natural_person`; a disclosed supplier takes its naming (`core/supplier-naming.ts`), or is a
+ * `company` with no name where no naming was read (the ClickHouse D6 path).
+ */
+const bucketNaming = (
+  key: string | null,
+  names: ReadonlyMap<string, SupplierNaming>
+): { displayKind: ServedSupplierKind | 'natural_person'; displayName: string | null } => {
+  if (key === DA_NATURAL_PERSON_BUCKET) return { displayKind: 'natural_person', displayName: null };
+  const naming = key === null ? undefined : names.get(key);
+  if (naming === undefined) return { displayKind: 'company', displayName: null };
+  // Refused before the buckets are built; never served with its code.
+  if (naming.kind === 'hidden') return { displayKind: 'natural_person', displayName: null };
+  return { displayKind: naming.kind, displayName: servedSupplierName(naming) };
 };
 
 export const analysisBreakdown = async (
@@ -1524,8 +1606,12 @@ export const analysisShare = async (
   // (`'all'` lifts the purchases-only default), so once the build publishes
   // the column it is compared as a population, not as a field (Codex P1):
   // the numerator's effective role must sit inside the denominator's, and only
-  // a genuinely smaller role counts as narrowing.
-  const roleAware = gen.capabilities.frameworkRole && numerator.grain === 'contract';
+  // a genuinely smaller role counts as narrowing. Without a base build (legacy
+  // retired, or unreadable) the role keeps that meaning: the request is judged
+  // as the role-publishing build would judge it, and its grain then abstains.
+  const roleAware =
+    (gen.capabilities.frameworkRole || gen.capabilities.analysisBaseUnavailable === true) &&
+    numerator.grain === 'contract';
   const { frameworkRole: numRole, ...numerWithoutRole } = numerator;
   const { frameworkRole: denRole, ...denomWithoutRole } = denominator;
   const subsetNum = roleAware ? numerWithoutRole : numerator;
@@ -1831,7 +1917,10 @@ export const analysisRecords = async (
   const spend = anchorMoneyGate(gen, cov, grain);
   const moneyAllowed = spend?.allow ?? false;
   const gate = composeGates([blockGate, ...(spend !== null ? [spend] : [])]);
-  if ((sort === 'value_desc' || sort === 'value_asc') && !moneyAllowed) {
+  const valueOrderRefused = (sort === 'value_desc' || sort === 'value_asc') && !moneyAllowed;
+  // An abstaining block (time/geo class, or a grain whose build cannot be read or is
+  // retired) lists nothing whatever the order: it abstains below rather than refusing it.
+  if (blockGate.allow && valueOrderRefused) {
     return err(
       invalidInput(
         'a value order is unavailable: the spend gate withholds this grain’s money',
@@ -1869,11 +1958,18 @@ export const analysisRecords = async (
   const items = readR.value.rows.map((row) => {
     // D6 backstop: a supplier the reader classed natural_person never carries a code or name.
     const withheld = row.supplierDisplayKind === 'natural_person';
+    // A person's code (owner, 24 Nov: "Masked name"): the reader's raw name is never served; the
+    // display step may fill the masked one production serves.
+    const person =
+      !withheld && row.supplierCui !== null && isWithheldOrganizationIdentifier(row.supplierCui);
     return {
       ...row,
       authorityCui: servedIdentifier(row.authorityCui),
+      // "Never a CNP": a party name the source wrote with a personal numeric code is withheld.
+      authorityName: publicPartyName(row.authorityName),
       supplierCui: withheld ? null : servedIdentifier(row.supplierCui),
-      supplierName: withheld ? null : row.supplierName,
+      supplierName: withheld || person ? null : publicPartyName(row.supplierName),
+      ...(person && { supplierPerson: true as const }),
       valueRon: moneyAllowed ? row.valueRon : null,
     };
   });
