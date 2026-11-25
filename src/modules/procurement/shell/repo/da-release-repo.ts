@@ -366,6 +366,69 @@ const whereOf = (filter: DaPurchaseFilter, columns: Columns): RawBuilder<unknown
   return sql.join(conditions, sql` and `);
 };
 
+interface PartyKey {
+  source_name: string;
+  portal_party_id: string;
+}
+
+/** The public party rows of one code: what the filter's `partyIds` subquery reads, as rows. */
+const partyKeys = async (
+  trx: Db,
+  kind: 'buyer' | 'supplier',
+  code: string,
+  columns: Columns
+): Promise<PartyKey[]> =>
+  (
+    await sql<PartyKey>`
+      select pp.source_name, pp.portal_party_id from ${PARTIES} pp
+      where pp.party_kind = ${kind} and pp.fiscal_code_status = 'valid'
+        and pp.fiscal_code_clean = ${withoutLeadingZeros(code)}${
+          kind === 'supplier' ? disclosedPartySql(columns.supplierDisclosed) : sql``
+        }`.execute(trx)
+  ).rows;
+
+/**
+ * The filter's conditions, with a buyer x supplier pair resolved to party ids first. With both
+ * codes in subqueries the planner estimated a nationally large supplier's side at a few hundred
+ * rows and drove the read from it, filtering the buyer per row (a 501,760-purchase supplier: 464k
+ * rows read, 1.9 s, and two such pages at once reached the 10 s timeout on dev, 25 Nov). With the
+ * ids bound, it reads the buyer-day index with real estimates (186 ms; 3 ms for a small pair).
+ * The ids are read in the same snapshot, from the same view and with the same D6 condition as the
+ * subqueries, so the rows are the same. A filter with one code or none keeps the subqueries.
+ */
+const resolvedWhereOf = async (
+  trx: Db,
+  filter: DaPurchaseFilter,
+  columns: Columns
+): Promise<RawBuilder<unknown>> => {
+  const { buyerFiscalCode, supplierFiscalCode, ...rest } = filter;
+  if (
+    buyerFiscalCode === undefined ||
+    supplierFiscalCode === undefined ||
+    !columns.supplierDisclosure
+  )
+    return whereOf(filter, columns);
+  const buyers = await partyKeys(trx, 'buyer', buyerFiscalCode, columns);
+  const suppliers = await partyKeys(trx, 'supplier', supplierFiscalCode, columns);
+  const idsOf = (keys: readonly PartyKey[], source: string) =>
+    keys.filter((key) => key.source_name === source).map((key) => key.portal_party_id);
+  const sources = [...new Set(buyers.map((key) => key.source_name))].filter((source) =>
+    suppliers.some((key) => key.source_name === source)
+  );
+  const pair =
+    sources.length === 0
+      ? sql`false`
+      : sql`(${sql.join(
+          sources.map(
+            (source) =>
+              sql`(p.source_name = ${source} and p.buyer_party_id = any(${idsOf(buyers, source)}::text[])
+                and p.supplier_party_id = any(${idsOf(suppliers, source)}::text[]))`
+          ),
+          sql` or `
+        )})`;
+  return sql`${whereOf(rest, columns)} and ${pair}`;
+};
+
 /** Whole-table aggregates (totals): plain joins, so the view is built once per statement. */
 const SCOPE_FROM = sql`
   from ${PURCHASES} p
@@ -839,7 +902,9 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
   supplierPrivacyTable: () => columns.supplierDisclosure,
 
   listPurchases: async (query) => {
-    const where = whereOf(query.filter, columns);
+    const resolved = await attempt(() => resolvedWhereOf(trx, query.filter, columns));
+    if (resolved.isErr()) return err(resolved.error);
+    const where = resolved.value;
     const offset = offsetFor(query);
     const limit = Math.max(0, Math.min(query.pageSize, DA_LIST_MAX_DEPTH - offset));
     const phases = LIST_PHASES[query.sort];
@@ -976,7 +1041,11 @@ const makeReader = (trx: Db, columns: Columns): DaReleaseReader => ({
     if (fromRollup.isErr()) return err(fromRollup.error);
     const viaRollup = fromRollup.value;
     const from = viaRollup ? rollupFrom(query.filter) : SCOPE_FROM;
-    const where = viaRollup ? sql`true` : whereOf(query.filter, columns);
+    const resolved = viaRollup
+      ? ok(sql`true`)
+      : await attempt(() => resolvedWhereOf(trx, query.filter, columns));
+    if (resolved.isErr()) return err(resolved.error);
+    const where = resolved.value;
     const measures = viaRollup ? ROLLUP_MEASURES : MEASURES;
     const overall = await attempt(
       async () =>

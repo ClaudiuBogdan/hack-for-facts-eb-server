@@ -19,7 +19,7 @@
  */
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
-import { Kysely, PostgresDialect, sql } from 'kysely';
+import { CompiledQuery, Kysely, PostgresDialect, sql } from 'kysely';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 
@@ -1150,6 +1150,152 @@ describe('naming step 2b: da_parties_public.supplier_disclosed (20261124T120020/
         owner
       );
       await sql`drop table if exists procurement_v3.supplier_names_public`.execute(owner);
+      await logged.destroy();
+    }
+  });
+});
+
+/**
+ * A buyer x supplier pair resolves both parties' ids first (25 Nov): with both codes in subqueries
+ * the planner drove the read from a large supplier's side and filtered the buyer per row (1.9 s on
+ * prod for a 501,760-purchase supplier; two such pages reached the 10 s timeout). The rows, order
+ * and totals must equal the subquery statement's, and the buyer-day index must drive the read.
+ */
+describe('a buyer x supplier pair reads by resolved party ids', () => {
+  it('answers exactly as the subquery statement, driven by the buyer-day index', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const owner = db;
+    const buyer = PURCHASES.find(
+      (row) => row.supplier?.portalPartyId === COMPANY.portalPartyId
+    )?.buyer;
+    if (buyer?.fiscalCode === null || buyer?.fiscalCode === undefined)
+      throw new Error('no pair in the fixture');
+    const buyerCode = buyer.fiscalCode;
+    // Volume: the company as a national supplier (12,000 purchases over 1,200 other buyers) and 40
+    // purchases of the pair, with the platform's two party-day indexes.
+    await sql`insert into procurement_v3.da_purchases
+        (purchase_id, source_name, native_id, code, outcome, counted, counted_value, not_counted_reason,
+         finalization_day, buyer_party_id, supplier_party_id)
+      select 'vol' || g, ${SOURCE}, 'vol-' || g, 'DA-VOL-' || g,
+        case when g % 3 = 0 then 'refused' else 'accepted' end, g % 3 <> 0,
+        case when g % 3 <> 0 then g end, case when g % 3 = 0 then 'not_accepted' end,
+        date '2024-01-01' + (g % 700), case when g <= 40 then ${buyer.portalPartyId} else 'vb-' || (g % 1200) end,
+        ${COMPANY.portalPartyId}
+      from generate_series(1, 12000) g`.execute(owner);
+    await sql`create index da_purchases_buyer_day_idx on procurement_v3.da_purchases
+      (source_name, buyer_party_id, finalization_day)`.execute(owner);
+    await sql`create index da_purchases_supplier_day_idx on procurement_v3.da_purchases
+      (source_name, supplier_party_id, finalization_day)`.execute(owner);
+    await sql`analyze procurement_v3.da_purchases`.execute(owner);
+
+    const statements: { sql: string; parameters: readonly unknown[] }[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+      log: (event) => {
+        if (event.level === 'query')
+          statements.push({ sql: event.query.sql, parameters: event.query.parameters });
+      },
+    });
+    const api = (): DaReleaseDeps => ({ repo: makeDaReleaseRepo(logged, true) });
+    try {
+      const pair = {
+        buyerFiscalCode: buyerCode,
+        supplierFiscalCode: COMPANY.fiscalCode ?? '',
+      };
+      // The subquery statement the list used before, as the API login: the expected rows.
+      const expected = async (where: ReturnType<typeof sql>) =>
+        (
+          await sql<{ id: string }>`select p.purchase_id as id from procurement_v3.da_purchases p
+            where (p.source_name, p.buyer_party_id) in (select pp.source_name, pp.portal_party_id
+                from procurement_v3.da_parties_public pp where pp.party_kind = 'buyer'
+                  and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${buyerCode})
+              and (p.source_name, p.supplier_party_id) in (select pp.source_name, pp.portal_party_id
+                from procurement_v3.da_parties_public pp where pp.party_kind = 'supplier'
+                  and pp.fiscal_code_status = 'valid' and pp.fiscal_code_clean = ${COMPANY.fiscalCode})
+              and ${where}
+            order by p.finalization_day desc nulls last, p.purchase_id desc`.execute(logged)
+        ).rows.map((row) => row.id);
+      for (const [label, filter, where] of [
+        [
+          'finalizationTo alone',
+          { ...pair, finalizationTo: '2025-06-30' },
+          sql`p.finalization_day <= date '2025-06-30'`,
+        ],
+        [
+          'finalizationFrom and outcomes',
+          { ...pair, finalizationFrom: '2024-06-01', outcomes: ['accepted' as const] },
+          sql`p.finalization_day >= date '2024-06-01' and p.outcome = 'accepted'`,
+        ],
+        ['no other filter', pair, sql`true`],
+      ] as const) {
+        const want = await expected(where);
+        expect(want.length, label).toBeGreaterThan(0);
+        const pages: string[] = [];
+        let total = -1;
+        for (let page = 1; (page - 1) * 7 < want.length; page += 1) {
+          const answer = await listDaPurchases(api(), {
+            filter,
+            sort: 'finalizationDesc',
+            page,
+            pageSize: 7,
+          });
+          if (answer.isErr()) throw new Error(`${label}: ${JSON.stringify(answer.error)}`);
+          const list = answer.value;
+          pages.push(...list.items.map((item) => item.purchaseId));
+          total = list.total;
+        }
+        expect({ label, pages, total }).toEqual({ label, pages: want, total: want.length });
+        const totals = (await daPurchaseTotals(api(), { filter, ...ALL }))._unsafeUnwrap();
+        expect(totals.overall.purchaseCount, label).toBe(String(want.length));
+      }
+      // A pair whose supplier D6 withholds (a sole trader) matches nothing, as the subquery did.
+      const withheld = (
+        await listDaPurchases(api(), {
+          filter: {
+            buyerFiscalCode: buyerCode,
+            supplierFiscalCode: SOLE_TRADER.fiscalCode ?? '',
+          },
+          ...ALL,
+        })
+      )._unsafeUnwrap();
+      expect(withheld.total).toBe(0);
+
+      // The list's page statement binds the pair's ids, and the buyer-day index drives it.
+      statements.length = 0;
+      await listDaPurchases(api(), { filter: { ...pair, finalizationTo: '2025-06-30' }, ...ALL });
+      const listStatement = statements.find(
+        (s) => s.sql.includes('order by') && s.sql.includes('p.purchase_id, p.native_id')
+      );
+      if (listStatement === undefined) throw new Error('no list statement');
+      expect(listStatement.sql).toContain('p.buyer_party_id = any(');
+      expect(listStatement.sql).not.toContain('(p.source_name, p.buyer_party_id) in');
+      const plan = await logged.executeQuery<Record<string, unknown>>(
+        CompiledQuery.raw(`explain (format json) ${listStatement.sql}`, [
+          ...listStatement.parameters,
+        ])
+      );
+      const indexes: string[] = [];
+      const walk = (node: Readonly<Record<string, unknown>>): void => {
+        if (node['Relation Name'] === 'da_purchases' && typeof node['Index Name'] === 'string')
+          indexes.push(node['Index Name']);
+        const children = node['Plans'];
+        if (Array.isArray(children))
+          for (const child of children as Readonly<Record<string, unknown>>[]) walk(child);
+      };
+      const document = plan.rows[0]?.['QUERY PLAN'] as { Plan: Record<string, unknown> }[];
+      walk(document[0]?.Plan ?? {});
+      expect(indexes).toContain('da_purchases_buyer_day_idx');
+      expect(indexes).not.toContain('da_purchases_supplier_day_idx');
+    } finally {
       await logged.destroy();
     }
   });
