@@ -12,6 +12,7 @@ import { analysisBreakdown, analysisStats } from './core/analysis-usecases.js';
 import { DA_LIST_MAX_WINDOW_DAYS_DEFAULT } from './core/constants.js';
 import { makeDaTotalsCache, type DaReleaseDeps } from './core/da-release-usecases.js';
 import { makeProcurementContributor } from './shell/contributor.js';
+import { caRecordsTypeDefs, makeCaRecordsResolvers } from './shell/graphql/ca-records-schema.js';
 import { daReleaseTypeDefs, makeDaReleaseResolvers } from './shell/graphql/da-release-schema.js';
 import { makeProcurementResolvers, toGraphqlError } from './shell/graphql/resolvers.js';
 import { makeTotalsResolvers, totalsTypeDefs } from './shell/graphql/totals-schema.js';
@@ -19,6 +20,7 @@ import { procurementTypeDefs } from './shell/graphql/typedefs.js';
 import { makeDaReleaseMcpTools } from './shell/mcp/da-release-tools.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
 import { makeTotalsMcpTools } from './shell/mcp/totals-tools.js';
+import { makeCaRecordsRepo } from './shell/repo/ca-records-repo.js';
 import {
   makeClickhouseAnalysisRepo,
   makeUnconfiguredAnalysisRepo,
@@ -46,6 +48,7 @@ import {
 import { makeProcurementPresenceRepo } from './shell/repo/presence-repo.js';
 import { makeProcurementRepo } from './shell/repo/procurement-repo.js';
 import { makeSupplierGeographyPolicy } from './shell/repo/supplier-geography-policy.js';
+import { makeCaRecordsRestPlugin } from './shell/rest/ca-records-routes.js';
 import { makeDaReleaseRestPlugin } from './shell/rest/da-release-routes.js';
 
 import type { AnalysisRepo, ProcurementRepo } from './core/ports.js';
@@ -94,6 +97,12 @@ export interface ProcurementModuleDeps {
    * registered. Env: PROCUREMENT_DA_V3_ENABLED.
    */
   readonly daV3Enabled?: boolean;
+  /**
+   * Contract-award records (PROC-KB0Z step 1) over `procurement_v3.ca_*_public`. Off (the
+   * default): the SDL and REST routes are served and every read answers ServiceUnavailable
+   * without a query. Env: PROCUREMENT_CA_RECORDS_ENABLED.
+   */
+  readonly caRecordsEnabled?: boolean;
   /** The kernel's site-wide D6 port (`Kernel.supplierDisclosure`); absent means not enforced. */
   readonly supplierDisclosure?: SupplierDisclosurePort;
   /**
@@ -142,6 +151,8 @@ export interface ProcurementModule {
   readonly contributor: SourceContributor;
   /** Direct acquisitions release 1 REST, mounted at `/api/v1/procurement/da`. */
   readonly daRestPlugin: FastifyPluginAsync;
+  /** Contract-award records REST, mounted at `/api/v1/procurement/contract-awards`. */
+  readonly caRestPlugin: FastifyPluginAsync;
 }
 
 /**
@@ -240,6 +251,8 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     ...(deps.supplierDisclosure !== undefined && { supplierDisclosure: deps.supplierDisclosure }),
   });
   const daResolvers = makeDaReleaseResolvers(daRelease);
+  const caRecords = { repo: makeCaRecordsRepo(deps.db, deps.caRecordsEnabled === true) };
+  const caResolvers = makeCaRecordsResolvers(caRecords);
   const moneyPort =
     deps.totalsV2Enabled === true && clickhouseReader !== undefined
       ? makeClickhouseMoneyRepo({ db: deps.db, reader: clickhouseReader })
@@ -267,11 +280,12 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
     analysis,
     graphqlSlice: {
       source: 'procurement',
-      typeDefs: `${procurementTypeDefs}\n${daReleaseTypeDefs}\n${totalsTypeDefs}`,
+      typeDefs: `${procurementTypeDefs}\n${daReleaseTypeDefs}\n${totalsTypeDefs}\n${caRecordsTypeDefs}`,
     },
     graphqlResolvers: {
       ...legacyResolvers,
       ProcurementDaParty: daResolvers.ProcurementDaParty,
+      ProcurementCaWinner: caResolvers.ProcurementCaWinner,
       Query: {
         ...(legacyResolvers['Query'] as Record<string, unknown>),
         // The legacy DA list off: refused before its arguments are read, so every request
@@ -282,6 +296,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
           },
         }),
         ...daResolvers.Query,
+        ...caResolvers.Query,
         ...totalsResolvers.Query,
       },
     },
@@ -296,6 +311,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
         : retiredPresenceRepo
     ),
     daRestPlugin: makeDaReleaseRestPlugin(daRelease),
+    caRestPlugin: makeCaRecordsRestPlugin(caRecords),
   };
 };
 

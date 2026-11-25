@@ -483,6 +483,7 @@ export const registerRedesignSurface = async (
   let judicialRoutes: import('fastify').FastifyPluginAsync | undefined;
   let electionsRoutes: import('fastify').FastifyPluginAsync | undefined;
   let procurementDaRoutes: import('fastify').FastifyPluginAsync | undefined;
+  let procurementCaRoutes: import('fastify').FastifyPluginAsync | undefined;
 
   if (enabledModules.includes('ngos')) {
     const ngos = makeNgosModule({
@@ -714,6 +715,9 @@ export const registerRedesignSurface = async (
         daListMaxWindowDays: composition.daListMaxWindowDays,
       }),
       ...(composition.daV3Enabled !== undefined && { daV3Enabled: composition.daV3Enabled }),
+      ...(composition.caRecordsEnabled !== undefined && {
+        caRecordsEnabled: composition.caRecordsEnabled,
+      }),
       ...(composition.totalsV2Enabled !== undefined && {
         totalsV2Enabled: composition.totalsV2Enabled,
       }),
@@ -730,6 +734,7 @@ export const registerRedesignSurface = async (
     moduleMcpTools.push(...procurement.mcpTools);
     kernel.contributors.register(procurement.contributor);
     procurementDaRoutes = procurement.daRestPlugin;
+    procurementCaRoutes = procurement.caRestPlugin;
   }
 
   if (enabledModules.includes('companies')) {
@@ -924,6 +929,9 @@ export const registerRedesignSurface = async (
   // (no-store, the module envelope; a GET/HEAD-only public prefix on api.js).
   if (procurementDaRoutes !== undefined) {
     await app.register(procurementDaRoutes, { prefix: '/api/v1/procurement/da' });
+  }
+  if (procurementCaRoutes !== undefined) {
+    await app.register(procurementCaRoutes, { prefix: '/api/v1/procurement/contract-awards' });
   }
   if (electionsRoutes !== undefined) {
     await app.register(electionsRoutes, { prefix: '/api/v1/elections' });

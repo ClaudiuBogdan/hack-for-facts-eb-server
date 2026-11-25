@@ -76,6 +76,7 @@ const RedesignEnvSchema = Type.Object({
   PROD_CLICKHOUSE_PASSWORD: Type.Optional(Type.String()),
   PROCUREMENT_DA_LIST_MAX_WINDOW_DAYS: Type.Optional(Type.String()),
   PROCUREMENT_DA_V3_ENABLED: Type.Optional(Type.String()),
+  PROCUREMENT_CA_RECORDS_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_TOTALS_V2: Type.Optional(Type.String()),
   PROCUREMENT_DATABASE_URL: Type.Optional(Type.String()),
   PROCUREMENT_LEGACY_ENABLED: Type.Optional(Type.String()),
@@ -120,6 +121,11 @@ export interface ProcurementComposition {
   readonly daListMaxWindowDays?: number;
   /** Direct acquisitions release 1 (`procurement_v3`) reader; off unless PROCUREMENT_DA_V3_ENABLED=true. */
   readonly daV3Enabled?: boolean;
+  /**
+   * Contract-award records (`procurement_v3.ca_*_public`, PROC-KB0Z); off unless
+   * PROCUREMENT_CA_RECORDS_ENABLED=true, which needs site-wide D6 on as DA v3 does.
+   */
+  readonly caRecordsEnabled?: boolean;
   /** Totals v2 (`procurementTotals`) over the money-fact builds; off unless PROCUREMENT_TOTALS_V2=true. */
   readonly totalsV2Enabled?: boolean;
   /**
@@ -427,6 +433,18 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
       'Invalid redesign env: PROCUREMENT_DA_V3_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true (site-wide D6 goes on first)'
     );
   }
+  const caRecords = e.PROCUREMENT_CA_RECORDS_ENABLED;
+  if (caRecords !== undefined && caRecords !== 'true' && caRecords !== 'false') {
+    throw new Error(
+      "Invalid redesign env: PROCUREMENT_CA_RECORDS_ENABLED must be 'true' or 'false' when set"
+    );
+  }
+  // Winner codes are shown only under site-wide D6, as on the DA v3 path.
+  if (caRecords === 'true' && e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED !== 'true') {
+    throw new Error(
+      'Invalid redesign env: PROCUREMENT_CA_RECORDS_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true'
+    );
+  }
   // A privacy switch: anything but the two exact values is a boot error, never a guess.
   const procurementDatabaseUrl = nonEmpty(e.PROCUREMENT_DATABASE_URL);
   // Never echo the value: it carries a credential.
@@ -452,6 +470,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
     ...(legacy === 'false' && { legacyEnabled: false }),
     ...(legacyDaList === 'false' && { legacyDaListEnabled: false }),
     ...(e.PROCUREMENT_DA_V3_ENABLED === 'true' && { daV3Enabled: true }),
+    ...(caRecords === 'true' && { caRecordsEnabled: true }),
     ...(e.PROCUREMENT_TOTALS_V2 === 'true' && { totalsV2Enabled: true }),
     ...(e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED === 'true' && {
       supplierDisclosureEnforced: true,
