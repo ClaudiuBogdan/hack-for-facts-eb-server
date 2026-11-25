@@ -314,11 +314,9 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
 
   // ── forms and the default form ─────────────────────────────────────────────
 
-  const formsForActs = async (
-    actIds: readonly string[]
+  const readActForms = async (
+    ids: readonly string[]
   ): Promise<Result<ReadonlyMap<string, ActForms>, ApiError>> => {
-    const ids = [...new Set(actIds.filter((id) => ID_RE.test(id)))];
-    if (ids.length === 0) return ok(new Map());
     const [rowsRes, actsRes] = await Promise.all([
       readFormsForActs(db, ids),
       // Every requested PUBLIC act gets a default result, formless ones too
@@ -351,6 +349,23 @@ export const makeLegalActsRepoV2 = (deps: MakeLegalActsRepoV2Deps): LegalActsRep
       });
     }
     return ok(out);
+  };
+
+  // One form read per act set in flight: the card, the version list, the provenance and the
+  // selection of one request resolve together and share it (each runs the readable gate over
+  // every form of the act). Shared only while in flight, so it never serves a stale read.
+  const inFlight = new Map<string, Promise<Result<ReadonlyMap<string, ActForms>, ApiError>>>();
+  const formsForActs = (
+    actIds: readonly string[]
+  ): Promise<Result<ReadonlyMap<string, ActForms>, ApiError>> => {
+    const ids = [...new Set(actIds.filter((id) => ID_RE.test(id)))].sort();
+    if (ids.length === 0) return Promise.resolve(ok(new Map()));
+    const key = ids.join(',');
+    const pending = inFlight.get(key);
+    if (pending !== undefined) return pending;
+    const read = readActForms(ids).finally(() => inFlight.delete(key));
+    inFlight.set(key, read);
+    return read;
   };
 
   const defaultFormsForActs = async (

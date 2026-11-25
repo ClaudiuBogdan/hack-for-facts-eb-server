@@ -125,6 +125,10 @@ export const flattenBlocks = (blocks: readonly unknown[]): V2BlockRef[] => {
   return out;
 };
 
+/** The key of one provision of a form: its component ordinal and provision sequence. */
+export const v2ProvisionKey = (componentOrdinal: number, provisionSeq: number): string =>
+  `${String(componentOrdinal)}:${String(provisionSeq)}`;
+
 /**
  * Every provision of the form, in document order, as outline entries. The
  * caller filters to headings within the requested depth (`depth !== null`).
@@ -132,8 +136,17 @@ export const flattenBlocks = (blocks: readonly unknown[]): V2BlockRef[] => {
 export const composeV2Outline = (
   documentId: string,
   units: readonly V2OutlineUnit[]
-): LegalOutlineEntry[] => {
-  const entries: LegalOutlineEntry[] = [];
+): LegalOutlineEntry[] => composeV2OutlineKeyed(documentId, units).map((k) => k.entry);
+
+/**
+ * The outline entries with the provision each one is, so another surface (search) can name a
+ * provision by the same path the outline gives it.
+ */
+export const composeV2OutlineKeyed = (
+  documentId: string,
+  units: readonly V2OutlineUnit[]
+): { readonly key: string; readonly entry: LegalOutlineEntry }[] => {
+  const keyed: { key: string; entry: LegalOutlineEntry }[] = [];
   for (const { unit, namespace, offset } of placeComponents(units, (u) => u.textLength)) {
     const bySpan = new Map<string, V2BlockRef[]>();
     for (const block of unit.blocks) {
@@ -158,22 +171,25 @@ export const composeV2Outline = (
           ? `prov:${String(unit.componentOrdinal)}:${String(p.provisionSeq)}`
           : componentBlockId(namespace, block.id);
       const type = outlineTypeOfKind(p.kind);
-      entries.push({
-        documentId,
-        path,
-        nodeKind: p.kind,
-        label: p.labelRaw,
-        numberKey: numberKeyOf(p),
-        numberSystem: null,
-        numberStatus: p.address !== null ? 'parsed' : numberStatusOf(p.addressState),
-        depth: outlineDepthFor(type),
-        orderIndex: entries.length,
-        charStart: p.charStart + offset,
-        charEnd: p.charEnd + offset,
+      keyed.push({
+        key: v2ProvisionKey(unit.componentOrdinal, p.provisionSeq),
+        entry: {
+          documentId,
+          path,
+          nodeKind: p.kind,
+          label: p.labelRaw,
+          numberKey: numberKeyOf(p),
+          numberSystem: null,
+          numberStatus: p.address !== null ? 'parsed' : numberStatusOf(p.addressState),
+          depth: outlineDepthFor(type),
+          orderIndex: keyed.length,
+          charStart: p.charStart + offset,
+          charEnd: p.charEnd + offset,
+        },
       });
     }
   }
-  return entries;
+  return keyed;
 };
 
 const PRESENTATION_KINDS = new Set([

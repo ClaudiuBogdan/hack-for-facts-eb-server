@@ -219,6 +219,12 @@ export interface LegalV2HitVerifier {
  */
 export interface VerifiedUse {
   readonly use: V2HitUse;
+  /**
+   * The provision's outline path in the served form (its render block id, namespaced in a
+   * composed form), so a section and the outline name one node by one path. Null when the
+   * outline cannot name it.
+   */
+  readonly path: string | null;
   readonly composed: boolean;
   /** Verified UTF-16 range in the served form. The index use is unit-local. */
   readonly charStart: number;
@@ -453,7 +459,7 @@ export const searchLegalV2Engine = async (
           : (v.address ?? `seq:${String(v.use.provisionSeq)}`),
         articleNumber: null,
         nodeLabel: v.label,
-        nodePath: v.address,
+        nodePath: v.path,
         charStart: v.charStart,
         charEnd: v.charEnd,
         snippet: v.sameWording ? h.snippet : null,

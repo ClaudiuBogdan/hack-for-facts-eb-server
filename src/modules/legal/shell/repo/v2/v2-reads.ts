@@ -78,8 +78,15 @@ export const BOUND_COMPONENT_SOURCE_SQL = sql`s.capture_ref_id = u.capture_ref_i
  * One lateral row per form (outer alias f). All components participate, including
  * reference slots. Decide privacy before availability and return the same verdict
  * to render, outline, version selection and search in their own read snapshots.
+ *
+ * Cost: each unit answers "any public chunk" and "any restricted chunk" with EXISTS, so a
+ * default or list pass over an act with many pairs reads no chunk counts. Only the render info
+ * asks for the count (`countChunks`), for its `chunkCount`; elsewhere `public_chunks` is null.
+ *
+ * Labels (LEG-X3AV): a header+body consolidation needs BOTH the Portal's literal label and its
+ * date (the header supplies them); a whole consolidation keeps the earlier rule, label or date.
  */
-export const FORM_READABLE_SQL = sql`
+export const formReadableSql = (countChunks: boolean) => sql`
   select verdict.status, verdict.status = 'served' as readable, x.public_chunks,
          x.source_url, fc.receipt_id, fc.composition_digest
     from (
@@ -89,17 +96,24 @@ export const FORM_READABLE_SQL = sql`
                           and bool_or(c.ordinal = 1 and c.slot = 'body') as pair,
              bool_or(c.privacy_class <> 'public' or u.privacy_class <> 'public'
                      or chunks.restricted) as restricted,
-             bool_or(c.unit_id is not null and chunks.public_chunks = 0) as empty_unit,
-             coalesce(sum(chunks.public_chunks), 0)::int as public_chunks,
+             bool_or(c.unit_id is not null and not chunks.any_public) as empty_unit,
+             ${
+               countChunks
+                 ? sql`coalesce(sum((select count(*) from legal_v2.unit_render ur
+                                      where ur.unit_id = u.unit_id
+                                        and ur.privacy_class = 'public')), 0)::int`
+                 : sql`null::int`
+             } as public_chunks,
              bool_and(s.binding_id is not null) as bound,
              max(s.requested_url) filter (where c.slot in ('whole', 'header')) as source_url
         from legal_v2.form_components c
         left join legal_v2.text_units u on u.unit_id = c.unit_id
         left join legal_v2.form_sources s on ${BOUND_COMPONENT_SOURCE_SQL}
         cross join lateral (
-          select count(*) filter (where ur.privacy_class = 'public') as public_chunks,
-                 bool_or(ur.privacy_class <> 'public') as restricted
-            from legal_v2.unit_render ur where ur.unit_id = u.unit_id
+          select exists (select 1 from legal_v2.unit_render ur
+                          where ur.unit_id = u.unit_id and ur.privacy_class = 'public') as any_public,
+                 exists (select 1 from legal_v2.unit_render ur
+                          where ur.unit_id = u.unit_id and ur.privacy_class <> 'public') as restricted
         ) chunks
        where c.form_id = f.form_id
     ) x
@@ -108,9 +122,15 @@ export const FORM_READABLE_SQL = sql`
       when f.privacy_class <> 'public' or fc.privacy_class <> 'public' or x.restricted then 'restricted'
       when f.ended or fc.form_id is null or x.units = 0 or x.empty_unit then 'not_loaded'
       when not (x.whole or (f.form_kind = 'consolidation' and x.pair)) then 'composition_not_served'
-      when f.form_kind = 'consolidation' and f.portal_label_date is null then 'label_missing'
+      when f.form_kind = 'consolidation' and x.pair
+           and (f.portal_label_raw is null or f.portal_label_date is null) then 'label_missing'
+      when f.form_kind = 'consolidation' and x.whole
+           and f.portal_label_raw is null and f.portal_label_date is null then 'label_missing'
       when not x.bound then 'source_not_bound'
       else 'served' end as status) verdict`;
+
+/** The readable gate without chunk counts: every caller but the render info. */
+export const FORM_READABLE_SQL = formReadableSql(false);
 
 /** All public forms of the given acts, with the facts the default rule reads. */
 export const readFormsForActs = async (
@@ -143,11 +163,16 @@ export const readFormsForActs = async (
                 select 1 from legal_v2.form_sources s
                where s.form_id = f.form_id and s.subject_kind = 'capture'
                  and s.status <> 'bound' and s.privacy_class = 'public') as held,
-             case when gate.readable then gate.source_url else (
+             -- A restricted verdict names no capture at all: the fallback could reach the
+             -- restricted part's own page. Otherwise the form's source is its whole or header
+             -- capture, a body capture only when nothing else is bound.
+             case when gate.status = 'restricted' then null
+                  when gate.readable then gate.source_url else (
                select s.requested_url from legal_v2.form_sources s
                where s.form_id = f.form_id and s.subject_kind = 'capture' and s.status = 'bound'
                  and s.is_latest and s.privacy_class = 'public'
-               order by ${ROUTE_ORDER_SQL}, s.binding_id
+               order by s.component_slot is not distinct from 'body', ${ROUTE_ORDER_SQL},
+                        s.binding_id
                limit 1) end as source_url
         from legal_v2.forms f
         join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'

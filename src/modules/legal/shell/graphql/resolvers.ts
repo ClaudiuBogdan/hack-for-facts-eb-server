@@ -11,7 +11,7 @@
  * does not drop a value.
  */
 
-import { GraphQLError, Kind, type GraphQLResolveInfo } from 'graphql';
+import { GraphQLError, Kind, type GraphQLResolveInfo, type SelectionSetNode } from 'graphql';
 
 import {
   GRAPHQL_ERROR_CODE,
@@ -169,6 +169,27 @@ const sortKeysOf = (act: LegalAct, sort: LegalSortKey): readonly (string | numbe
       return [act.displayCitation, act.actId];
   }
 };
+
+/**
+ * Does this selection set (fragments spread and inlined, at any depth) select field `name`
+ * of the current type? An unknown fragment counts as selecting it: the full read is the safe
+ * answer.
+ */
+const selectsField = (
+  set: SelectionSetNode | undefined,
+  info: GraphQLResolveInfo,
+  name: string,
+  seen: ReadonlySet<string> = new Set()
+): boolean =>
+  set?.selections.some((sel) => {
+    if (sel.kind === Kind.FIELD) return sel.name.value === name;
+    if (sel.kind === Kind.INLINE_FRAGMENT) return selectsField(sel.selectionSet, info, name, seen);
+    const fragmentName = sel.name.value;
+    if (seen.has(fragmentName)) return false;
+    const fragment = info.fragments[fragmentName];
+    if (fragment === undefined) return true;
+    return selectsField(fragment.selectionSet, info, name, new Set([...seen, fragmentName]));
+  }) === true;
 
 /** legal_v2: the default-form fields of one act, all from one selection. */
 interface V2DefaultFields {
@@ -702,15 +723,12 @@ export const makeLegalResolvers = (deps: LegalResolverDeps): Record<string, unkn
         _ctx: unknown,
         info?: GraphQLResolveInfo
       ) => {
-        // The version list requests status/count. Avoid folding every pair in the act.
-        // A fragment can select the SHA under any alias, so use the full read for fragments.
+        // The version list requests status/count: never fold a pair's whole text for that.
+        // Fragments are resolved first, so only a selection that names textSha256 (under any
+        // alias, in any fragment) pays for the fold.
         const needsHash =
-          info?.fieldNodes.some(
-            (node) =>
-              node.selectionSet?.selections.some(
-                (s) => s.kind !== Kind.FIELD || s.name.value === 'textSha256'
-              ) === true
-          ) ?? true;
+          info === undefined ||
+          info.fieldNodes.some((node) => selectsField(node.selectionSet, info, 'textSha256'));
         return (needsHash ? renderInfoLoader : renderStatusLoader).load(parent.documentId);
       },
     },

@@ -41,7 +41,7 @@ import { makeLegalRenderRepo } from './shell/repo/render-repo.js';
 import { makeLegalRetrievalRepo } from './shell/repo/retrieval-repo.js';
 import { makeLegalActsRepoV2 } from './shell/repo/v2/acts-repo-v2.js';
 import { V2_BRIDGE_GATE } from './shell/repo/v2/gate.js';
-import { makeLegalOutlineRepoV2 } from './shell/repo/v2/outline-v2.js';
+import { makeV2OutlineReader } from './shell/repo/v2/outline-v2.js';
 import { makeLegalRenderRepoV2, makeLegalRenderSourceV2 } from './shell/repo/v2/render-v2.js';
 import { makeLegalV2SearchEngine } from './shell/repo/v2/search-engine-v2.js';
 import { makeLegalV2HitVerifier } from './shell/repo/v2/search-verify-v2.js';
@@ -156,7 +156,9 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
   const legacyActs = makeLegalActsRepo(deps.db, gate);
   const acts = v2 ? makeLegalActsRepoV2({ db: deps.db, legacy: legacyActs }) : legacyActs;
   const graph = makeLegalGraphRepo(deps.db, gate);
-  const outline = v2 ? makeLegalOutlineRepoV2(deps.db) : makeLegalOutlineRepo(deps.db);
+  // One outline reader on v2: search names a provision by the path the outline gives it.
+  const v2Outline = v2 ? makeV2OutlineReader(deps.db) : undefined;
+  const outline = v2Outline?.repo ?? makeLegalOutlineRepo(deps.db);
   const render = v2 ? makeLegalRenderRepoV2(deps.db) : makeLegalRenderRepo(deps.db);
   const renderSource = v2 ? makeLegalRenderSourceV2(deps.db) : undefined;
   const retrieval = makeLegalRetrievalRepo(deps.db);
@@ -194,7 +196,10 @@ export const makeLegalModule = async (deps: LegalModuleDeps): Promise<LegalModul
     retrieval,
     acts,
     ...(engine !== undefined && { engine }),
-    ...(v2Engine !== undefined && { v2Engine, v2Verifier: makeLegalV2HitVerifier(deps.db) }),
+    ...(v2Engine !== undefined && {
+      v2Engine,
+      v2Verifier: makeLegalV2HitVerifier(deps.db, v2Outline?.provisionPaths),
+    }),
     ...(v2 && { v2Mode: true }),
     synthetic: deps.synthetic,
     capabilities: deps.capabilities,

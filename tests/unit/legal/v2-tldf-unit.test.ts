@@ -472,22 +472,72 @@ describe('stored-chunk validation and allowlisted output (security review)', () 
     content: [{ text: 'abc', span: [0, 3] }],
   };
 
+  it('drops a reference mark whose link occurrence is withheld, and renumbers the rest', () => {
+    const res = convertUnitChunk(
+      HEADX,
+      unitWith(
+        {
+          ...head,
+          blocks: [block],
+          marks: [
+            { ordinal: 0, kind: 'reference', span: [0, 1], link_ordinal: 0 },
+            { ordinal: 1, kind: 'reference', span: [1, 3], link_ordinal: 1 },
+          ],
+        },
+        // Only occurrence 1 is public: occurrence 0 is withheld.
+        new Map([
+          [
+            1,
+            {
+              ordinal: 1,
+              href: 'https://example.org/x',
+              targetFragment: null,
+              targetActId: null,
+              targetFormId: null,
+            },
+          ],
+        ])
+      ),
+      0
+    );
+    const env = res._unsafeUnwrap();
+    if (env.kind !== 'envelope') throw new Error('envelope expected');
+    expect(env.tldf.marks.map((m) => [m.ordinal, m.span])).toEqual([[0, [1, 3]]]);
+  });
+
   it('never passes a stored link or an unknown field through', () => {
     const res = convertUnitChunk(
       HEADX,
-      unitWith({
-        ...head,
-        blocks: [{ ...block, onclick: 'x', content: [{ text: 'abc', span: [0, 3], html: '<b>' }] }],
-        marks: [
-          {
-            ordinal: 0,
-            kind: 'reference',
-            span: [0, 3],
-            link_ordinal: 7,
-            link: { kind: 'external', href: 'javascript:alert(1)' },
-          },
-        ],
-      }),
+      unitWith(
+        {
+          ...head,
+          blocks: [
+            { ...block, onclick: 'x', content: [{ text: 'abc', span: [0, 3], html: '<b>' }] },
+          ],
+          marks: [
+            {
+              ordinal: 0,
+              kind: 'reference',
+              span: [0, 3],
+              link_ordinal: 7,
+              link: { kind: 'external', href: 'javascript:alert(1)' },
+            },
+          ],
+        },
+        // The occurrence is public; its own href is refused, so the mark keeps no link.
+        new Map([
+          [
+            7,
+            {
+              ordinal: 7,
+              href: 'javascript:alert(1)',
+              targetFragment: null,
+              targetActId: null,
+              targetFormId: null,
+            },
+          ],
+        ])
+      ),
       0
     );
     const env = res._unsafeUnwrap();

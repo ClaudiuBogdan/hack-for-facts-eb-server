@@ -527,7 +527,8 @@ export type LegalRenderStatus =
   | 'not_loaded'
   // legal_v2: the composition has an unsupported slot, order or form kind.
   | 'composition_not_served'
-  // legal_v2: a consolidation without the Portal label date (LEG-X3AV).
+  // legal_v2: a pair without the Portal's label AND its date, or a whole consolidation with
+  // neither (LEG-X3AV).
   | 'label_missing'
   // legal_v2: the unit's capture is not bound (public) to this form.
   | 'source_not_bound';

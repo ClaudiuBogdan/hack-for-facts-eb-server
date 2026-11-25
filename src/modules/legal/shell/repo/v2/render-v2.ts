@@ -8,7 +8,7 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
-import { FORM_READABLE_SQL, documentFormPickSql } from './v2-reads.js';
+import { documentFormPickSql, formReadableSql } from './v2-reads.js';
 import { COMPONENT_BOUNDARY } from '../../../core/v2/composition.js';
 import { formDocumentId, parseDocumentRef, versionKindOf } from '../../../core/v2/forms.js';
 import {
@@ -94,7 +94,7 @@ const renderHeadSql = (db: Db, scope: RawBuilder<unknown>, includeTextHash: bool
               else u.text_sha256 end as text_sha256
     from legal_v2.forms f
     join legal_v2.acts a on a.act_id = f.act_id and a.privacy_class = 'public'
-    cross join lateral (${FORM_READABLE_SQL}) gate
+    cross join lateral (${formReadableSql(true)}) gate
     left join legal_v2.package_receipts r on r.receipt_id = gate.receipt_id and r.privacy_class = 'public'
     left join legal_v2.form_components c on gate.readable and c.form_id = f.form_id
           and c.slot in ('whole', 'body') and c.privacy_class = 'public'

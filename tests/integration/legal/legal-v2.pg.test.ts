@@ -48,7 +48,10 @@ import { makeLegalActsRepo } from '@/modules/legal/shell/repo/acts-repo.js';
 import { makeLegalGraphRepo } from '@/modules/legal/shell/repo/graph-repo.js';
 import { makeLegalActsRepoV2 } from '@/modules/legal/shell/repo/v2/acts-repo-v2.js';
 import { V2_BRIDGE_GATE } from '@/modules/legal/shell/repo/v2/gate.js';
-import { makeLegalOutlineRepoV2 } from '@/modules/legal/shell/repo/v2/outline-v2.js';
+import {
+  makeLegalOutlineRepoV2,
+  makeV2OutlineReader,
+} from '@/modules/legal/shell/repo/v2/outline-v2.js';
 import {
   makeLegalRenderRepoV2,
   makeLegalRenderSourceV2,
@@ -238,7 +241,9 @@ run('legal_v2 on real DDL', () => {
     const acts = makeLegalActsRepoV2({ db, legacy, today: () => '2026-11-20' });
     v2Acts = acts;
     const graph = makeLegalGraphRepo(db, V2_BRIDGE_GATE);
-    const outline = makeLegalOutlineRepoV2(db);
+    // As mounted: search names a provision by the outline's own path (one reader).
+    const outlineReader = makeV2OutlineReader(db);
+    const outline = outlineReader.repo;
     const render = makeLegalRenderRepoV2(db);
     const vocab = makeLegalVocabRepo(db, V2_BRIDGE_GATE);
     // The index is faked (no OpenSearch here); its hits are verified by the
@@ -268,7 +273,7 @@ run('legal_v2 on real DDL', () => {
       clientBaseUrl: 'https://t',
       v2Mode: true,
       v2Engine,
-      v2Verifier: makeLegalV2HitVerifier(db),
+      v2Verifier: makeLegalV2HitVerifier(db, outlineReader.provisionPaths),
     };
     const resolveDeps = { base: acts, acts, vocab };
     schema = makeExecutableSchema({
@@ -475,7 +480,8 @@ run('legal_v2 on real DDL', () => {
       sections: [
         {
           documentId: 'f101',
-          nodePath: 'art:1',
+          // The outline's path of the provision (its render block), not the parser address.
+          nodePath: 'b1',
           nodeLabel: 'Articolul 1',
           snippet: '<em>Art</em>',
           portalDeepLink: `https://t/legislation/acts/7?doc=${encodeURIComponent('"f101"')}`,
@@ -575,9 +581,11 @@ run('legal_v2 on real DDL', () => {
       sections { sectionKey nodePath nodeLabel charStart charEnd servedForm { documentId sourceUrl } } } }`);
     expect(result['legalSearch']).toEqual({
       sections: [
+        // Each section names the outline's namespaced path; both carry the FORM's source,
+        // the header capture, never the body page.
         {
           sectionKey: 'unit:6:seq:0',
-          nodePath: 'art:1',
+          nodePath: '0.1',
           nodeLabel: 'Antet',
           charStart: 0,
           charEnd: 5,
@@ -585,11 +593,11 @@ run('legal_v2 on real DDL', () => {
         },
         {
           sectionKey: 'unit:7:seq:1',
-          nodePath: 'art:1',
+          nodePath: '1.1',
           nodeLabel: 'Articolul 1',
           charStart: HEADER.length + 6,
           charEnd: HEADER.length + 9,
-          servedForm: { documentId: 'f106', sourceUrl: portalUrl('5108') },
+          servedForm: { documentId: 'f106', sourceUrl: portalUrl('5106') },
         },
       ],
     });
@@ -607,6 +615,51 @@ run('legal_v2 on real DDL', () => {
       ])
     )._unsafeUnwrap();
     expect(invalid.size).toBe(0);
+    // A highlight across the boundary is two ranges, one per component, each verified in its
+    // own unit and placed in form coordinates on either side of the newline.
+    const across = (
+      await makeLegalV2HitVerifier(db).verifyUses([
+        {
+          key: 0,
+          actId: '7',
+          uses: [{ ...pairHits[0]!.uses[0]!, charStart: 3, charEnd: 5 }],
+        },
+        { key: 1, actId: '7', uses: [pairHits[1]!.uses[0]!] },
+      ])
+    )._unsafeUnwrap();
+    const ranges = [0, 1].map((k) => [across.get(k)?.charStart, across.get(k)?.charEnd]);
+    expect(ranges).toEqual([
+      [3, 5],
+      [HEADER.length + 6, HEADER.length + 9],
+    ]);
+    expect(PAIR_TEXT.slice(3, 5)).toBe(HEADER.slice(3, 5));
+    expect(PAIR_TEXT.slice(5, HEADER.length + 6)).toContain('\n');
+  });
+
+  it('drops a reference mark whose link occurrence is withheld, and renumbers the rest', async () => {
+    const trx = await db.startTransaction().execute();
+    try {
+      await sql`update legal_v2.unit_links set privacy_class = 'restricted'
+                 where unit_id = 7 and ordinal = 0`.execute(trx);
+      const manifest = (await makeLegalRenderSourceV2(trx).read('f106', 0))._unsafeUnwrap();
+      const marks = (manifest.tldf as { marks: { ordinal: number; span: number[] }[] }).marks;
+      expect(marks.map((m) => [m.ordinal, m.span])).toEqual([[0, [0, 5]]]);
+    } finally {
+      await trx.rollback().execute();
+    }
+  });
+
+  it('keeps a whole consolidation with the literal label and no date readable', async () => {
+    const trx = await db.startTransaction().execute();
+    try {
+      await sql`update legal_v2.forms set portal_label_date = null,
+                 portal_label_raw = 'Consolidarea din 01.03.2024' where form_id = 101`.execute(trx);
+      expect(
+        (await makeLegalRenderRepoV2(trx).renderInfo('f101'))._unsafeUnwrap()?.renderStatus
+      ).toBe('served');
+    } finally {
+      await trx.rollback().execute();
+    }
   });
 
   it('pins a cached hash to the composition when a new body is published', async () => {
@@ -703,6 +756,11 @@ run('legal_v2 on real DDL', () => {
       sql`update legal_v2.forms set portal_label_date = null where form_id = 106`,
     ],
     [
+      'label date alone',
+      'label_missing',
+      sql`update legal_v2.forms set portal_label_raw = null where form_id = 106`,
+    ],
+    [
       'wrong form kind',
       'composition_not_served',
       sql`update legal_v2.forms set form_kind = 'republication' where form_id = 106`,
@@ -766,6 +824,12 @@ run('legal_v2 on real DDL', () => {
       const pair = documents.find((d) => d.documentId === 'f106');
       if (fixture === 'ended form') expect(pair).toBeUndefined();
       else expect(pair).toMatchObject({ readable: false, isCanonical: false });
+      // A restricted verdict names no source at all; otherwise the header's, never the body's
+      // page (the inconsistent "wrong binding slot" labels the body capture a header).
+      if (status === 'restricted') expect(pair?.sourceUrl).toBeNull();
+      else if (fixture !== 'ended form' && fixture !== 'wrong binding slot') {
+        expect(pair?.sourceUrl).toBe(portalUrl('5106'));
+      }
       // latest_any_kind: an unavailable f106 is still act 7's latest form, so no form is
       // canonical and f101 is the latest available; an ended f106 takes no part.
       expect(documents.find((d) => d.isCanonical)?.documentId).toBe(
@@ -928,7 +992,7 @@ run('legal_v2 on real DDL', () => {
         returns setof test_oracle.states language sql stable as
         $f$ select * from test_oracle.states where lineage_id = p_lineage_id $f$;`);
     await q(fn.replaceAll('portal_acts.', 'test_oracle.'));
-    const actIds = ['7', '8', '10', '11', '12', '13', '14'];
+    const actIds = ['7', '8', '10', '11', '12', '13', '14', '16'];
     const rows = (await readFormsForActs(db, actIds))._unsafeUnwrap();
     // The raw function never sees an ended form (p2a_form_states leaves it out); inserting one as
     // unreadable would let it win the date. Act 12's newest form is ended.
@@ -988,7 +1052,7 @@ run('legal_v2 on real DDL', () => {
         compared += 1;
       }
     }
-    expect(compared).toBe(35);
+    expect(compared).toBe(40);
     // The fixture exercises the policy: act 7's latest form is the readable
     // header+body consolidation f106; act 10's latest date holds a listed republication without
     // text over the unlisted original, so no form is current.
@@ -1073,6 +1137,53 @@ run('legal_v2 on real DDL', () => {
       actHits = [];
       unitHits = [sectionHit];
     }
+  });
+
+  it('serves the shared-pointer headers as two gaps, and no pair', async () => {
+    const data = await gql(`{ legalAct(actId: "16") { defaultBasis canonicalDocumentId
+      latestDocumentId latestAvailableDocumentId newerNotAvailable
+      documents { documentId readable sourceUrl render { renderStatus chunkCount } }
+      resolveDocument(documentId: "209845") } }`);
+    expect(data['legalAct']).toEqual({
+      defaultBasis: 'latest_not_available',
+      canonicalDocumentId: null,
+      latestDocumentId: 'f162',
+      latestAvailableDocumentId: 'f160',
+      newerNotAvailable: 2,
+      documents: [
+        {
+          documentId: 'f162',
+          readable: false,
+          sourceUrl: portalUrl('5162'),
+          render: { renderStatus: 'composition_not_served', chunkCount: null },
+        },
+        {
+          documentId: 'f161',
+          readable: false,
+          sourceUrl: portalUrl('5161'),
+          render: { renderStatus: 'composition_not_served', chunkCount: null },
+        },
+        {
+          documentId: 'f160',
+          readable: true,
+          sourceUrl: portalUrl('5160'),
+          render: { renderStatus: 'served', chunkCount: 1 },
+        },
+      ],
+      resolveDocument: null,
+    });
+    const source = makeLegalRenderSourceV2(db);
+    for (const id of ['f161', 'f162']) {
+      expect((await source.read(id, 0))._unsafeUnwrapErr()).toMatchObject({
+        reason: 'render_unavailable',
+        renderStatus: 'composition_not_served',
+      });
+      expect(
+        (await makeLegalOutlineRepoV2(db).entryByPath(id, '0.unmarked:0'))._unsafeUnwrap()
+      ).toBeNull();
+    }
+    // The shared page itself serves nothing: its capture is bound to no form.
+    expect((await source.read('209845', 0)).isErr()).toBe(true);
   });
 
   it('answers every default-form field of a list row and of the card from one selection', async () => {
@@ -1273,6 +1384,7 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
     );
   }
   await seedPair(q);
+  await seedSharedPointer(q);
   // page 5200: afis capture HELD, detail capture bound to 101 — must not fall through
   await q(`insert into legal_v2.form_sources (binding_id, subject_kind, act_id, form_id, page_id,
              route, capture_ref_id, requested_url, body_sha256, is_latest, status, method) values
@@ -1316,6 +1428,77 @@ const seed = async (q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>): P
            (1, 'D9', null, 0, 'x', 'act', 7, null, null, null, 0, 1, 'public'),
            (2, 'D7', null, 1, 'y', 'act', 7, null, null, null, 0, 1, 'public')`);
   await q('set session_replication_role = origin');
+};
+
+/**
+ * The design's shared pointer (Codul fiscal, page 209845): two dated headers of act 16 whose
+ * links name ONE body page that serves two dates. Its capture is conflicting, so neither form
+ * gets a body: two gaps (header plus missing body) and no served pair. Form 160, the original,
+ * is the act's readable text.
+ */
+const seedSharedPointer = async (
+  q: (t: string, p?: unknown[]) => Promise<pg.QueryResult>
+): Promise<void> => {
+  await q(`insert into legal_v2.acts (act_id, act_natural_key, act_type, act_number, act_year,
+             issuer_slug, display_citation, identity_generation_seq, privacy_class) values
+           (16, 'lege:16:2010:', 'lege', '16', 2010, 'parlamentul', 'lege:16:2010:', 4, 'public')`);
+  await q(`insert into legal_v2.forms (form_id, act_id, form_kind, form_key, accepted,
+             body_resolved, portal_order_date, caveat, portal_label_raw, portal_label_date,
+             privacy_class) values
+           (160, 16, 'original', 'orig', true, true, '2010-01-01', null, null, null, 'public'),
+           (161, 16, 'consolidation', 'cons:2025-01', true, false, '2025-01-01',
+            'unofficial_consolidation', 'Consolidarea din 01.01.2025', '2025-01-01', 'public'),
+           (162, 16, 'consolidation', 'cons:2025-06', true, false, '2025-06-01',
+            'unofficial_consolidation', 'Consolidarea din 01.06.2025', '2025-06-01', 'public')`);
+  for (const [unit, form, page, slot] of [
+    [16, 160, '5160', 'whole'],
+    [17, 161, '5161', 'header'],
+    [18, 162, '5162', 'header'],
+  ] as const) {
+    await q(
+      `insert into legal_v2.text_units (unit_id, capture_ref_id, custody_lane, page_id, route,
+         requested_url, body_sha256, captured_at, parse_lane, parse_source_id, parse_build_id,
+         parse_result_digest, parse_run_id, certificate_id, content_parser_version,
+         load_run_id, text_sha256, content_digest, render_state, sealed)
+       overriding system value values ($1, $1, 'l', $2, 'afis', 'u', 'b', now(), 'afis',
+         $2, 'build', 'r', 1, 1, 'v9', 1, 't', 'cd', 'text_only', true)`,
+      [unit, page]
+    );
+    await q(`insert into legal_v2.unit_render values ($1, 0, 'Text', 0, 4, 'public')`, [unit]);
+    await q(
+      `insert into legal_v2.form_sources (binding_id, subject_kind, act_id, form_id, page_id,
+         route, capture_ref_id, requested_url, body_sha256, is_latest, status, method, component_slot)
+       values ($1, 'capture', 16, $2, $3, 'afis', $1, $4, 'b', true, 'bound', 'rule', $5)`,
+      [unit, form, page, portalUrl(page), slot]
+    );
+    await q(
+      `insert into legal_v2.form_components (form_id, ordinal, slot, unit_id) values ($1, 0, $2, $3)`,
+      [form, slot, unit]
+    );
+    if (slot === 'header') {
+      await q(
+        `insert into legal_v2.unit_links (unit_id, ordinal, char_start, char_end, href,
+           target_page_id, target_route, privacy_class)
+         values ($1, 0, 0, 4, $2, '209845', 'afis', 'public')`,
+        [unit, portalUrl('209845')]
+      );
+      await q(
+        `insert into legal_v2.form_components (form_id, ordinal, slot, linked_page_id,
+           link_unit_id, link_ordinal) values ($1, 1, 'missing_body', '209845', $2, 0)`,
+        [form, unit]
+      );
+    }
+    await q(`insert into legal_v2.form_current values ($1, 'cd', 1, 'public')`, [form]);
+  }
+  // The shared body page: one capture serving two dates, conflicting, bound to no form.
+  await q(
+    `insert into legal_v2.form_sources (binding_id, subject_kind, act_id, form_id, page_id,
+             route, capture_ref_id, requested_url, body_sha256, is_latest, status, method,
+             component_slot, reason_code)
+           values (209845, 'capture', 16, null, '209845', 'afis', 209845, $1, 'b', true,
+             'conflicting', 'rule', 'body', 'two_dates')`,
+    [portalUrl('209845')]
+  );
 };
 
 /** Two independently compiled pages, each with local mark, link and image ordinal zero. */

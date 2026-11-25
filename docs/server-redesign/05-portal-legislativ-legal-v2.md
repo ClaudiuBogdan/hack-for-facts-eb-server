@@ -64,7 +64,13 @@ behaviour unchanged.
   selection. The public form must be current and have a published public composition. It must contain exactly one
   whole unit, or, for a consolidation, exactly a header at ordinal 0 and a body at ordinal 1. Every component and
   unit must be public. Each unit needs a public capture binding for its form and slot and at least one render chunk.
-  All its chunks must be public. A consolidation also needs the Portal label date.
+  All its chunks must be public. A pair also needs BOTH the Portal's literal label and its date (the header supplies
+  them); a whole consolidation keeps the earlier rule, the label or its date, so nothing readable before disappears.
+  - Cost: each unit answers "any public chunk" and "any restricted chunk" with `EXISTS`; only the render info counts
+    chunks, for `chunkCount`. One act's form read is shared by the card, version list, provenance and selection of a
+    request while it is in flight. A partial index on restricted `unit_render` rows belongs in the scrapper.
+  - `sourceUrl` of a form whose verdict is restricted is null, before any fallback. An unreadable form otherwise
+    names its whole or header capture, a body capture only when nothing else is bound.
 - **Default form** (`isCanonical`, `canonical`). The owner's decision of 2026-11-12: the policy `latest_any_kind`, the
   latest form of any kind, republications included, read over per-form facts. `core/v2/forms.ts` ports the raw function
   `portal_acts.p2a_default_form` (writer/sql/21-form-states.sql) line for line and computes it per act. The serving
@@ -99,20 +105,25 @@ behaviour unchanged.
   body. An unavailable public form can return these statuses.
   - `not_loaded` for an ended form, missing publication or a component without text chunks.
   - `composition_not_served` for an unsupported slot combination, component order or form kind.
-  - `label_missing` for a consolidation without the Portal label date (LEG-X3AV).
+  - `label_missing` for a pair without the Portal's label and its date, or a whole consolidation with neither
+    (LEG-X3AV).
   - `source_not_bound` when a supplying capture lacks a public binding to its form and slot.
 
   A pair displays a single newline after the last header chunk. Its synthetic paragraph occupies one UTF-16 code
   unit, including when either page already has edge whitespace. The form SHA-256 covers the UTF-8 encoding of
   header text, newline and body text. A cold hash uses the DDL's `render_chunk_text` fold. The API caches the hash
-  by form and composition digest and rechecks the gate on each read. Version lists requesting only render status
-  and count skip the fold. For pairs, the TLDF generation body hash is the composition digest and the compiler and
+  by form and composition digest and rechecks the gate on each read. GraphQL folds only when the selection names
+  `textSha256`, with fragments resolved first, so a status or count selection never folds a composition. A REST
+  read of a pair still folds once per composition and process on a cold cache; publishing the folded hash with the
+  composition (scrapper) removes that. For pairs, the TLDF generation body hash is the composition digest and the compiler and
   parser versions describe the body. `meta.renderHead` records these substitutions.
 
   Conversion (`core/v2/tldf-unit.ts`):
   - every stored chunk is validated (TypeBox), and the TLDF 1.1 output is built from an allowlist, never spread;
   - a link's kind comes from anchored Portal patterns, and any scheme but http, https and mailto is refused;
   - a Portal link keeps its validated route, page id and query on the Portal host; only an external link keeps its href;
+  - a reference mark whose link occurrence is not public is dropped whole (its span would show where the withheld
+    link sits), and the remaining marks are renumbered in document order;
   - a v2 render is `Cache-Control: no-store`, with no ETag and no 304, because link targets and custody can change
     under one composition.
 
@@ -134,9 +145,11 @@ behaviour unchanged.
     type, issuer and year filters and `privacy_class = public`.
   - Every unit hit is verified against its `uses` in ONE statement before any text is served. The checks: a public,
     readable form of the hit's act; the unit as that form's current public component; the provision public and holding
-    the use's whole range; public chunks of that same unit covering the entire range. The section's citation path, label, range
-    and source URL come from that verified occurrence: the parser address, the provision label, and the supplying unit's
-    own bound capture. In a pair the section key identifies the unit and provision sequence even if both pages
+    the use's whole range; public chunks of that same unit covering the entire range. The section's label and range
+    come from that verified occurrence. Its `nodePath` is the provision's outline path (the render block id,
+    namespaced in a pair), read through the outline's own reader and cache, so a section and the outline name one
+    node by one path. `servedForm.sourceUrl` is the form's source from the gate: the whole unit's capture, or a
+    pair's header, never the body page. In a pair the section key identifies the unit and provision sequence even if both pages
     use the same article address. Highlight offsets include all preceding component text and the display boundary.
     The index snippet is shown only when the occurrence's content key is the indexed wording's key. `servedForm` carries the form (LEG-X3AV) with the act's
     amendment facts merged in, and the reader link carries `?doc=<form>`. Unverifiable hits are dropped and not

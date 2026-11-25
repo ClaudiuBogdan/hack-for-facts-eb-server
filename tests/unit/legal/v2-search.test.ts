@@ -220,6 +220,7 @@ describe('searchLegalV2Engine', () => {
                       c.key,
                       {
                         use,
+                        path: `b${use.formId}`,
                         composed: false,
                         charStart: 21,
                         charEnd: 24,
@@ -263,8 +264,15 @@ describe('searchLegalV2Engine', () => {
     expect(value.unhydratedHits).toBe(0);
     // Displayed fields come from the verified occurrence, not the index doc.
     expect(
-      value.sections.map((s) => [s.actId, s.sectionKey, s.nodeLabel, s.documentId, s.snippet])
-    ).toEqual([['3', 'art:v77', 'Articolul verificat', 'f77', '<em>art:4</em>']]);
+      value.sections.map((s) => [
+        s.actId,
+        s.sectionKey,
+        s.nodePath,
+        s.nodeLabel,
+        s.documentId,
+        s.snippet,
+      ])
+    ).toEqual([['3', 'art:v77', 'b77', 'Articolul verificat', 'f77', '<em>art:4</em>']]);
     expect(value.sections[0]).toMatchObject({ charStart: 21, charEnd: 24 });
     expect(value.sections[0]?.portalDeepLink).toBe(
       `https://t/legislation/acts/3?doc=${encodeURIComponent('"f77"')}`

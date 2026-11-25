@@ -418,12 +418,19 @@ const buildBlock = (
   };
 };
 
-/** A TLDF mark built from a validated stored mark; an unresolvable link is dropped. */
+/**
+ * A TLDF mark built from a validated stored mark; an unresolvable link is dropped. A reference
+ * whose link occurrence is not public is dropped whole: its span and its place in the count
+ * would still show where the withheld link sits.
+ */
 const buildMark = (
   m: StoredMarkT,
   links: ReadonlyMap<number, V2LinkTarget>,
   placement: Placement
-): TldfMark => {
+): TldfMark | null => {
+  if (m.kind === 'reference' && m.link_ordinal !== undefined && !links.has(m.link_ordinal)) {
+    return null;
+  }
   const target = m.link_ordinal === undefined ? undefined : links.get(m.link_ordinal);
   let link = target === undefined ? null : toTldfLink(target);
   if (link?.kind === 'internal' && link.target_fragment !== undefined) {
@@ -527,7 +534,12 @@ const parseChunk = (
   return ok({
     head,
     blocks: body.blocks.map((b) => buildBlock(b, unit.publicAssets, placement)),
-    marks: withMarks ? body.marks.map((m) => buildMark(m, unit.links, placement)) : [],
+    marks: withMarks
+      ? body.marks.flatMap((m) => {
+          const mark = buildMark(m, unit.links, placement);
+          return mark === null ? [] : [mark];
+        })
+      : [],
   });
 };
 
@@ -691,7 +703,8 @@ export const convertFormChunk = (
       separator_chars: counts.separators,
       excluded_by_reason: {},
     },
-    marks: units.length === 1 ? marks : marks.map((m, ordinal) => ({ ...m, ordinal })),
+    // Renumbered in document order: a dropped mark leaves no gap in the ordinals.
+    marks: marks.map((m, ordinal) => ({ ...m, ordinal })),
   };
   if (n === 1) return ok({ kind: 'envelope', tldf: { ...envelopeHead, blocks: allBlocks } });
 

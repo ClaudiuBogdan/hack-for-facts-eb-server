@@ -11,8 +11,10 @@
  *  - its provision is public and holds the use's WHOLE range [start, end);
  *  - the unit's public chunks cover the whole range, which is then offset into the form;
  * and answers the occurrence's own facts: the provision's parser address and
- * label, whether its content key is the indexed wording's, and the source URL
- * of the supplying unit's own bound capture. Text units are sealed and their
+ * label, whether its content key is the indexed wording's, and the form's own
+ * source (the gate's: a whole unit's capture, or a pair's header). The section's
+ * path is the provision's outline path (the namespaced block id), read from the
+ * outline reader that the outline itself uses. Text units are sealed and their
  * ids never reused, so a replaced unit fails the check.
  */
 
@@ -24,7 +26,9 @@ import { databaseError, type ProdDatabase } from '@/modules/shared/index.js';
 import { BOUND_COMPONENT_SOURCE_SQL, FORM_READABLE_SQL } from './v2-reads.js';
 import { COMPONENT_BOUNDARY } from '../../../core/v2/composition.js';
 import { formDocumentId, versionKindOf } from '../../../core/v2/forms.js';
+import { v2ProvisionKey } from '../../../core/v2/outline.js';
 
+import type { V2OutlineReader } from './outline-v2.js';
 import type { LegalV2HitVerifier, V2HitUse, VerifiedUse } from '../../../core/v2/search.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -44,12 +48,17 @@ interface VerifiedRow {
   label_raw: string | null;
   same_wording: boolean;
   composed: boolean;
+  ordinal: number;
+  provision_seq: number;
   char_start: number;
   char_end: number;
   source_url: string | null;
 }
 
-export const makeLegalV2HitVerifier = (db: Db): LegalV2HitVerifier => ({
+export const makeLegalV2HitVerifier = (
+  db: Db,
+  provisionPaths?: V2OutlineReader['provisionPaths']
+): LegalV2HitVerifier => ({
   verifyUses: async (candidates) => {
     const flat: { key: number; actId: string; use: V2HitUse; idx: number }[] = [];
     for (const c of candidates) {
@@ -86,10 +95,11 @@ export const makeLegalV2HitVerifier = (db: Db): LegalV2HitVerifier => ({
         select hit.idx, f.form_id::text as form_id, f.form_kind, f.caveat, f.portal_label_raw,
                f.portal_label_date::text as portal_label_date,
                f.portal_order_date::text as portal_order_date,
-               p.address, p.label_raw, c.slot <> 'whole' as composed,
+               p.address, p.label_raw, c.slot <> 'whole' as composed, c.ordinal::int as ordinal,
+               p.provision_seq::int as provision_seq,
                hit.char_start + preceding.length as char_start, hit.char_end + preceding.length as char_end,
                (hit.content_key is not null and p.content_key = hit.content_key) as same_wording,
-               s.requested_url as source_url
+               gate.source_url
           from hit
           join legal_v2.forms f
             on f.form_id = hit.form_id and f.act_id = hit.act_id and f.privacy_class = 'public'
@@ -120,12 +130,23 @@ export const makeLegalV2HitVerifier = (db: Db): LegalV2HitVerifier => ({
       return err(databaseError('legal_v2 hit verification failed', error));
     }
     const byIdx = new Map(rows.map((r) => [r.idx, r]));
+    // The outline path of each verified provision, one outline read per form (cached there).
+    const pathsByForm = new Map<string, ReadonlyMap<string, string> | null>();
+    if (provisionPaths !== undefined) {
+      for (const formId of new Set(rows.map((r) => r.form_id))) {
+        const res = await provisionPaths(formDocumentId(formId));
+        if (res.isErr()) return err(res.error);
+        pathsByForm.set(formId, res.value);
+      }
+    }
     const out = new Map<number, VerifiedUse>();
     for (const f of flat) {
       const row = byIdx.get(f.idx);
       if (out.has(f.key) || row === undefined) continue;
       out.set(f.key, {
         use: f.use,
+        path:
+          pathsByForm.get(row.form_id)?.get(v2ProvisionKey(row.ordinal, row.provision_seq)) ?? null,
         composed: row.composed,
         charStart: row.char_start,
         charEnd: row.char_end,

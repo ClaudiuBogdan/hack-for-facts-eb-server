@@ -22,7 +22,7 @@ import { FORM_READABLE_SQL, documentFormPickSql } from './v2-reads.js';
 import { formDocumentId, parseDocumentRef } from '../../../core/v2/forms.js';
 import {
   composePresentationBlocks,
-  composeV2Outline,
+  composeV2OutlineKeyed,
   flattenBlocks,
   type V2BlockRef,
   type V2OutlineUnit,
@@ -65,6 +65,17 @@ interface FormOutline {
   readonly documentId: string;
   readonly entries: LegalOutlineEntry[];
   readonly blocks: readonly V2BlockRef[];
+  /** `v2ProvisionKey(ordinal, seq)` → the outline path of that provision. */
+  readonly paths: ReadonlyMap<string, string>;
+}
+
+/** The outline repo, and the provision paths search shares with it (one cache). */
+export interface V2OutlineReader {
+  readonly repo: LegalOutlineRepo;
+  /** The outline path of each public provision of a readable form; null when not readable. */
+  readonly provisionPaths: (
+    documentId: string
+  ) => Promise<Result<ReadonlyMap<string, string> | null, ApiError>>;
 }
 
 // Both the cache lookup and the body read recheck the entire form in their
@@ -95,7 +106,9 @@ const cacheKey = (rows: readonly OutlineGateRow[]): string =>
 /** Outlines kept per process, keyed by form, composition and withheld provisions. */
 const OUTLINE_CACHE_SIZE = 64;
 
-export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
+export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => makeV2OutlineReader(db).repo;
+
+export const makeV2OutlineReader = (db: Db): V2OutlineReader => {
   const cache = new Map<string, FormOutline>();
   const remember = (key: string, value: FormOutline): void => {
     cache.delete(key);
@@ -159,10 +172,12 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
         })),
         blocks: r.bodies.flatMap((body) => flattenBlocks(storedOutlineBlocks(body))),
       }));
+      const keyed = composeV2OutlineKeyed(id, units);
       const value: FormOutline = {
         documentId: id,
-        entries: composeV2Outline(id, units),
+        entries: keyed.map((k) => k.entry),
         blocks: composePresentationBlocks(units),
+        paths: new Map(keyed.map((k) => [k.key, k.entry.path])),
       };
       remember(cacheKey(result.rows), value);
       return ok(value);
@@ -241,5 +256,10 @@ export const makeLegalOutlineRepoV2 = (db: Db): LegalOutlineRepo => {
     });
   };
 
-  return { outline, entryByPath };
+  const provisionPaths = async (
+    documentId: string
+  ): Promise<Result<ReadonlyMap<string, string> | null, ApiError>> =>
+    (await outlineFor(documentId)).map((o) => o?.paths ?? null);
+
+  return { repo: { outline, entryByPath }, provisionPaths };
 };
