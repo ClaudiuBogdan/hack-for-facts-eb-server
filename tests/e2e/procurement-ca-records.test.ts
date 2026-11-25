@@ -1226,8 +1226,9 @@ describe('the floor a release publishes (da_release.ca_award_day_from)', () => {
       const reanchored = (await getCaRecord(deps, 'seap:ca:901:1'))._unsafeUnwrapErr();
       expect(reanchored).toMatchObject({ type: 'NotFound', resource: OUTSIDE_WINDOW_RESOURCE });
       expect(reanchored.message).toContain('2026-01-01');
-      // A day to_char could overflow on, or one before the era, is no floor: the fallback serves.
-      for (const day of ['50000-01-01', '2018-01-01 BC', 'infinity']) {
+      // A day to_char overflows on (past the timestamp range), one before the era, or an infinite
+      // one is no floor: the fallback serves.
+      for (const day of ['500000-01-01', '2018-01-01 BC', 'infinity']) {
         await setFloor(day);
         expect(await observe(), day).toEqual(RELEASE_1);
       }

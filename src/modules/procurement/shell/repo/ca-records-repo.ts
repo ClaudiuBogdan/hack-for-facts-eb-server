@@ -36,15 +36,6 @@ import {
   SUPPLIER_DISCLOSURE_NAME,
   SUPPLIER_NAMES_NAME,
 } from './da-v3-sql.js';
-import {
-  servedFloor,
-  type CaAppearance,
-  type CaKey,
-  type CaListSort,
-  type CaLotRow,
-  type CaRecordRow,
-  type CaWinnerRow,
-} from '../../core/ca-records.js';
 import { namingFromView, type SupplierNamesViewRow } from '../../core/supplier-naming.js';
 
 import type {
@@ -57,6 +48,14 @@ import type {
   CaWinnerGate,
   CaWinnerKeys,
 } from '../../core/ca-records-ports.js';
+import type {
+  CaAppearance,
+  CaKey,
+  CaListSort,
+  CaLotRow,
+  CaRecordRow,
+  CaWinnerRow,
+} from '../../core/ca-records.js';
 
 type Db = Kysely<ProdDatabase>;
 
@@ -137,34 +136,37 @@ const sqlStateOf = (error: unknown): string | null =>
 
 /**
  * The floor of the latest release row (there is one; the latest day if ever more), as `YYYY-MM-DD`.
- * A day outside 1900-9999 AD (which `to_char` could overflow on, or print without its era) reads as
- * none. In a transaction the read runs under a savepoint: a column dropped or a grant revoked since
- * the catalog check (undefined column, insufficient privilege, undefined table) reads as none and
- * leaves the snapshot usable. Any other failure is a failure.
+ * A day outside 0001-9999 AD (which `to_char` could overflow on, or print without its era) reads as
+ * none. The read runs in the snapshot's transaction under a savepoint: a column dropped or a grant
+ * revoked since the catalog check (undefined column, insufficient privilege, undefined table) reads
+ * as none and leaves the snapshot usable. Any other failure (a timeout) is a failure, as it would be
+ * for any other statement of the snapshot.
  */
-const readFloor = async (db: Db, inTransaction: boolean): Promise<string | null> => {
-  if (inTransaction) await sql`savepoint ca_floor`.execute(db);
+const readFloor = async (trx: Db): Promise<string | null> => {
+  await sql`savepoint ca_floor`.execute(trx);
   try {
     const result = await sql<{ floor: string | null }>`
-      select case when d between date '1900-01-01' and date '9999-12-31'
+      select case when d between date '0001-01-01' and date '9999-12-31'
         then to_char(d, 'YYYY-MM-DD') end as floor
       from (select max(${sql.ref(`f.${FLOOR_COLUMN}`)}) as d from ${RELEASE} f
-            where f.data_as_of = (select max(data_as_of) from ${RELEASE})) x`.execute(db);
-    if (inTransaction) await sql`release savepoint ca_floor`.execute(db);
+            where f.data_as_of = (select max(data_as_of) from ${RELEASE})) x`.execute(trx);
+    await sql`release savepoint ca_floor`.execute(trx);
     return result.rows[0]?.floor ?? null;
   } catch (error) {
     const state = sqlStateOf(error);
     if (state === null || !FLOOR_GONE.has(state)) throw error;
-    if (inTransaction) await sql`rollback to savepoint ca_floor`.execute(db);
+    await sql`rollback to savepoint ca_floor`.execute(trx);
     return null;
   }
 };
 
 /**
- * What this login may read (catalog only, no view touched), then the release's data_as_of and
- * floor. `inTransaction`: `db` is the snapshot's transaction (the floor read then uses a savepoint).
+ * What this login may read (catalog only, no view touched), then the release's data_as_of and, in
+ * the snapshot (`withFloor`), its floor. The post-read recheck reads no floor: a floor that moves
+ * without data_as_of moves only with its column grant, and that must never refuse an answer (the
+ * answer keeps the floor its snapshot read; a publish moves data_as_of, which the recheck sees).
  */
-const probeAccess = async (db: Db, inTransaction: boolean): Promise<Access> => {
+const probeAccess = async (db: Db, withFloor: boolean): Promise<Access> => {
   const result = await sql<{
     views: boolean;
     deployed: boolean;
@@ -188,13 +190,11 @@ const probeAccess = async (db: Db, inTransaction: boolean): Promise<Access> => {
       -- The API's grant on da_release is per column (procurement-api-read.sql).
       coalesce(has_column_privilege(to_regclass(${RELEASE_NAME}), 'data_as_of', 'SELECT'),
         false) as release,
-      -- The floor column, from the catalog only: has_column_privilege raises on an absent column.
-      case when exists (
-            select 1 from pg_attribute a
-            where a.attrelid = to_regclass(${RELEASE_NAME}) and a.attname = ${FLOOR_COLUMN}
-              and a.attnum > 0 and not a.attisdropped)
-          then has_column_privilege(to_regclass(${RELEASE_NAME}), ${FLOOR_COLUMN}, 'SELECT')
-          else false end as floor_readable`.execute(db);
+      -- The floor column, by its number: by name, has_column_privilege raises on a column dropped
+      -- meanwhile; by number it answers null for one.
+      coalesce((select has_column_privilege(a.attrelid, a.attnum, 'SELECT') from pg_attribute a
+        where a.attrelid = to_regclass(${RELEASE_NAME}) and a.attname = ${FLOOR_COLUMN}
+          and a.attnum > 0 and not a.attisdropped), false) as floor_readable`.execute(db);
   const row = result.rows[0];
   let asOf: string | null = null;
   let floor: string | null = null;
@@ -202,7 +202,7 @@ const probeAccess = async (db: Db, inTransaction: boolean): Promise<Access> => {
     const release = await sql<{ as_of: string | null }>`
       select ${AS_OF_SQL} as as_of from ${RELEASE}`.execute(db);
     asOf = release.rows[0]?.as_of ?? null;
-    if (row.floor_readable === true) floor = await readFloor(db, inTransaction);
+    if (withFloor && row.floor_readable === true) floor = await readFloor(db);
   }
   return {
     asOf,
@@ -719,10 +719,7 @@ export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
         (!now.names && before.names) ||
         (!now.disclosure && before.disclosure);
       if (lost) return err(REPUBLISHED('not_readable'));
-      // The floor too: an answer whose window no longer holds is read again (the floor may move
-      // without data_as_of, e.g. when its column grant arrives or goes).
-      const same = now.asOf === before.asOf && servedFloor(now.floor) === servedFloor(before.floor);
-      return same ? result : err(REPUBLISHED());
+      return now.asOf === before.asOf ? result : err(REPUBLISHED());
     } catch (error) {
       return err(readError(error));
     }
