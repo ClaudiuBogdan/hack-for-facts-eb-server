@@ -434,8 +434,10 @@ const isMonthEnd = (day: string): boolean => {
  * Supplier totals the per-party rollup can answer: no filter, or only a finalization range whose
  * bounds fall on month boundaries (the rollup holds months). Any other filter reads the purchases.
  */
+// The overall figures do not depend on the grouping, so an ungrouped request (overall only) reads
+// the same per-party tables as a supplier-grouped one: a scan of every purchase timed out at 10 s.
 const rollupEligible = (query: DaTotalsQuery): boolean => {
-  if (query.groupBy !== 'supplier') return false;
+  if (query.groupBy !== 'supplier' && query.groupBy !== null) return false;
   const { finalizationFrom, finalizationTo, ...rest } = query.filter;
   // Any other filter field set (a key present with an undefined value is no filter).
   if (Object.values(rest).some((value: unknown) => value !== undefined)) return false;
@@ -528,7 +530,7 @@ const SUPPLIER_PARTY_TOTALS_NAME = `${DA_RELEASE_SCHEMA}.da_rollup_supplier_part
 
 /** Unfiltered supplier totals: every filter field unset. */
 const unfiltered = (query: DaTotalsQuery): boolean =>
-  query.groupBy === 'supplier' &&
+  (query.groupBy === 'supplier' || query.groupBy === null) &&
   Object.values(query.filter).every((value: unknown) => value === undefined);
 
 /** The all-time table answers while readable and built for this publication (same snapshot). */
@@ -780,6 +782,8 @@ const allTimeSupplierTotals = async (
   if (overall.isErr()) return err(overall.error);
   if (overall.value === undefined)
     return err(databaseError('Direct acquisitions total returned no row.'));
+  if (query.groupBy === null)
+    return ok({ overall: toMeasures(overall.value), groups: [], groupCount: 0 });
   const page = await attempt(
     async () =>
       (

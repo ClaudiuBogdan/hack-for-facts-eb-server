@@ -767,8 +767,21 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
             { groupBy: 'supplier', filter: {}, page, pageSize }
           )
         );
+      // Overall only (no grouping): the same figures, from the same tables.
+      out.push(
+        await daPurchaseTotals(
+          { repo: makeDaReleaseRepo(logged, true) },
+          { groupBy: null, filter: {}, page: 1, pageSize: 25 }
+        )
+      );
       return out;
     };
+    const RANGE = { finalizationFrom: '2025-01-01', finalizationTo: '2025-12-31' };
+    const ungroupedRange = async () =>
+      daPurchaseTotals(
+        { repo: makeDaReleaseRepo(logged, true) },
+        { groupBy: null, filter: RANGE, page: 1, pageSize: 25 }
+      );
     const allTime = (text: string) => text.includes('"da_rollup_supplier_party"');
     const month = (text: string) => text.includes('"da_rollup_supplier_party_month"');
     try {
@@ -796,6 +809,8 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
       statements.length = 0;
       const purchases = await battery();
       for (const answer of purchases) expect((answer as { isOk: () => boolean }).isOk()).toBe(true);
+      const rangedPurchases = await ungroupedRange();
+      expect(rangedPurchases._unsafeUnwrap().groups).toEqual([]);
       expect(statements.some(allTime) || statements.some(month)).toBe(false);
       // The marker fresh but not readable by this login (the cutover grants it): still the purchases.
       await sql`update procurement_v3.da_release set supplier_party_totals_for = data_as_of`.execute(
@@ -828,6 +843,13 @@ describe('unfiltered supplier totals from the all-time per-party table (PROC-AP7
         expect(statements.some(allTime), `page ${String(page)}`).toBe(true);
         expect(statements.some(month), `page ${String(page)}`).toBe(false);
       }
+      // Overall only over a month-aligned range: the month rollup, the purchases' figures.
+      statements.length = 0;
+      expect(await ungroupedRange()).toEqual(rangedPurchases);
+      expect(statements.some(month)).toBe(true);
+      expect(statements.some((text) => text.includes('"procurement_v3"."da_purchases"'))).toBe(
+        false
+      );
       statements.length = 0;
       const ranged = await daPurchaseTotals(
         { repo: makeDaReleaseRepo(logged, true) },
