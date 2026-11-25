@@ -111,8 +111,12 @@ only what the API adds or decides.
   before. A supplier row with a valid code and `supplier_disclosed` false shows its code at row level only (DA list
   and detail, analysis records, MCP): `person_masked` with the view's masked name, or `code_only`; no
   `supplier_names_public` row, no grant on it, a code it hides or a code longer than an organization code is
-  `natural_person`. Such a supplier is never counted, ranked, filtered or scoped on its own: it stays in the
-  withheld bucket, and a filter or scope on its code matches nothing (and is not echoed).
+  `natural_person`; it never carries a portal party id. Such a supplier is never counted, ranked, filtered or
+  scoped on its own: it stays in the withheld bucket, and a filter or scope on its code matches nothing (and is not
+  echoed). A column this login cannot read withholds every supplier (never the row rule). The column's state
+  (absent, readable or denied) is read with the release and the supplier_disclosure grant: it keys the analysis
+  cache, and a read it changed under is refused for repeat. The data platform adds the column first (20261124T120020,
+  every existing supplier row true) and the new rows only after the API reads it (20261124T120030).
 - Caching (PROC-VDWQ): every GraphQL answer, GET or POST, that carries a DA supplier name is
   `Cache-Control: no-store`. The resolvers that serve one mark the reply as they do: a release party named as a
   company or person_masked, a DA supplier bucket's `displayName`, a legacy DA supplier with a name, and a DA records page naming a

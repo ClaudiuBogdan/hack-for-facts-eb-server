@@ -55,11 +55,14 @@ import {
   DA_RELEASE_SCHEMA,
   daV3Table,
   disclosedPartySql,
+  DISCLOSED_COLUMN_STATE_SQL,
+  disclosedColumnOf,
   namedSupplierSql,
   probeSupplierDisclosedColumn,
+  type DisclosedColumn,
   probeSupplierDisclosure,
   purchaseParties,
-  shownSupplierSql,
+  undisclosedSupplierSql,
   SUPPLIER_DISCLOSURE,
   SUPPLIER_DISCLOSURE_NAME,
   supplierNamesByCode,
@@ -196,9 +199,13 @@ const probeRollups = async (trx: Db): Promise<ReadonlySet<string>> => {
 const BUILD_ID_SQL = sql`(extract(epoch from max(data_as_of)) * 1000000)::bigint::text`;
 const AS_OF_SQL = sql`to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
-/** Filled by a read's snapshot: whether supplier_disclosure was readable (names possible). */
+/**
+ * Filled by a read's snapshot: whether supplier_disclosure was readable (names possible), and the
+ * D6 column's state it read under.
+ */
 interface ReadSeen {
   privacy: boolean;
+  column?: DisclosedColumn;
 }
 
 const snapshot = async <T>(
@@ -226,7 +233,10 @@ const snapshot = async <T>(
         const column = await probeSupplierDisclosedColumn(trx);
         // An unreadable gate column withholds every supplier (never the row-presence rule).
         const privacy = column !== 'denied' && (await probeSupplierDisclosure(trx));
-        if (seen !== undefined) seen.privacy = privacy;
+        if (seen !== undefined) {
+          seen.privacy = privacy;
+          seen.column = column;
+        }
         const rollups = await probeRollups(trx);
         return read({ trx, privacy, rollups, disclosedColumn: column === 'readable' });
       });
@@ -364,9 +374,10 @@ const liveFacts = (ctx: Ctx, geo: boolean, pointReads: boolean, joins: PartyJoin
     supplierNamed: named,
     // By party ids, so the planner reaches the purchases through the party index instead of
     // reading a year of purchases and filtering on the joined party row (measured 18 Nov). The
-    // match IS the D6 test: the view holds a supplier row only for a disclosed code, and the
-    // subquery requires a valid status and an equal, non-null code on the same unique party key
-    // (no per-row probe of `s`); with supplier_disclosure unreadable nothing matches.
+    // match IS the D6 test: before naming step 2b the view held a supplier row only for a
+    // disclosed code; once it carries supplier_disclosed the subquery requires that column. It also
+    // requires a valid status and an equal, non-null code on the same unique party key (no per-row
+    // probe of `s`); with supplier_disclosure unreadable nothing matches.
     supplierScope: (code) =>
       ctx.privacy
         ? partyIds(
@@ -863,8 +874,8 @@ interface RecordRow {
   authority_cui: string | null;
   authority_name: string | null;
   supplier_cui: string | null;
-  /** `shown`: naming step 2b, the code is shown without D6 disclosing it (row level only). */
-  supplier_display_kind: 'company' | 'shown' | 'natural_person' | null;
+  /** `undisclosed`: naming step 2b, the code is shown without D6 disclosing it (row level only). */
+  supplier_display_kind: 'company' | 'undisclosed' | 'natural_person' | null;
   value_ron: string | null;
   status: string | null;
   cpv_code: string | null;
@@ -893,7 +904,7 @@ const recordSupplier = (
     if (naming.kind === 'hidden') return withheld;
     return { cui, name: servedSupplierName(naming), kind: naming.kind };
   }
-  if (kind === 'shown' && !isWithheldOrganizationIdentifier(cui)) {
+  if (kind === 'undisclosed' && !isWithheldOrganizationIdentifier(cui)) {
     // Without a view row that shows the code, or before the grant: withheld (core rule).
     const naming = undisclosedNaming(names.get(cui) ?? { kind: 'hidden', name: null });
     if (naming.kind !== 'person_masked' && naming.kind !== 'code_only') return withheld;
@@ -913,31 +924,46 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   /**
    * The publication and privacy state RIGHT NOW, in ONE statement (a publish
    * cannot fall between the two): whether `build` is still the current build,
-   * and whether supplier_disclosure is readable. Unreadable on error.
+   * whether supplier_disclosure is readable, and the D6 column's state (D6 is
+   * readable only when that column is not denied). Unreadable on error.
    */
-  const probeNow = async (build: string): Promise<{ current: boolean; privacy: boolean }> => {
+  const probeNow = async (
+    build: string
+  ): Promise<{ current: boolean; privacy: boolean; column: DisclosedColumn }> => {
     try {
-      const probe = await sql<{ build_id: string | null; privacy: boolean | null }>`
+      const probe = await sql<{
+        build_id: string | null;
+        privacy: boolean | null;
+        disclosed_column: string | null;
+      }>`
         select ${BUILD_ID_SQL} as build_id,
                coalesce(
                  has_table_privilege(to_regclass(${SUPPLIER_DISCLOSURE_NAME}), 'SELECT'),
                  false
-               ) as privacy
+               ) as privacy,
+               ${DISCLOSED_COLUMN_STATE_SQL} as disclosed_column
         from ${RELEASE}`.execute(db);
       const row = probe.rows[0];
-      return { current: row?.build_id === build, privacy: row?.privacy === true };
+      const column = disclosedColumnOf(row?.disclosed_column);
+      // D6 is readable only with the grant and a gate column that is absent or readable.
+      return {
+        current: row?.build_id === build,
+        privacy: row?.privacy === true && column !== 'denied',
+        column,
+      };
     } catch {
-      return { current: false, privacy: false };
+      return { current: false, privacy: false, column: 'denied' };
     }
   };
 
   /**
-   * An entry is reused, and stored, only while the build is current and
-   * supplier_disclosure is readable, checked before the lookup AND after the fill.
+   * An entry is reused, and stored, only while the build is current and D6 is
+   * readable, checked before the lookup AND after the fill; it answers only under
+   * the D6 column state it was read with (returned here, part of the key).
    */
-  const cacheable = async (build: string): Promise<boolean> => {
+  const cacheable = async (build: string): Promise<DisclosedColumn | null> => {
     const now = await probeNow(build);
-    return now.current && now.privacy;
+    return now.current && now.privacy ? now.column : null;
   };
 
   /**
@@ -954,7 +980,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   ): Promise<Result<T, ApiError>> => {
     if (result.isErr()) return result;
     const now = await probeNow(build);
-    return now.current && (now.privacy || !seen.privacy) ? result : err(REPUBLISHED());
+    // A D6 column that appeared, went or changed grant during the read: repeat the request.
+    const sameColumn = seen.column === undefined || seen.column === now.column;
+    return now.current && (now.privacy || !seen.privacy) && sameColumn
+      ? result
+      : err(REPUBLISHED());
   };
 
   /** Fills in flight, keyed like the cache: identical concurrent misses share one read. */
@@ -968,14 +998,16 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
   ): Promise<Result<T, ApiError>> => {
     const seen: ReadSeen = { privacy: false };
     if (!UNFILTERED(scope)) return settled(build, await load(seen), seen);
-    if (!(await cacheable(build))) return settled(build, await load(seen), seen);
+    const column = await cacheable(build);
+    if (column === null) return settled(build, await load(seen), seen);
     if (cacheBuild !== build) {
       cache.clear();
       filling.clear();
       cacheBuild = build;
     }
-    // The build is part of the key: an entry can only answer its own publication.
-    const cacheKey = JSON.stringify([build, key, scope]);
+    // The build and the D6 column's state are part of the key: an entry can only answer its own
+    // publication under the gate it was read with.
+    const cacheKey = JSON.stringify([build, column, key, scope]);
     const hit = cache.get(cacheKey);
     if (hit !== undefined) return hit as Result<T, ApiError>;
     const joined = filling.get(cacheKey);
@@ -989,7 +1021,8 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       // (another request may already have served the newer one), so the caller is
       // told to repeat the request. A re-read here cannot help: the request's build
       // and disclosureKey were fixed before this read.
-      if (cacheBuild !== build || !(await cacheable(build))) return err(REPUBLISHED());
+      if (cacheBuild !== build || seen.column !== column || (await cacheable(build)) !== column)
+        return err(REPUBLISHED());
       if (cache.size >= CACHE_MAX_ENTRIES) {
         const oldest = cache.keys().next();
         if (oldest.done !== true) cache.delete(oldest.value);
@@ -1495,11 +1528,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
           if (isNamed === null) return err(databaseError('records read live rows only'));
           // Naming step 2b: a supplier whose code is shown without D6 disclosing it, on this page
           // (before the column exists the statement is as it was).
-          const isShown = shownSupplierSql(ctx.privacy, ctx.disclosedColumn);
-          const shownOr = ctx.disclosedColumn ? sql` or ${isShown}` : sql``;
-          const shownWhen = ctx.disclosedColumn
+          const isUndisclosed = undisclosedSupplierSql(ctx.privacy, ctx.disclosedColumn);
+          const undisclosedOr = ctx.disclosedColumn ? sql` or ${isUndisclosed}` : sql``;
+          const undisclosedWhen = ctx.disclosedColumn
             ? sql`
-                    when ${isShown} then 'shown'`
+                    when ${isUndisclosed} then 'undisclosed'`
             : sql``;
           // Without a geography scope the filter reads only the purchase row (party scopes go by
           // party ids), so the page is chosen from da_purchases alone and only its rows probe their
@@ -1524,9 +1557,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
                p.finalization_day::text as date,
                case when b.fiscal_code_status = 'valid' then b.fiscal_code_clean end as authority_cui,
                b.name_as_written as authority_name,
-               case when ${isNamed}${shownOr} then s.fiscal_code_clean end as supplier_cui,
+               case when ${isNamed}${undisclosedOr} then s.fiscal_code_clean end as supplier_cui,
                case when p.supplier_party_id is null then null
-                    when ${isNamed} then 'company'${shownWhen} else 'natural_person' end as supplier_display_kind,
+                    when ${isNamed} then 'company'${undisclosedWhen} else 'natural_person' end as supplier_display_kind,
                (${money})::text as value_ron,
                p.outcome as status,
                case when p.category_code ~ '^[0-9]{8}' then left(p.category_code, 8) end as cpv_code,

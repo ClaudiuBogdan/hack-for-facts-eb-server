@@ -1373,3 +1373,95 @@ describe('DA supplier bucket names (PROC-B51G)', () => {
     }
   });
 });
+
+/**
+ * Naming step 2b: the D6 gate column `da_parties_public.supplier_disclosed`. Its state is part of
+ * the publication-keyed cache's key and of every after-read check, so a warm entry read under one
+ * state is never served under another (a column-level revoke or restore on the same build).
+ * Sequential like the file.
+ */
+describe('naming step 2b: the D6 column and the cache', () => {
+  it('never serves a warm answer across a column-level revoke or restore', async () => {
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const owner = db;
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({
+          host: container.getHost(),
+          port: container.getPort(),
+          database: container.getDatabase(),
+          user: API_LOGIN,
+          password: API_LOGIN,
+          max: 1,
+        }),
+      }),
+    });
+    // One source for the whole test: its cache is what is under test.
+    const apiDeps: AnalysisDeps = {
+      analysisRepo: makeDaRoutingAnalysisRepo(
+        makeUnconfiguredAnalysisRepo(),
+        makeDaV3AnalysisSource(logged)
+      ),
+    };
+    const suppliers = async () =>
+      (await analysisConcentration(apiDeps, { scope: DA, basis: 'value' }))._unsafeUnwrap()[0]
+        ?.supplierCount;
+    const distinct = async () =>
+      (await analysisSeries(apiDeps, { scope: DA, measure: 'distinctSuppliers', bucket: 'year' }))
+        ._unsafeUnwrap()[0]
+        ?.points.map((point) => point.value);
+    try {
+      // 120020: the column, every listed supplier disclosed (true). Answers as before.
+      await sql`create or replace view procurement_v3.da_parties_public with (security_barrier = true) as
+        select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+               case when party_kind = 'buyer' then name_as_written end as name_as_written,
+               case when party_kind = 'supplier' then coalesce(fiscal_code_clean in (
+                 select fiscal_code_clean from procurement_v3.supplier_disclosure), false) end
+                 as supplier_disclosed
+        from procurement_v3.da_parties
+        where party_kind = 'buyer'
+           or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
+        owner
+      );
+      const readable = { suppliers: await suppliers(), distinct: await distinct() };
+      // The company and others the earlier tests seeded, plus the withheld bucket.
+      expect(readable.suppliers).toBeGreaterThan(1);
+      // Warm, and served from the cache while nothing changes.
+      expect(await suppliers()).toBe(readable.suppliers);
+
+      // A column-level revoke on the same build: the warm entry is never served; every
+      // supplier is withheld (one bucket).
+      await sql`revoke select on procurement_v3.da_parties_public from procurement_api_read`.execute(
+        owner
+      );
+      await sql`grant select (source_name, party_kind, portal_party_id, fiscal_code_clean,
+        fiscal_code_status, name_as_written) on procurement_v3.da_parties_public
+        to procurement_api_read`.execute(owner);
+      expect(await suppliers()).toBe(1);
+      const denied = await distinct();
+      expect(denied).not.toEqual(readable.distinct);
+      expect(new Set(denied)).toEqual(new Set(['1']));
+
+      // Restored: the withheld answers read while denied are never served either.
+      await sql`grant select on procurement_v3.da_parties_public to procurement_api_read`.execute(
+        owner
+      );
+      expect(await suppliers()).toBe(readable.suppliers);
+      expect(await distinct()).toEqual(readable.distinct);
+    } finally {
+      await sql`drop view procurement_v3.da_parties_public`.execute(owner);
+      await sql`create view procurement_v3.da_parties_public with (security_barrier = true) as
+        select source_name, party_kind, portal_party_id, fiscal_code_clean, fiscal_code_status,
+               case when party_kind = 'buyer' then name_as_written end as name_as_written
+        from procurement_v3.da_parties
+        where party_kind = 'buyer'
+           or fiscal_code_clean in (select fiscal_code_clean from procurement_v3.supplier_disclosure)`.execute(
+        owner
+      );
+      await sql`grant select on procurement_v3.da_parties_public to procurement_api_read`.execute(
+        owner
+      );
+      await logged.destroy();
+    }
+  });
+});

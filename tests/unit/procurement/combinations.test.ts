@@ -292,6 +292,28 @@ describe('frameworkRole follows the ACTIVE build (M/M06): refused without the co
     ).toBe(true);
   });
 
+  it('leaves a frameworkRole request to the grains when no base build was read (legacy off)', () => {
+    const baseUnavailable = { ...without, analysisBaseUnavailable: true } as const;
+    expect(
+      routeAnalysis({ frameworkRole: 'standalone' }, 'stats', undefined, undefined, baseUnavailable)
+        ._unsafeUnwrap()
+        .map((r) => r.grain)
+    ).toEqual(['contract']);
+    expect(
+      routeAnalysis(
+        { grain: 'contract', frameworkRole: 'all' },
+        'breakdown',
+        'frameworkRole',
+        undefined,
+        baseUnavailable
+      ).isOk()
+    ).toBe(true);
+    // A live base build without the column still refuses.
+    expect(
+      routeAnalysis({ frameworkRole: 'standalone' }, 'stats', undefined, undefined, without).isErr()
+    ).toBe(true);
+  });
+
   it('defaults to "no column" when no generation was resolved (fails closed)', () => {
     expect(routeAnalysis({ frameworkRole: 'all' }, 'stats').isErr()).toBe(true);
   });
