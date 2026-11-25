@@ -107,7 +107,7 @@ const WINNER_NOT_FOUND = (): ApiError =>
   notFound('No published contract awards for this supplier code.', 'contractAwardWinner');
 
 const disabled = (): ApiError =>
-  serviceUnavailable('Contract awards are not enabled on this server.');
+  serviceUnavailable('Contract awards are not enabled on this server.', 'not_enabled');
 
 const contractBreak = (what: string): ApiError =>
   databaseError(`Contract-award ${what} breaks the serving contract; response refused.`);
@@ -161,7 +161,13 @@ const inSnapshot = async <T>(
   return deps.repo.snapshot(async (reader) => {
     const asOf = await reader.dataAsOf();
     if (asOf.isErr()) return err(asOf.error);
-    if (asOf.value === null) return err(serviceUnavailable('Contract awards hold no data yet.'));
+    if (asOf.value === null)
+      return err(
+        serviceUnavailable(
+          'Contract awards hold no data yet.',
+          reader.releaseReadable() ? 'no_data' : 'not_readable'
+        )
+      );
     return read(reader, {
       dataAsOf: asOf.value,
       disclosureKey: reader.namesReadable() ? asOf.value : 'unavailable',

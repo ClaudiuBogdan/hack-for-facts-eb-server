@@ -18,6 +18,7 @@
 import { GraphQLError } from 'graphql';
 import { err, ok, type Result } from 'neverthrow';
 
+import { withLoggedReason } from '@/infra/graphql/security.js';
 import {
   GRAPHQL_ERROR_CODE,
   invalidInput,
@@ -105,15 +106,18 @@ export interface ProcurementResolverDeps {
  * `build` pin (re-read the active build, then repeat) from any other refusal.
  */
 export const toGraphqlError = (error: ApiError): GraphQLError =>
-  new GraphQLError(error.message, {
-    extensions: {
-      code: GRAPHQL_ERROR_CODE[error.type],
-      type: error.type,
-      ...(error.type === 'InvalidInput' && error.field !== undefined && { field: error.field }),
-      ...(error.type === 'ServiceUnavailable' &&
-        error.retryAfterSeconds !== undefined && { retryAfterSeconds: error.retryAfterSeconds }),
-    },
-  });
+  withLoggedReason(
+    new GraphQLError(error.message, {
+      extensions: {
+        code: GRAPHQL_ERROR_CODE[error.type],
+        type: error.type,
+        ...(error.type === 'InvalidInput' && error.field !== undefined && { field: error.field }),
+        ...(error.type === 'ServiceUnavailable' &&
+          error.retryAfterSeconds !== undefined && { retryAfterSeconds: error.retryAfterSeconds }),
+      },
+    }),
+    error.type === 'ServiceUnavailable' ? error.reason : undefined
+  );
 
 /** The optional analysis build pin, as the usecases take it. */
 const pinOf = (build: string | null | undefined): { readonly build?: string } =>

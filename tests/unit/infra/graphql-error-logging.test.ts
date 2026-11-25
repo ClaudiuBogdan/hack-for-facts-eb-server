@@ -17,7 +17,10 @@ import {
   loggedGraphQLErrors,
   loggedOperationType,
   makeGraphQLErrorFormatter,
+  withLoggedReason,
 } from '@/infra/graphql/security.js';
+import { toGraphqlError } from '@/modules/procurement/shell/graphql/resolvers.js';
+import { SERVICE_UNAVAILABLE_REASONS, serviceUnavailable } from '@/modules/shared/index.js';
 
 /** A synthetic CNP-shaped value (never a real person's). */
 const CODE = '1960101123456';
@@ -27,6 +30,7 @@ const TYPE_DEFS = /* GraphQL */ `
     echo(c: String!): String
     fail(c: String!): String
     many: String
+    retired: String
   }
 `;
 const RESOLVERS = {
@@ -37,6 +41,9 @@ const RESOLVERS = {
     },
     many: (): never => {
       throw new AggregateError([`detail ${CODE}`]);
+    },
+    retired: (): never => {
+      throw toGraphqlError(serviceUnavailable('retired here', 'legacy_retired'));
     },
   },
 };
@@ -169,19 +176,121 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
         'text',
       ])
     ).toEqual([
-      { category: 'BAD_USER_INPUT', kind: 'execution', pathDepth: 2 },
-      { category: 'unknown', kind: 'validation', pathDepth: null },
-      { category: 'TypeError', kind: 'execution', pathDepth: 1 },
-      { category: 'other_code', kind: 'request', pathDepth: null },
-      { category: 'MER_ERR_GQL_VALIDATION', kind: 'request', pathDepth: null },
-      { category: 'other_code', kind: 'request', pathDepth: null },
-      { category: 'other_error', kind: 'request', pathDepth: null },
-      { category: 'unknown', kind: 'request', pathDepth: null },
-      { category: 'unknown', kind: 'request', pathDepth: null },
-      { category: 'unknown', kind: 'request', pathDepth: null },
+      { category: 'BAD_USER_INPUT', kind: 'execution', pathDepth: 2, reason: null },
+      { category: 'unknown', kind: 'validation', pathDepth: null, reason: null },
+      { category: 'TypeError', kind: 'execution', pathDepth: 1, reason: null },
+      { category: 'other_code', kind: 'request', pathDepth: null, reason: null },
+      { category: 'MER_ERR_GQL_VALIDATION', kind: 'request', pathDepth: null, reason: null },
+      { category: 'other_code', kind: 'request', pathDepth: null, reason: null },
+      { category: 'other_error', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
     ]);
     expect(loggedOperationType('query')).toBe('query');
     expect(loggedOperationType('AliceSmith')).toBe('unknown');
+  });
+
+  it('logs a service-unavailable reason as a known category, never free text', () => {
+    const unavailable = { extensions: { code: 'SERVICE_UNAVAILABLE' }, path: ['a'] };
+    const tagged = (reason: string) =>
+      ({ ...unavailable, originalError: withLoggedReason(new Error('x'), reason) }) as unknown;
+    const inherited = Object.create({ loggedReason: 'legacy_retired' }) as object;
+    const getter = Object.defineProperty({}, 'loggedReason', {
+      get: () => {
+        throw new Error('getter');
+      },
+    });
+    expect(
+      loggedGraphQLErrors([
+        tagged('legacy_retired'),
+        tagged('not_readable'),
+        tagged(`Alice ${CODE}`),
+        withLoggedReason({ ...unavailable }, 'republished'),
+        // Only a reason the API attached counts: a property, inherited or a getter, is ignored.
+        { ...unavailable, originalError: inherited },
+        { ...unavailable, originalError: getter },
+        unavailable,
+      ])
+    ).toEqual([
+      {
+        category: 'SERVICE_UNAVAILABLE',
+        kind: 'execution',
+        pathDepth: 1,
+        reason: 'legacy_retired',
+      },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: 'not_readable' },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: 'other_reason' },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: 'republished' },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: null },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: null },
+      { category: 'SERVICE_UNAVAILABLE', kind: 'execution', pathDepth: 1, reason: null },
+    ]);
+    // Every reason the API gives is one the log accepts.
+    for (const reason of SERVICE_UNAVAILABLE_REASONS)
+      expect(loggedGraphQLErrors([tagged(reason)])[0]?.reason).toBe(reason);
+  });
+
+  it('expands only Mercurius wrappers, never trusting a nested array or a path length', () => {
+    const errors = [{ message: `a ${CODE}`, locations: [{ line: 1, column: 1 }] }];
+    const ownMap = Object.assign([...errors], { map: () => [`Alice ${CODE}`] });
+    // A subclass whose species constructor (what slice and map build) returns an array that
+    // ignores writes and holds caller text: a copy through it would keep that text.
+    class Species extends Array<unknown> {
+      static override get [Symbol.species](): ArrayConstructor {
+        return function () {
+          return new Proxy([`Alice ${CODE}`], { defineProperty: () => true, set: () => true });
+        } as unknown as ArrayConstructor;
+      }
+    }
+    const species = Species.from(errors);
+    const proxiedPath = new Proxy(['a'], {
+      get: (target, key): unknown =>
+        key === 'length' ? `Alice ${CODE}` : (Reflect.get(target, key) as unknown),
+    });
+    const logged = loggedGraphQLErrors([
+      // A Mercurius validation wrapper: expanded, each entry a fresh record (an own map is not called).
+      { message: 'x', originalError: { code: 'MER_ERR_GQL_VALIDATION', errors: ownMap } },
+      { message: 'x', originalError: { code: 'MER_ERR_GQL_VALIDATION', errors: species } },
+      // Any other error's `errors` array is not expanded.
+      { message: 'x', originalError: { code: 'ALICE', errors }, extensions: { code: 'NOT_FOUND' } },
+      { message: 'x', originalError: { errors } },
+      { message: 'x', path: proxiedPath },
+    ]);
+    expect(logged).toEqual([
+      { category: 'unknown', kind: 'validation', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'validation', pathDepth: null, reason: null },
+      { category: 'NOT_FOUND', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'execution', pathDepth: null, reason: null },
+    ]);
+    expect(JSON.stringify(logged)).not.toContain('Alice');
+  });
+
+  it('logs the reason of a resolver refusal; the response never carries it', async () => {
+    const logs = collector();
+    const app = await pluginApp(false, logs.stream);
+    const res = await post(app, '{ retired }');
+    expect(
+      res.json<{ errors: { extensions: { code: string } }[] }>().errors[0]?.extensions.code
+    ).toBe('SERVICE_UNAVAILABLE');
+    expect(res.body).not.toContain('legacy_retired');
+    expect(res.body).not.toContain('loggedReason');
+    const logged = logs.lines
+      .filter((line) => line.includes('"msg":"GraphQL error"'))
+      .map(
+        (line) =>
+          // eslint-disable-next-line no-restricted-syntax -- the test reads the log lines its own app wrote
+          (JSON.parse(line) as { graphqlError: { reason: string | null } }).graphqlError
+      );
+    expect(logged).toEqual([
+      {
+        category: 'SERVICE_UNAVAILABLE',
+        kind: 'execution',
+        pathDepth: 1,
+        reason: 'legacy_retired',
+      },
+    ]);
   });
 
   for (const isProduction of [false, true])

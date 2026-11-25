@@ -84,8 +84,9 @@ const readError = (error: unknown): ApiError => {
   const code =
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
   if (code === '42P01' || code === '42703' || code === '3F000')
-    return serviceUnavailable('Contract-award views are not deployed.');
-  if (code === '42501') return serviceUnavailable('Contract awards are not readable by this API.');
+    return serviceUnavailable('Contract-award views are not deployed.', 'not_deployed');
+  if (code === '42501')
+    return serviceUnavailable('Contract awards are not readable by this API.', 'not_readable');
   if (code === '57014') return timeoutError('Contract-award read timed out.');
   // Only the SQLSTATE: a driver message or detail may quote a value it read, and errors are logged.
   return databaseError(
@@ -107,6 +108,10 @@ const privilege = (name: string): RawBuilder<boolean> =>
 interface Access {
   readonly asOf: string | null;
   readonly views: boolean;
+  /** All four views exist (whatever the grants): a refusal without them is `not_deployed`. */
+  readonly deployed: boolean;
+  /** `da_release.data_as_of` is readable: without it no data is `not_readable`, not `no_data`. */
+  readonly release: boolean;
   readonly names: boolean;
   readonly registry: boolean;
   /** `supplier_disclosure` (the D6 gate) is readable: needed for any winner-code list. */
@@ -117,6 +122,7 @@ interface Access {
 const probeAccess = async (db: Db): Promise<Access> => {
   const result = await sql<{
     views: boolean;
+    deployed: boolean;
     names: boolean;
     registry: boolean;
     disclosure: boolean;
@@ -126,6 +132,10 @@ const probeAccess = async (db: Db): Promise<Access> => {
       CA_VIEW_NAMES.map((name) => privilege(name)),
       sql` and `
     )} as views,
+      ${sql.join(
+        CA_VIEW_NAMES.map((name) => sql`to_regclass(${name}) is not null`),
+        sql` and `
+      )} as deployed,
       ${privilege(SUPPLIER_NAMES_NAME)} as names,
       ${privilege(PUBLIC_NAMES_NAME)} as registry,
       ${privilege(SUPPLIER_DISCLOSURE_NAME)} as disclosure,
@@ -142,6 +152,8 @@ const probeAccess = async (db: Db): Promise<Access> => {
   return {
     asOf,
     views: row?.views === true,
+    deployed: row?.deployed === true,
+    release: row?.release === true,
     names: row?.names === true,
     registry: row?.registry === true,
     disclosure: row?.disclosure === true,
@@ -425,6 +437,7 @@ const HIDDEN_ROW: SupplierNamesViewRow = { naming: null, displayName: null, code
 const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
   dataAsOf: () => Promise.resolve(ok(access.asOf)),
   namesReadable: () => access.names,
+  releaseReadable: () => access.release,
 
   buyerCounts: (buyerCode, window) =>
     attempt(async () => countsOf(await buyerCountsSql(buyerCode, window).execute(trx))),
@@ -606,10 +619,13 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
 });
 
 const disabled = (): ApiError =>
-  serviceUnavailable('Contract awards are not enabled on this server.');
+  serviceUnavailable('Contract awards are not enabled on this server.', 'not_enabled');
 
-const REPUBLISHED = (): ApiError =>
-  serviceUnavailable('contract-award data was republished during this request; repeat the request');
+const REPUBLISHED = (reason: 'republished' | 'not_readable' = 'republished'): ApiError =>
+  serviceUnavailable(
+    'contract-award data was republished during this request; repeat the request',
+    reason
+  );
 
 export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
   enabled,
@@ -626,19 +642,27 @@ export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
           const access = await probeAccess(trx);
           seen.access = access;
           if (!access.views)
-            return err(serviceUnavailable('Contract awards are not readable by this API.'));
+            return err(
+              serviceUnavailable(
+                'Contract awards are not readable by this API.',
+                access.deployed ? 'not_readable' : 'not_deployed'
+              )
+            );
           return read(makeReader(trx, access));
         });
       const before = seen.access;
       if (result.isErr() || before === null) return result;
       // After the read: the same release, and the names and D6 views no less readable than they were.
       const now = await probeAccess(db);
-      return now.asOf === before.asOf &&
-        now.views &&
-        (now.names || !before.names) &&
-        (now.disclosure || !before.disclosure)
-        ? result
-        : err(REPUBLISHED());
+      // A grant lost during the read (the release column's included, whose loss also empties
+      // asOf): the same answer, logged as a grant fault. Otherwise a changed release republished.
+      const lost =
+        !now.release ||
+        !now.views ||
+        (!now.names && before.names) ||
+        (!now.disclosure && before.disclosure);
+      if (lost) return err(REPUBLISHED('not_readable'));
+      return now.asOf === before.asOf ? result : err(REPUBLISHED());
     } catch (error) {
       return err(readError(error));
     }

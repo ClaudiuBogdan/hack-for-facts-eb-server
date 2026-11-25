@@ -38,6 +38,7 @@ const fakeRepo = (gate: CaWinnerGate, keys: CaWinnerKeys, calls: Calls): CaRecor
   const reader: CaRecordsReader = {
     dataAsOf: () => Promise.resolve(ok(AS_OF)),
     namesReadable: () => true,
+    releaseReadable: () => true,
     winnerGate: () => Promise.resolve(ok(gate)),
     winnerKeys: (_code, limit) => {
       calls.winnerKeys += 1;

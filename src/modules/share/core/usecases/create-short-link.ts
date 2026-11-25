@@ -7,7 +7,12 @@
 
 import { ok, err, type Result } from 'neverthrow';
 
-import { createHashCollisionError, type ShareError } from '../errors.js';
+import {
+  createHashCollisionError,
+  createPersonalCodeInUrlError,
+  type ShareError,
+} from '../errors.js';
+import { urlCarriesPersonalCode } from '../personal-code-url.js';
 import { buildCanonicalMetadata, generateCode, isSameMetadata } from '../url-utils.js';
 
 import type { Hasher, ShortLinkRepository } from '../ports.js';
@@ -70,6 +75,12 @@ export const createShortLink = async (
   const { shortLinkRepo, hasher } = deps;
   const { userId, url } = input;
 
+  // Step 0: a URL that carries a personal numeric code is never stored (PRJ-HX7G); nothing is
+  // read or written for it.
+  if (urlCarriesPersonalCode(url)) {
+    return err(createPersonalCodeInUrlError());
+  }
+
   // Step 1: Normalize URL and generate code
   const metadata = buildCanonicalMetadata(url);
   const code = generateCode(hasher, metadata);
@@ -100,6 +111,12 @@ export const createShortLink = async (
       return ok({ code: updateResult.value.code, isNew: false });
     }
 
+    // A stored link that carries a personal code (stored before PRJ-HX7G, e.g. in its fragment,
+    // which the metadata omits) never resolves, so its code is never handed out for this URL.
+    if (urlCarriesPersonalCode(existing.originalUrl)) {
+      return err(createHashCollisionError(code));
+    }
+
     // Check if metadata matches (same logical URL, different query param order)
     if (isSameMetadata(existing.metadata, metadata)) {
       // Logically the same URL - reuse existing link
@@ -124,7 +141,10 @@ export const createShortLink = async (
     const recheckResult = await shortLinkRepo.getByCode(code);
     if (recheckResult.isOk() && recheckResult.value !== null) {
       const raceLink = recheckResult.value;
-      if (raceLink.originalUrl === url || isSameMetadata(raceLink.metadata, metadata)) {
+      if (
+        !urlCarriesPersonalCode(raceLink.originalUrl) &&
+        (raceLink.originalUrl === url || isSameMetadata(raceLink.metadata, metadata))
+      ) {
         return ok({ code: raceLink.code, isNew: false });
       }
     }

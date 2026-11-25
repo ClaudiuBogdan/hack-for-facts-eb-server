@@ -6,6 +6,7 @@
  */
 
 import { createShortLink } from './create-short-link.js';
+import { urlCarriesPersonalCode } from '../personal-code-url.js';
 
 import type { Hasher, ShortLinkRepository } from '../ports.js';
 import type { ShareConfig } from '../types.js';
@@ -79,11 +80,11 @@ export const makeShareLink = async (
       return `${baseUrl}/share/${code}`;
     }
 
-    // Non-throwing failure - log and return original
+    // Non-throwing failure - log and return original. A URL with a personal code is not logged.
     logger?.warn('Short link creation failed', {
       error: result.error.type,
       message: result.error.message,
-      url,
+      ...(result.error.type !== 'PersonalCodeInUrlError' && { url }),
     });
 
     return url;
@@ -91,7 +92,7 @@ export const makeShareLink = async (
     // Unexpected error - log and return original
     logger?.error('Short link creation threw unexpected error', {
       error: error instanceof Error ? error.message : String(error),
-      url,
+      ...(!urlCarriesPersonalCode(url) && { url }),
     });
 
     return url;

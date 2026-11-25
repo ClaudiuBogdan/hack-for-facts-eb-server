@@ -463,4 +463,63 @@ describe('Share REST API', () => {
       expect(response.json().error).toBe('DatabaseError');
     });
   });
+
+  describe('a URL with a personal numeric code (PRJ-HX7G, synthetic code)', () => {
+    const CODE = '1234567890123';
+    const LINK = 'ABC123DEF456GHIJ';
+
+    it('refuses to create it (400, a fixed message, no code in the body) and stores nothing', async () => {
+      if (app != null) await app.close();
+      const repo = makeFakeShortLinkRepo();
+      app = await createTestApp({ shortLinkRepo: repo });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/api/v1/short-links',
+        headers: {
+          authorization: `Bearer ${testAuth.tokens.user1}`,
+          'content-type': 'application/json',
+        },
+        payload: { url: `https://transparenta.eu/procurement?q=1234567-890123` },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        ok: false,
+        error: 'PersonalCodeInUrlError',
+        message: 'This link carries a personal numeric code and cannot be shortened.',
+      });
+      expect(response.body).not.toContain('890123');
+      expect(
+        (
+          await repo.getByOriginalUrl('https://transparenta.eu/procurement?q=1234567-890123')
+        )._unsafeUnwrap()
+      ).toBeNull();
+    });
+
+    it('answers a stored one exactly as an unknown code (status, body, headers)', async () => {
+      if (app != null) await app.close();
+      app = await createTestApp({
+        shortLinkRepo: makeFakeShortLinkRepo({
+          shortLinks: [
+            createTestShortLink({
+              code: LINK,
+              originalUrl: `https://transparenta.eu/companies/${CODE}`,
+            }),
+          ],
+        }),
+      });
+      const stored = await app.inject({ method: 'GET', url: `/api/v1/short-links/${LINK}` });
+      await app.close();
+      app = await createTestApp({});
+      const unknown = await app.inject({ method: 'GET', url: `/api/v1/short-links/${LINK}` });
+      expect(stored.statusCode).toBe(404);
+      expect(stored.statusCode).toBe(unknown.statusCode);
+      expect(stored.body).toBe(unknown.body);
+      const headersOf = (headers: Record<string, unknown>) => {
+        const rest = { ...headers };
+        delete rest['date'];
+        return rest;
+      };
+      expect(headersOf(stored.headers)).toEqual(headersOf(unknown.headers));
+    });
+  });
 });

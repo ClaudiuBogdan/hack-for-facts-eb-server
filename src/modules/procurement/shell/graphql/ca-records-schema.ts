@@ -8,6 +8,7 @@
 
 import { GraphQLError } from 'graphql';
 
+import { withLoggedReason } from '@/infra/graphql/security.js';
 import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
 
 import { markNoStore } from './no-store.js';
@@ -249,13 +250,16 @@ export const caRecordsTypeDefs = /* GraphQL */ `
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr()) {
     const error = result.error;
-    throw new GraphQLError(error.message, {
-      extensions: {
-        code: GRAPHQL_ERROR_CODE[error.type],
-        ...(error.type === 'NotFound' &&
-          error.resource === OUTSIDE_WINDOW_RESOURCE && { reason: 'OUTSIDE_PUBLISHED_WINDOW' }),
-      },
-    });
+    throw withLoggedReason(
+      new GraphQLError(error.message, {
+        extensions: {
+          code: GRAPHQL_ERROR_CODE[error.type],
+          ...(error.type === 'NotFound' &&
+            error.resource === OUTSIDE_WINDOW_RESOURCE && { reason: 'OUTSIDE_PUBLISHED_WINDOW' }),
+        },
+      }),
+      error.type === 'ServiceUnavailable' ? error.reason : undefined
+    );
   }
   return result.value;
 };

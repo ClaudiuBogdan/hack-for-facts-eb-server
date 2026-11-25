@@ -37,12 +37,20 @@ const run = async (
     /** Naming step 2b: da_parties_public.supplier_disclosed exists (readable, or 'denied'). */
     disclosedColumn?: boolean | 'denied';
     records?: readonly Record<string, unknown>[];
+    /** The after-read probe (build, privacy and column in one statement) fails. */
+    probeFails?: boolean;
   } = {}
 ) => {
   const captured: CapturedQuery[] = [];
   const isolation: unknown[] = [];
   const db = makeCapturingDb(captured, {
     respond: (text) => {
+      if (
+        options.probeFails === true &&
+        text.includes('as build_id') &&
+        text.includes('as privacy')
+      )
+        throw new Error('permission denied');
       if (text.includes('as build_id'))
         return [
           {
@@ -119,11 +127,23 @@ describe('snapshots', () => {
       build: '1763500000000000',
     });
     const error = (
-      result as { _unsafeUnwrapErr: () => { type: string; message: string } }
+      result as { _unsafeUnwrapErr: () => { type: string; message: string; reason?: string } }
     )._unsafeUnwrapErr();
     expect(error.type).toBe('ServiceUnavailable');
     expect(error.message).toContain('republished');
+    // Logged as a republish (the log reason), not as a grant fault.
+    expect(error.reason).toBe('republished');
     expect(data).toEqual([]);
+  });
+
+  it('logs a failed after-read probe as a grant fault, with the same answer', async () => {
+    const { result } = await run((s) => s.statsFor(ROUTE, AUTHORITY, GEN), { probeFails: true });
+    const error = (
+      result as { _unsafeUnwrapErr: () => { type: string; message: string; reason?: string } }
+    )._unsafeUnwrapErr();
+    expect(error.type).toBe('ServiceUnavailable');
+    expect(error.message).toContain('republished');
+    expect(error.reason).toBe('not_readable');
   });
 });
 

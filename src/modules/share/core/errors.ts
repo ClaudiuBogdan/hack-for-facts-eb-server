@@ -32,6 +32,16 @@ export interface UrlNotAllowedError {
 }
 
 /**
+ * The URL carries a personal numeric code (PRJ-HX7G): never stored, since a short link resolves
+ * publicly. The message is fixed and the error holds no URL, so neither a response nor a log
+ * line repeats the code.
+ */
+export interface PersonalCodeInUrlError {
+  readonly type: 'PersonalCodeInUrlError';
+  readonly message: string;
+}
+
+/**
  * Invalid input (malformed URL or code).
  */
 export interface InvalidInputError {
@@ -79,6 +89,7 @@ export type ShareError =
   | DatabaseError
   | { readonly type: 'Forbidden'; readonly message: string }
   | UrlNotAllowedError
+  | PersonalCodeInUrlError
   | InvalidInputError
   | RateLimitExceededError
   | HashCollisionError
@@ -105,6 +116,12 @@ export const createUrlNotAllowedError = (url: string): UrlNotAllowedError => ({
   type: 'UrlNotAllowedError',
   message: 'URL not allowed. Must match an approved client domain.',
   url,
+});
+
+/** Creates a PersonalCodeInUrlError (a fixed message, no URL). */
+export const createPersonalCodeInUrlError = (): PersonalCodeInUrlError => ({
+  type: 'PersonalCodeInUrlError',
+  message: 'This link carries a personal numeric code and cannot be shortened.',
 });
 
 /**
@@ -158,6 +175,7 @@ export const SHARE_ERROR_HTTP_STATUS: Record<ShareError['type'], number> = {
   DatabaseError: 500,
   Forbidden: 403,
   UrlNotAllowedError: 400,
+  PersonalCodeInUrlError: 400,
   InvalidInputError: 400,
   RateLimitExceededError: 429,
   HashCollisionError: 500,

@@ -8,6 +8,7 @@
 import { ok, err, type Result } from 'neverthrow';
 
 import { createShortLinkNotFoundError, type ShareError } from '../errors.js';
+import { urlCarriesPersonalCode } from '../personal-code-url.js';
 
 import type { ShortLinkCache, ShortLinkRepository } from '../ports.js';
 
@@ -66,7 +67,10 @@ export const resolveShortLink = async (
 
   // Step 1: Check cache
   const cachedUrl = await cache.get(code);
-  if (cachedUrl !== null) {
+  // A stored URL that carries a personal numeric code (stored before PRJ-HX7G) answers exactly as
+  // an unknown code: no URL, no cache fill, no access count. A cached one is read as a miss, so
+  // the answer is the database's, as for an unknown code (a 500 during an outage included).
+  if (cachedUrl !== null && !urlCarriesPersonalCode(cachedUrl)) {
     // Cache hit - fire-and-forget stats update
     incrementStats(shortLinkRepo, code);
     return ok({ url: cachedUrl });
@@ -79,7 +83,7 @@ export const resolveShortLink = async (
   }
 
   const link = linkResult.value;
-  if (link === null) {
+  if (link === null || urlCarriesPersonalCode(link.originalUrl)) {
     return err(createShortLinkNotFoundError(code));
   }
 

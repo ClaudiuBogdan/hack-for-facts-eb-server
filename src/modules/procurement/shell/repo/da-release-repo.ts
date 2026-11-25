@@ -88,10 +88,16 @@ const readError = (error: unknown): ApiError => {
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
   // Undefined schema/table/column: the serving tables are not deployed (yet).
   if (code === '42P01' || code === '42703' || code === '3F000')
-    return serviceUnavailable('Direct acquisitions release 1 tables are not deployed.');
+    return serviceUnavailable(
+      'Direct acquisitions release 1 tables are not deployed.',
+      'not_deployed'
+    );
   // Insufficient privilege: a relation or column outside the API's grant is not served.
   if (code === '42501')
-    return serviceUnavailable('Direct acquisitions data is not readable by this API.');
+    return serviceUnavailable(
+      'Direct acquisitions data is not readable by this API.',
+      'not_readable'
+    );
   if (code === '57014') return timeoutError('Direct acquisitions read timed out.');
   return databaseError('Direct acquisitions read failed', error);
 };
@@ -1161,11 +1167,12 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
 };
 
 const disabled = (): ApiError =>
-  serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.');
+  serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.', 'not_enabled');
 
-const REPUBLISHED = (): ApiError =>
+const REPUBLISHED = (reason: 'republished' | 'not_readable' = 'republished'): ApiError =>
   serviceUnavailable(
-    'direct-acquisition data was republished during this request; repeat the request'
+    'direct-acquisition data was republished during this request; repeat the request',
+    reason
   );
 
 /**
@@ -1229,9 +1236,15 @@ export const makeDaReleaseRepo = (db: Db, enabled: boolean): DaReleaseRepo => ({
       if (options?.settle !== true || result.isErr()) return result;
       const now = await probeRelease(db);
       // A D6 column that appeared, went or changed grant during the read: repeat the request.
-      return now.asOf === seen.asOf && (now.privacy || !seen.privacy) && now.column === seen.column
-        ? result
-        : err(REPUBLISHED());
+      if (now.asOf !== seen.asOf) return err(REPUBLISHED());
+      if ((now.privacy || !seen.privacy) && now.column === seen.column) return result;
+      // A gate grant lost or a column denied is a grant fault; a column that appeared or went
+      // while still readable is a change of publication.
+      return err(
+        REPUBLISHED(
+          now.column === 'denied' || (seen.privacy && !now.privacy) ? 'not_readable' : 'republished'
+        )
+      );
     } catch (error) {
       return err(readError(error));
     }

@@ -34,9 +34,18 @@ export interface UpstreamError {
   readonly cause?: unknown;
 }
 
+import {
+  SERVICE_UNAVAILABLE_REASONS,
+  type ServiceUnavailableReason,
+} from '@/common/service-unavailable-reasons.js';
+
+export { SERVICE_UNAVAILABLE_REASONS, type ServiceUnavailableReason };
+
 export interface ServiceUnavailableError {
   readonly type: 'ServiceUnavailable';
   readonly message: string;
+  /** Why, as a fixed category for the logs (see SERVICE_UNAVAILABLE_REASONS). */
+  readonly reason?: ServiceUnavailableReason;
   /**
    * A guard refusal: the owner of the requested entity refused access to it
    * (its parent became non-public, its access scope moved, its mandatory
@@ -120,9 +129,13 @@ export const upstreamError = (
   cause,
 });
 
-export const serviceUnavailable = (message: string): ServiceUnavailableError => ({
+export const serviceUnavailable = (
+  message: string,
+  reason?: ServiceUnavailableReason
+): ServiceUnavailableError => ({
   type: 'ServiceUnavailable',
   message,
+  ...(reason !== undefined && { reason }),
 });
 
 /**

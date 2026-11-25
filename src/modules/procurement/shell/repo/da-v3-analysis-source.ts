@@ -142,18 +142,25 @@ const readError = (error: unknown): ApiError => {
   const code =
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
   if (code === '42P01' || code === '42703' || code === '3F000')
-    return serviceUnavailable('Direct acquisitions release 1 tables are not deployed.');
+    return serviceUnavailable(
+      'Direct acquisitions release 1 tables are not deployed.',
+      'not_deployed'
+    );
   // Insufficient privilege (e.g. the geography fallback's kernel tables, outside the API's
   // grant, read only when da_buyer_geography is not readable): not served.
   if (code === '42501')
-    return serviceUnavailable('Direct acquisitions data is not readable by this API.');
+    return serviceUnavailable(
+      'Direct acquisitions data is not readable by this API.',
+      'not_readable'
+    );
   if (code === '57014') return timeoutError('Direct acquisitions analysis read timed out.');
   return databaseError('Direct acquisitions analysis read failed', error);
 };
 
-const REPUBLISHED = (): ApiError =>
+const REPUBLISHED = (reason: 'republished' | 'not_readable' = 'republished'): ApiError =>
   serviceUnavailable(
-    'direct-acquisition data was republished during this request; repeat the request'
+    'direct-acquisition data was republished during this request; repeat the request',
+    reason
   );
 
 interface Ctx {
@@ -945,7 +952,7 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
    */
   const probeNow = async (
     build: string
-  ): Promise<{ current: boolean; privacy: boolean; column: DisclosedColumn }> => {
+  ): Promise<{ current: boolean; privacy: boolean; column: DisclosedColumn; failed: boolean }> => {
     try {
       const probe = await sql<{
         build_id: string | null;
@@ -966,9 +973,11 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         current: row?.build_id === build,
         privacy: row?.privacy === true && column !== 'denied',
         column,
+        failed: false,
       };
     } catch {
-      return { current: false, privacy: false, column: 'denied' };
+      // The probe itself failed (a revoked release grant, for one): a grant fault in the logs.
+      return { current: false, privacy: false, column: 'denied', failed: true };
     }
   };
 
@@ -998,9 +1007,14 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
     const now = await probeNow(build);
     // A D6 column that appeared, went or changed grant during the read: repeat the request.
     const sameColumn = seen.column === undefined || seen.column === now.column;
-    return now.current && (now.privacy || !seen.privacy) && sameColumn
-      ? result
-      : err(REPUBLISHED());
+    if (now.failed) return err(REPUBLISHED('not_readable'));
+    if (!now.current) return err(REPUBLISHED());
+    if ((now.privacy || !seen.privacy) && sameColumn) return result;
+    return err(
+      REPUBLISHED(
+        now.column === 'denied' || (seen.privacy && !now.privacy) ? 'not_readable' : 'republished'
+      )
+    );
   };
 
   /** Fills in flight, keyed like the cache: identical concurrent misses share one read. */
@@ -1037,8 +1051,18 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
       // (another request may already have served the newer one), so the caller is
       // told to repeat the request. A re-read here cannot help: the request's build
       // and disclosureKey were fixed before this read.
-      if (cacheBuild !== build || seen.column !== column || (await cacheable(build)) !== column)
-        return err(REPUBLISHED());
+      if (cacheBuild !== build) return err(REPUBLISHED());
+      const after = await probeNow(build);
+      const stillCacheable = after.current && after.privacy ? after.column : null;
+      if (seen.column !== column || stillCacheable !== column)
+        // D6 lost or denied during the fill is a grant fault; a moved build or column a republish.
+        return err(
+          REPUBLISHED(
+            after.failed || after.column === 'denied' || (after.current && !after.privacy)
+              ? 'not_readable'
+              : 'republished'
+          )
+        );
       if (cache.size >= CACHE_MAX_ENTRIES) {
         const oldest = cache.keys().next();
         if (oldest.done !== true) cache.delete(oldest.value);
@@ -1689,7 +1713,9 @@ export const makeDaV3AnalysisSource = (db: Db, logger?: Logger): DaV3AnalysisSou
         STATEMENT_TIMEOUT_MS,
         buildId,
         async (ctx) =>
-          ctx.privacy ? ok(await supplierNamesByCode(ctx.trx, codes)) : err(REPUBLISHED()),
+          ctx.privacy
+            ? ok(await supplierNamesByCode(ctx.trx, codes))
+            : err(REPUBLISHED('not_readable')),
         seen
       ),
       seen
