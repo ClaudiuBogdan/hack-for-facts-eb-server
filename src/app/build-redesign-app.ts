@@ -390,6 +390,10 @@ export const registerCompression = async (app: FastifyInstance): Promise<void> =
     global: true,
     threshold: 1024,
     encodings: ['br', 'gzip', 'deflate'],
+    // Request bodies: the same three, never zstd (the plugin's default adds it when Node has
+    // it). Node bundles its own zstd 1.5.7, which CVE-2026-124851 may affect; a zstd-encoded
+    // body is refused with 415 instead of reaching that decoder (25 Nov 2026).
+    requestEncodings: ['br', 'gzip', 'deflate'],
     // Never rewrite an already-encoded payload.
     inflateIfDeflated: false,
   });

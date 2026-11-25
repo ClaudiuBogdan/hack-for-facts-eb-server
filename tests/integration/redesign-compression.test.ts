@@ -20,7 +20,7 @@
  * redesign app, which would require a live kernel/postgres.
  */
 
-import { gunzipSync } from 'node:zlib';
+import { brotliCompressSync, deflateSync, gunzipSync, gzipSync, zstdCompressSync } from 'node:zlib';
 
 import fastifyLib, { type FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -167,5 +167,59 @@ describe('the route plugin does NOT compress on its own', () => {
     expect(res.headers['content-encoding']).toBeUndefined();
     expect(res.headers.vary).toBe('accept-encoding');
     expect(res.json<{ ok: boolean }>().ok).toBe(true);
+  });
+});
+
+describe('app-level compression — request bodies (CVE-2026-124851)', () => {
+  /** A bare app with the REAL compression options and one POST route that reports its body. */
+  const buildEchoApp = async (): Promise<FastifyInstance> => {
+    const instance = fastifyLib({ logger: false });
+    await registerCompression(instance);
+    instance.post('/echo', (request) => ({ received: request.body }));
+    await instance.ready();
+    app = instance;
+    return instance;
+  };
+  const BODY = JSON.stringify({ query: '{ health { status } }' });
+
+  it('refuses a zstd-encoded body with 415 before any zstd decoder runs', async () => {
+    const instance = await buildEchoApp();
+    const res = await instance.inject({
+      method: 'POST',
+      url: '/echo',
+      headers: { 'content-type': 'application/json', 'content-encoding': 'zstd' },
+      payload: zstdCompressSync(Buffer.from(BODY)),
+    });
+    expect(res.statusCode).toBe(415);
+    expect(res.json<{ code: string }>().code).toBe('FST_CP_ERR_INVALID_CONTENT_ENCODING');
+  });
+
+  it('still decodes gzip, deflate and br bodies', async () => {
+    const instance = await buildEchoApp();
+    for (const [encoding, payload] of [
+      ['gzip', gzipSync(Buffer.from(BODY))],
+      ['deflate', deflateSync(Buffer.from(BODY))],
+      ['br', brotliCompressSync(Buffer.from(BODY))],
+    ] as const) {
+      const res = await instance.inject({
+        method: 'POST',
+        url: '/echo',
+        headers: { 'content-type': 'application/json', 'content-encoding': encoding },
+        payload,
+      });
+      expect(res.statusCode, encoding).toBe(200);
+      expect(res.json<{ received: unknown }>().received, encoding).toEqual({
+        query: '{ health { status } }',
+      });
+    }
+  });
+
+  it('never answers in zstd, whatever the client accepts', async () => {
+    const instance = await buildApp({ compression: true });
+    const res = await getTranscript(instance, 'zstd');
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-encoding']).toBeUndefined();
+    const both = await getTranscript(instance, 'zstd, gzip');
+    expect(both.headers['content-encoding']).toBe('gzip');
   });
 });
