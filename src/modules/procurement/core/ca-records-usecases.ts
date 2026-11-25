@@ -314,10 +314,13 @@ export const listCaBuyerRecords = async (
 };
 
 /**
- * A winner code's key set, read only for a code in the gate exactly as the DA supplier filter keys
- * it: D6 discloses the code (`supplier_disclosure`, fails closed), the names view shows it
- * (code_shown, any naming), and every winner row of the code says supplier_disclosed. Anything
- * else is the one WINNER_NOT_FOUND.
+ * A winner code's key set, read only for a code in the contract-award gate (owner, 25 Nov: the
+ * supplier gate is widened for registry-named companies seen only in awards): the names view
+ * shows the code (code_shown), and either D6 discloses it (`supplier_disclosure`, as the DA
+ * supplier filter keys it) or the view names it (`named`: registry evidence of a company, NGO or
+ * public body, never a person form). Either view unreadable fails closed. The winner rows must
+ * agree: all disclosed for a D6 code, none for a named code outside D6. Anything else is the one
+ * WINNER_NOT_FOUND. The DA release keeps the D6 gate alone.
  */
 const winnerKeySet = async (
   reader: CaRecordsReader,
@@ -325,23 +328,24 @@ const winnerKeySet = async (
 ): Promise<Result<{ winner: CaWinner; keys: CaKeySet | null }, ApiError>> => {
   const gate = await reader.winnerGate(code);
   if (gate.isErr()) return err(gate.error);
-  const naming = gate.value.naming;
-  if (!gate.value.disclosed || naming?.source !== 'view' || naming.kind === 'hidden')
-    return err(WINNER_NOT_FOUND());
+  const { disclosed, naming, viewNamed } = gate.value;
+  if (naming?.source !== 'view' || naming.kind === 'hidden') return err(WINNER_NOT_FOUND());
+  if (!disclosed && !viewNamed) return err(WINNER_NOT_FOUND());
   const winner = toCaWinner({
     sourceName: '',
     matchId: '',
     winnerOrder: null,
     fiscalCode: code,
-    supplierDisclosed: true,
+    supplierDisclosed: disclosed,
     naming,
   });
   // A gate code toCaWinner would not show (not an organization code's shape): outside the gate.
-  if (winner.fiscalCode !== code || winner.disclosed !== true) return err(WINNER_NOT_FOUND());
+  if (winner.fiscalCode !== code) return err(WINNER_NOT_FOUND());
   const found = await reader.winnerKeys(code, CA_WINNER_MAX_KEYS + 1);
   if (found.isErr()) return err(found.error);
-  // The same snapshot read the code as disclosed: a winner row that says otherwise is a break.
-  if (!found.value.allDisclosed) return err(contractBreak('winner disclosure'));
+  // The same snapshot read the code's D6 state: a winner row that says otherwise is a break.
+  if (disclosed ? !found.value.allDisclosed : found.value.anyDisclosed)
+    return err(contractBreak('winner disclosure'));
   const keys = found.value.keys;
   if (keys.length > CA_WINNER_MAX_KEYS)
     return err(serviceUnavailable('This supplier has more contract awards than a list may read.'));

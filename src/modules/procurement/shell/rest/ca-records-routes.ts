@@ -8,8 +8,8 @@
  *   GET /winner-records   winnerFiscalCode, from, to, sort, page, pageSize
  *   GET /records/lookup   recordId
  *
- * A winner code outside the D6 gate (or not shown) is 404 with resource
- * `contractAwardWinner`, the same whether or not it won anything.
+ * A winner code not shown, or neither in the D6 gate nor registry-named, is 404
+ * with resource `contractAwardWinner`, the same whether or not it won anything.
  *
  * Unknown or repeated parameters are refused. Envelopes as the DA release:
  * `{ ok:true, data, meta, requestId }` and `{ ok:false, error, message, field?,

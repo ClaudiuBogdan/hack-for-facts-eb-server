@@ -85,12 +85,23 @@ describe('contract-award winners', () => {
     });
   });
 
-  it('shows a code outside the gate only by code or masked, never a registry name', () => {
-    expect(toCaWinner(winner({ supplierDisclosed: false }))).toMatchObject({
-      displayKind: 'code_only',
-      name: null,
+  it('shows a code outside D6 by its registry name only when the view names it', () => {
+    // Owner, 25 Nov: a registry-named company seen only in awards shows as gate suppliers do.
+    expect(toCaWinner(winner({ supplierDisclosed: false }))).toEqual({
+      order: 1,
+      displayKind: 'company',
+      fiscalCode: '14399840',
+      name: 'ALFA SRL',
       disclosed: false,
     });
+    expect(
+      toCaWinner(
+        winner({
+          supplierDisclosed: false,
+          naming: { kind: 'code_only', name: null, source: 'view' },
+        })
+      )
+    ).toMatchObject({ displayKind: 'code_only', name: null, disclosed: false });
     expect(
       toCaWinner(
         winner({

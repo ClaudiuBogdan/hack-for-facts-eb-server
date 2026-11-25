@@ -441,20 +441,23 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
   winnerGate: (code) =>
     attempt(async (): Promise<CaWinnerGate> => {
       // D6 and the names view must both be readable, or no code is in the gate (fails closed).
-      if (!access.disclosure || !access.names) return { disclosed: false, naming: null };
-      const disclosed = await disclosedCodeSql(code).execute(trx);
-      if (disclosed.rows[0]?.disclosed !== true) return { disclosed: false, naming: null };
+      if (!access.disclosure || !access.names)
+        return { disclosed: false, naming: null, viewNamed: false };
+      const result = await disclosedCodeSql(code).execute(trx);
+      const disclosed = result.rows[0]?.disclosed === true;
       const names = await supplierNamesSql([code]).execute(trx);
       // Two rows for one code (never expected): not in the gate.
-      if (names.rows.length > 1) return { disclosed: true, naming: namingFromView(HIDDEN_ROW) };
+      if (names.rows.length > 1)
+        return { disclosed: false, naming: namingFromView(HIDDEN_ROW), viewNamed: false };
       const row = names.rows[0];
       return {
-        disclosed: true,
+        disclosed,
         naming: namingFromView(
           row === undefined
             ? undefined
             : { naming: row.naming, displayName: row.display_name, codeShown: row.code_shown }
         ),
+        viewNamed: row?.naming === 'named',
       };
     }),
 
@@ -463,12 +466,14 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
       const result = await winnerKeysSql(code, limit).execute(trx);
       const keys = new Map<string, CaKey>();
       let allDisclosed = true;
+      let anyDisclosed = false;
       for (const row of result.rows) {
-        if (row.supplier_disclosed !== true) allDisclosed = false;
+        if (row.supplier_disclosed === true) anyDisclosed = true;
+        else allDisclosed = false;
         const key = { sourceName: row.source_name, matchId: row.match_id };
         keys.set(keyText(key), key);
       }
-      return { keys: [...keys.values()], allDisclosed };
+      return { keys: [...keys.values()], allDisclosed, anyDisclosed };
     }),
 
   buyerKeys: (query) =>

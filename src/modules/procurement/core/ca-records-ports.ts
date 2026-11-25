@@ -45,20 +45,27 @@ export interface CaBuyerProbe {
 }
 
 /**
- * A winner code's place in the gate: whether D6 discloses it (`supplier_disclosure`) and its naming
- * from `supplier_names_public`. Both are needed before any record of the code is read; either view
- * not readable reads as not disclosed (fails closed).
+ * A winner code's place in the contract-award gate: whether D6 discloses it (`supplier_disclosure`)
+ * and its row of `supplier_names_public`. Read before any record of the code; either view not
+ * readable reads as outside the gate (fails closed).
  */
 export interface CaWinnerGate {
   readonly disclosed: boolean;
-  /** Null when the names view is not readable. */
+  /** The code's naming from the names view; null when the view is not readable. */
   readonly naming: SupplierNaming | null;
+  /**
+   * The view's own naming is `named` (registry evidence of a company, NGO or public body), whatever
+   * the served name became after the screens.
+   */
+  readonly viewNamed: boolean;
 }
 
 /** Every key a winner code wins, and whether every one of its winner rows is in the D6 gate. */
 export interface CaWinnerKeys {
   readonly keys: readonly CaKey[];
   readonly allDisclosed: boolean;
+  /** Whether any of its winner rows is in the D6 gate. */
+  readonly anyDisclosed: boolean;
 }
 
 /** The keys a list is drawn from: one source and its match ids. */

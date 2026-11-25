@@ -95,6 +95,10 @@ const WITHHELD_WINNER = cui('5100003');
 const NO_NAMES_ROW_WINNER = cui('5100004');
 /** In the D6 gate with a masked name (KR9T: a masked supplier keeps its code). */
 const GATE_MASKED_WINNER = cui('5100005');
+/** Outside D6, named by the view: a registry-named company seen only in awards (owner, 25 Nov). */
+const NAMED_OFF_GATE_WINNER = cui('5100007');
+/** Outside D6, shown by code only. */
+const CODE_ONLY_OFF_GATE_WINNER = cui('5100008');
 /** A valid code no record or view knows. */
 const UNKNOWN_WINNER = cui('5100006');
 const BUYER_NAME = 'PRIMARIA TESTULUI';
@@ -262,13 +266,17 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     namingSql(WITHHELD_WINNER, 'withheld'),
     namingSql(NO_NAMES_ROW_WINNER, 'code_only'),
     namingSql(GATE_MASKED_WINNER, 'masked', 'Ma*** Ga***'),
+    namingSql(NAMED_OFF_GATE_WINNER, 'named'),
+    namingSql(CODE_ONLY_OFF_GATE_WINNER, 'code_only'),
   ])
     await statement.execute(db);
   await sql`insert into procurement_v3.supplier_names_public values
     (${GATE_WINNER}, 'named', 'ALFA CONSTRUCT SRL', true),
     (${MASKED_WINNER}, 'masked', 'Io*** Po*****', true),
     (${WITHHELD_WINNER}, 'withheld', ${SECRET_WINNER_NAME}, false),
-    (${GATE_MASKED_WINNER}, 'masked', 'Ma*** Ga***', true)`.execute(db);
+    (${GATE_MASKED_WINNER}, 'masked', 'Ma*** Ga***', true),
+    (${NAMED_OFF_GATE_WINNER}, 'named', 'BETA SERVICII SRL', true),
+    (${CODE_ONLY_OFF_GATE_WINNER}, 'code_only', null, true)`.execute(db);
 
   // Buyer's records: 1001 awarded 2025 (a change fact, two lots); 1002 a framework 2024 with a joint win;
   // 1003 under identity review 2023; 1004 before the floor (2019); 1005 undated; 1006 superseded;
@@ -318,6 +326,9 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     { pub: '3001', contract: '1', amount: '99.00', day: '2023-03-03', buyer: OTHER_BUYER },
     { pub: '3002', contract: '1', amount: '250.00', day: '2022-02-02', buyer: OTHER_BUYER },
     { pub: '3003', contract: '1', amount: '11.00', day: '2020-02-02', buyer: OTHER_BUYER },
+    // 3004 won by the named code outside D6 (2024); 3005 by the code-only code outside D6 (2024).
+    { pub: '3004', contract: '1', amount: '400.00', day: '2024-04-04', buyer: OTHER_BUYER },
+    { pub: '3005', contract: '1', amount: '500.00', day: '2024-05-05', buyer: OTHER_BUYER },
     // Re-anchored: the identity's earliest appearance (900) is its key; 901 is current.
     {
       pub: '901',
@@ -343,6 +354,8 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     ['3001', 'Furnituri', '2023-03-03'],
     ['3002', 'Asociere', '2022-02-02'],
     ['3003', 'Inainte de 2021', '2020-02-02'],
+    ['3004', 'Servicii de curatenie', '2024-04-04'],
+    ['3005', 'Reparatii', '2024-05-05'],
     ['901', 'Reanuntare', '2025-05-05'],
   ] as const)
     await publicationSql(pub, title, day).execute(db);
@@ -362,6 +375,8 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     winnerSql('3002', '1', 'w1', 1, GATE_MASKED_WINNER),
     winnerSql('3002', '1', 'w2', 2, GATE_WINNER),
     winnerSql('3003', '1', 'w1', 1, GATE_MASKED_WINNER),
+    winnerSql('3004', '1', 'w1', 1, NAMED_OFF_GATE_WINNER),
+    winnerSql('3005', '1', 'w1', 1, CODE_ONLY_OFF_GATE_WINNER),
   ])
     await statement.execute(db);
   for (const statement of [
@@ -906,9 +921,40 @@ describe('a winner code’s contract awards', () => {
     expect(window.items.map((item) => item.recordId)).toContain('seap:ca:1001:1');
   });
 
+  it('lists a registry-named code outside D6, shown with its registry name', async () => {
+    const summary = (
+      await caWinnerSummary(deps, { winnerFiscalCode: NAMED_OFF_GATE_WINNER })
+    )._unsafeUnwrap();
+    const shown = {
+      order: null,
+      displayKind: 'company',
+      fiscalCode: NAMED_OFF_GATE_WINNER,
+      name: 'BETA SERVICII SRL',
+      disclosed: false,
+    };
+    expect(summary).toMatchObject({ recordCount: 1, undatedCount: 0, winner: shown });
+    const page = (
+      await listCaWinnerRecords(deps, {
+        winnerFiscalCode: NAMED_OFF_GATE_WINNER,
+        page: 1,
+        pageSize: 5,
+      })
+    )._unsafeUnwrap();
+    expect(page.items.map((item) => item.recordId)).toEqual(['seap:ca:3004:1']);
+    expect(page.items[0]?.winners).toEqual([{ ...shown, order: 1 }]);
+  });
+
   it('answers every code outside the gate with the same NotFound', async () => {
     const answers = [];
-    for (const code of [MASKED_WINNER, WITHHELD_WINNER, NO_NAMES_ROW_WINNER, UNKNOWN_WINNER]) {
+    // MASKED_WINNER and CODE_ONLY_OFF_GATE_WINNER are shown (code_shown) and have records, but are
+    // outside D6 and not named.
+    for (const code of [
+      MASKED_WINNER,
+      CODE_ONLY_OFF_GATE_WINNER,
+      WITHHELD_WINNER,
+      NO_NAMES_ROW_WINNER,
+      UNKNOWN_WINNER,
+    ]) {
       answers.push((await caWinnerSummary(deps, { winnerFiscalCode: code }))._unsafeUnwrapErr());
       answers.push(
         (
@@ -916,7 +962,6 @@ describe('a winner code’s contract awards', () => {
         )._unsafeUnwrapErr()
       );
     }
-    // MASKED_WINNER shows its code (code_shown) and has a record, but D6 does not disclose it.
     for (const answer of answers)
       expect(answer).toEqual({
         type: 'NotFound',

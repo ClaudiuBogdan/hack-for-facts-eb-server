@@ -299,8 +299,10 @@ const WITHHELD: Omit<CaWinner, 'order'> = {
 
 /**
  * A winner as served. The code is shown only when the names view shows it (`source: 'view'`, not
- * hidden): a gate code with its naming (company, person_masked or code_only); a code outside the
- * gate by code only or masked (naming step 2b), never a registry name.
+ * hidden): a D6 code with its naming (company, person_masked or code_only). A code outside D6 is
+ * shown as a company with the view's registry name when the view names it (owner, 25 Nov: the
+ * contract-award gate is widened for registry-named companies seen only in awards), else by code
+ * only or masked (naming step 2b).
  */
 export const toCaWinner = (row: CaWinnerRow): CaWinner => {
   const order = row.winnerOrder;
@@ -319,6 +321,15 @@ export const toCaWinner = (row: CaWinnerRow): CaWinner => {
     };
   }
   if (row.supplierDisclosed !== false) return { order, ...WITHHELD };
+  // `company` comes only from the view's `named` with a name that passed the screens.
+  if (naming.kind === 'company')
+    return {
+      order,
+      displayKind: 'company',
+      fiscalCode: row.fiscalCode,
+      name: servedName(servedSupplierName(naming)),
+      disclosed: false,
+    };
   const shown = undisclosedNaming(naming);
   if (shown.kind !== 'person_masked' && shown.kind !== 'code_only') return { order, ...WITHHELD };
   return {

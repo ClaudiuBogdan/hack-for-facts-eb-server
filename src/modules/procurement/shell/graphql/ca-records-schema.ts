@@ -52,7 +52,8 @@ export const caRecordsTypeDefs = /* GraphQL */ `
   """
   A winner of a contract award. company (a name), person_masked (a masked name), code_only (no
   name) carry fiscalCode; withheld and unidentified carry neither code nor name. disclosed is true
-  for a supplier in the direct-acquisition gate, false for one shown by code only.
+  for a supplier in the direct-acquisition gate (D6), false for one outside it: a registry-named
+  company seen only in awards (company, with its registry name), or one shown masked or by code.
   """
   type ProcurementCaWinner {
     order: Int
@@ -141,16 +142,17 @@ export const caRecordsTypeDefs = /* GraphQL */ `
   }
 
   """
-  A winner code's contract awards in the window: counts only (no lei sum). Only a supplier in the
-  direct-acquisition gate (D6) whose code is shown has one; every other code is NOT_FOUND, the same
-  answer whether or not it won anything. undatedCount counts its records with no award day.
+  A winner code's contract awards in the window: counts only (no lei sum). Only a supplier whose
+  code is shown and that is in the direct-acquisition gate (D6) or a registry-named company has
+  one; every other code is NOT_FOUND, the same answer whether or not it won anything. undatedCount
+  counts its records with no award day.
   """
   type ProcurementCaWinnerSummary {
     dataAsOf: DateTime!
     "dataAsOf (a winner lookup needs the names view). Every contract-award answer is no-store."
     disclosureKey: String!
     window: ProcurementCaWindow!
-    "As its records show it: company, person_masked or code_only, with disclosed true; order null."
+    "As its records show it (company, person_masked or code_only; disclosed false outside D6); order null."
     winner: ProcurementCaWinner!
     recordCount: Int!
     valuedCount: Int!
@@ -218,8 +220,8 @@ export const caRecordsTypeDefs = /* GraphQL */ `
     """
     procurementContractAward(recordId: ID!): ProcurementCaRecordDetail!
     """
-    A winner code's contract awards in the published window: counts. NOT_FOUND for any code
-    outside the direct-acquisition gate (D6) or not shown. Its own snapshot: compare dataAsOf with
+    A winner code's contract awards in the published window: counts. NOT_FOUND for any code not
+    shown, or neither in the direct-acquisition gate (D6) nor a registry-named company. Its own snapshot: compare dataAsOf with
     the other contract-award fields of the operation.
     """
     procurementContractAwardWinnerSummary(
@@ -229,8 +231,8 @@ export const caRecordsTypeDefs = /* GraphQL */ `
     ): ProcurementCaWinnerSummary!
     """
     The contract awards a winner code won in the published window (a joint win included), as
-    procurementContractAwards pages them. NOT_FOUND for any code outside the direct-acquisition
-    gate (D6) or not shown. Its own snapshot: compare dataAsOf with the other contract-award
+    procurementContractAwards pages them. NOT_FOUND for any code not shown, or neither in the
+    direct-acquisition gate (D6) nor a registry-named company. Its own snapshot: compare dataAsOf with the other contract-award
     fields of the operation.
     """
     procurementContractAwardsByWinner(
