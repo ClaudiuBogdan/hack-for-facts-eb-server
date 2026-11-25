@@ -14,10 +14,14 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
 import {
+  KNOWN_REASONS,
   loggedGraphQLErrors,
   loggedOperationType,
   makeGraphQLErrorFormatter,
+  withLoggedReason,
 } from '@/infra/graphql/security.js';
+import { toGraphqlError } from '@/modules/procurement/shell/graphql/resolvers.js';
+import { SERVICE_UNAVAILABLE_REASONS, serviceUnavailable } from '@/modules/shared/index.js';
 
 /** A synthetic CNP-shaped value (never a real person's). */
 const CODE = '1960101123456';
@@ -27,6 +31,7 @@ const TYPE_DEFS = /* GraphQL */ `
     echo(c: String!): String
     fail(c: String!): String
     many: String
+    retired: String
   }
 `;
 const RESOLVERS = {
@@ -37,6 +42,9 @@ const RESOLVERS = {
     },
     many: (): never => {
       throw new AggregateError([`detail ${CODE}`]);
+    },
+    retired: (): never => {
+      throw toGraphqlError(serviceUnavailable('retired here', 'legacy_retired'));
     },
   },
 };
@@ -169,19 +177,80 @@ describe('GraphQL error logging (PRJ-DMHY)', () => {
         'text',
       ])
     ).toEqual([
-      { category: 'BAD_USER_INPUT', kind: 'execution', pathDepth: 2 },
-      { category: 'unknown', kind: 'validation', pathDepth: null },
-      { category: 'TypeError', kind: 'execution', pathDepth: 1 },
-      { category: 'other_code', kind: 'request', pathDepth: null },
-      { category: 'MER_ERR_GQL_VALIDATION', kind: 'request', pathDepth: null },
-      { category: 'other_code', kind: 'request', pathDepth: null },
-      { category: 'other_error', kind: 'request', pathDepth: null },
-      { category: 'unknown', kind: 'request', pathDepth: null },
-      { category: 'unknown', kind: 'request', pathDepth: null },
-      { category: 'unknown', kind: 'request', pathDepth: null },
+      { category: 'BAD_USER_INPUT', kind: 'execution', pathDepth: 2, reason: null },
+      { category: 'unknown', kind: 'validation', pathDepth: null, reason: null },
+      { category: 'TypeError', kind: 'execution', pathDepth: 1, reason: null },
+      { category: 'other_code', kind: 'request', pathDepth: null, reason: null },
+      { category: 'MER_ERR_GQL_VALIDATION', kind: 'request', pathDepth: null, reason: null },
+      { category: 'other_code', kind: 'request', pathDepth: null, reason: null },
+      { category: 'other_error', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
+      { category: 'unknown', kind: 'request', pathDepth: null, reason: null },
     ]);
     expect(loggedOperationType('query')).toBe('query');
     expect(loggedOperationType('AliceSmith')).toBe('unknown');
+  });
+
+  it('logs a service-unavailable reason as a known category, never free text', () => {
+    const thrown = (reason: unknown) => {
+      const error = new Error('x');
+      Object.defineProperty(error, 'loggedReason', { value: reason, enumerable: false });
+      return {
+        message: 'x',
+        extensions: { code: 'SERVICE_UNAVAILABLE' },
+        path: ['a'],
+        originalError: error,
+      };
+    };
+    expect(
+      loggedGraphQLErrors([
+        thrown('legacy_retired'),
+        thrown('not_readable'),
+        thrown(`Alice ${CODE}`),
+        thrown(42),
+        withLoggedReason(
+          { message: 'x', extensions: { code: 'SERVICE_UNAVAILABLE' } },
+          'republished'
+        ),
+        { message: 'x', extensions: { code: 'SERVICE_UNAVAILABLE' } },
+      ]).map((logged) => logged.reason)
+    ).toEqual([
+      'legacy_retired',
+      'not_readable',
+      'other_reason',
+      'other_reason',
+      'republished',
+      null,
+    ]);
+    // The API's reasons and the log allowlist are the same list.
+    expect([...KNOWN_REASONS].sort()).toEqual([...SERVICE_UNAVAILABLE_REASONS].sort());
+  });
+
+  it('logs the reason of a resolver refusal; the response never carries it', async () => {
+    const logs = collector();
+    const app = await pluginApp(false, logs.stream);
+    const res = await post(app, '{ retired }');
+    expect(
+      res.json<{ errors: { extensions: { code: string } }[] }>().errors[0]?.extensions.code
+    ).toBe('SERVICE_UNAVAILABLE');
+    expect(res.body).not.toContain('legacy_retired');
+    expect(res.body).not.toContain('loggedReason');
+    const logged = logs.lines
+      .filter((line) => line.includes('"msg":"GraphQL error"'))
+      .map(
+        (line) =>
+          // eslint-disable-next-line no-restricted-syntax -- the test reads the log lines its own app wrote
+          (JSON.parse(line) as { graphqlError: { reason: string | null } }).graphqlError
+      );
+    expect(logged).toEqual([
+      {
+        category: 'SERVICE_UNAVAILABLE',
+        kind: 'execution',
+        pathDepth: 1,
+        reason: 'legacy_retired',
+      },
+    ]);
   });
 
   for (const isProduction of [false, true])

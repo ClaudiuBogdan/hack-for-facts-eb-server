@@ -84,8 +84,9 @@ const readError = (error: unknown): ApiError => {
   const code =
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
   if (code === '42P01' || code === '42703' || code === '3F000')
-    return serviceUnavailable('Contract-award views are not deployed.');
-  if (code === '42501') return serviceUnavailable('Contract awards are not readable by this API.');
+    return serviceUnavailable('Contract-award views are not deployed.', 'not_deployed');
+  if (code === '42501')
+    return serviceUnavailable('Contract awards are not readable by this API.', 'not_readable');
   if (code === '57014') return timeoutError('Contract-award read timed out.');
   // Only the SQLSTATE: a driver message or detail may quote a value it read, and errors are logged.
   return databaseError(
@@ -606,10 +607,13 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
 });
 
 const disabled = (): ApiError =>
-  serviceUnavailable('Contract awards are not enabled on this server.');
+  serviceUnavailable('Contract awards are not enabled on this server.', 'not_enabled');
 
 const REPUBLISHED = (): ApiError =>
-  serviceUnavailable('contract-award data was republished during this request; repeat the request');
+  serviceUnavailable(
+    'contract-award data was republished during this request; repeat the request',
+    'republished'
+  );
 
 export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
   enabled,
@@ -626,7 +630,9 @@ export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
           const access = await probeAccess(trx);
           seen.access = access;
           if (!access.views)
-            return err(serviceUnavailable('Contract awards are not readable by this API.'));
+            return err(
+              serviceUnavailable('Contract awards are not readable by this API.', 'not_readable')
+            );
           return read(makeReader(trx, access));
         });
       const before = seen.access;

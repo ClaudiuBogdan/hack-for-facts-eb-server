@@ -24,7 +24,7 @@ export const LEGACY_RETIRED_MESSAGE =
   'legacy procurement data is not served by this API; use the direct-acquisition release (procurementDa*) or procurementTotals';
 
 const retired = (): Promise<Result<never, ApiError>> =>
-  Promise.resolve(err(serviceUnavailable(LEGACY_RETIRED_MESSAGE)));
+  Promise.resolve(err(serviceUnavailable(LEGACY_RETIRED_MESSAGE, 'legacy_retired')));
 
 /** Every record read retired; the CPV reference reads delegate unchanged. */
 export const retireLegacyRecords = (repo: ProcurementRepo): ProcurementRepo => ({
@@ -69,7 +69,7 @@ export const LEGACY_DA_LIST_RETIRED_MESSAGE =
  * delegates unchanged.
  */
 export const legacyDaListRetiredError = (): ApiError =>
-  serviceUnavailable(LEGACY_DA_LIST_RETIRED_MESSAGE);
+  serviceUnavailable(LEGACY_DA_LIST_RETIRED_MESSAGE, 'legacy_retired');
 
 export const retireLegacyDaList = (repo: ProcurementRepo): ProcurementRepo => {
   const retiredList = (): Promise<Result<never, ApiError>> =>

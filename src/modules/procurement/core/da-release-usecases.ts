@@ -192,7 +192,7 @@ const isEmptyFilter = (filter: DaPurchaseFilter): boolean =>
 // ── Reads ────────────────────────────────────────────────────────────────────
 
 const disabled = (): ApiError =>
-  serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.');
+  serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.', 'not_enabled');
 
 /**
  * Open the request's one snapshot and read its dataAsOf first. A read that can
@@ -210,7 +210,9 @@ const inSnapshot = async <T>(
       const asOf = await reader.dataAsOf();
       if (asOf.isErr()) return err(asOf.error);
       if (asOf.value === null)
-        return err(serviceUnavailable('Direct acquisitions release 1 holds no data yet.'));
+        return err(
+          serviceUnavailable('Direct acquisitions release 1 holds no data yet.', 'no_data')
+        );
       return read(reader, {
         dataAsOf: asOf.value,
         countedValueBasis: DA_COUNTED_VALUE_BASIS,

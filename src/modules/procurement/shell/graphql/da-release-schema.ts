@@ -8,6 +8,7 @@
 
 import { GraphQLError } from 'graphql';
 
+import { withLoggedReason } from '@/infra/graphql/security.js';
 import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
 
 import { markNoStore } from './no-store.js';
@@ -295,9 +296,12 @@ export const daReleaseTypeDefs = /* GraphQL */ `
 
 const unwrap = <T>(result: Result<T, ApiError>): T => {
   if (result.isErr())
-    throw new GraphQLError(result.error.message, {
-      extensions: { code: GRAPHQL_ERROR_CODE[result.error.type] },
-    });
+    throw withLoggedReason(
+      new GraphQLError(result.error.message, {
+        extensions: { code: GRAPHQL_ERROR_CODE[result.error.type] },
+      }),
+      result.error.type === 'ServiceUnavailable' ? result.error.reason : undefined
+    );
   return result.value;
 };
 

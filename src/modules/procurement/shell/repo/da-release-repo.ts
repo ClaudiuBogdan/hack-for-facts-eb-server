@@ -88,10 +88,16 @@ const readError = (error: unknown): ApiError => {
     typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
   // Undefined schema/table/column: the serving tables are not deployed (yet).
   if (code === '42P01' || code === '42703' || code === '3F000')
-    return serviceUnavailable('Direct acquisitions release 1 tables are not deployed.');
+    return serviceUnavailable(
+      'Direct acquisitions release 1 tables are not deployed.',
+      'not_deployed'
+    );
   // Insufficient privilege: a relation or column outside the API's grant is not served.
   if (code === '42501')
-    return serviceUnavailable('Direct acquisitions data is not readable by this API.');
+    return serviceUnavailable(
+      'Direct acquisitions data is not readable by this API.',
+      'not_readable'
+    );
   if (code === '57014') return timeoutError('Direct acquisitions read timed out.');
   return databaseError('Direct acquisitions read failed', error);
 };
@@ -1161,11 +1167,12 @@ const probeColumns = async (trx: Db): Promise<Columns> => {
 };
 
 const disabled = (): ApiError =>
-  serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.');
+  serviceUnavailable('Direct acquisitions release 1 is not enabled on this server.', 'not_enabled');
 
 const REPUBLISHED = (): ApiError =>
   serviceUnavailable(
-    'direct-acquisition data was republished during this request; repeat the request'
+    'direct-acquisition data was republished during this request; repeat the request',
+    'republished'
   );
 
 /**

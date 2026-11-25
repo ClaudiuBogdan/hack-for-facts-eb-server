@@ -119,7 +119,37 @@ export interface LoggedGraphQLError {
   readonly kind: 'execution' | 'validation' | 'request';
   /** How deep in the response the error sits; null outside execution. */
   readonly pathDepth: number | null;
+  /**
+   * Why a service was unavailable, when the API said so (`withLoggedReason`): a known reason, or
+   * `other_reason`; null when none was given.
+   */
+  readonly reason: string | null;
 }
+
+/** The property a thrown GraphQL error carries its log reason on (not enumerable, never sent). */
+const LOGGED_REASON = 'loggedReason';
+
+/** The reasons the API gives (SERVICE_UNAVAILABLE_REASONS in modules/shared/core/errors.ts). */
+export const KNOWN_REASONS: ReadonlySet<string> = new Set([
+  'legacy_retired',
+  'not_readable',
+  'not_deployed',
+  'not_enabled',
+  'republished',
+  'no_data',
+]);
+
+/**
+ * Attach a log reason to a GraphQL error a resolver throws; only `loggedGraphQLErrors` reads it.
+ * GraphQL's formatting sends a client only message, locations, path and extensions, so the
+ * property never reaches a response (tested); it is also not enumerable, so a generic copy or
+ * serializer does not pick it up.
+ */
+export const withLoggedReason = <E extends object>(error: E, reason: string | undefined): E => {
+  if (reason !== undefined)
+    Object.defineProperty(error, LOGGED_REASON, { value: reason, enumerable: false });
+  return error;
+};
 
 /**
  * The error codes the API and Mercurius emit (static text in code); any other code is logged as
@@ -193,7 +223,19 @@ const categoryOf = (error: unknown): string => {
   return KNOWN_CLASSES.has(name) ? name : 'other_error';
 };
 
-const UNREADABLE: LoggedGraphQLError = { category: 'unknown', kind: 'request', pathDepth: null };
+const reasonOf = (error: unknown): string | null => {
+  // The thrown error is the located error's originalError (or the error itself, unwrapped).
+  const reason = field(field(error, 'originalError'), LOGGED_REASON) ?? field(error, LOGGED_REASON);
+  if (reason === undefined || reason === null) return null;
+  return typeof reason === 'string' && KNOWN_REASONS.has(reason) ? reason : 'other_reason';
+};
+
+const UNREADABLE: LoggedGraphQLError = {
+  category: 'unknown',
+  kind: 'request',
+  pathDepth: null,
+  reason: null,
+};
 
 const loggedError = (error: unknown): LoggedGraphQLError => {
   // An error value can have throwing getters: logging never interrupts formatting.
@@ -204,6 +246,7 @@ const loggedError = (error: unknown): LoggedGraphQLError => {
       category: categoryOf(error),
       kind: Array.isArray(path) ? 'execution' : Array.isArray(locations) ? 'validation' : 'request',
       pathDepth: Array.isArray(path) ? path.length : null,
+      reason: reasonOf(error),
     };
   } catch {
     return UNREADABLE;
