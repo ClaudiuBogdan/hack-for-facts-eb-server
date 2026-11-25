@@ -23,6 +23,12 @@ import type { ApiError } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
 /** Inclusive award-day bounds; `from` is never before the floor. */
+/** The window a request asks for, checked but not yet raised to the snapshot's floor. */
+export interface CaAskedWindow {
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
 export interface CaWindow {
   readonly from: string;
   readonly to: string | null;
@@ -81,6 +87,11 @@ export interface CaRecordsReader {
   namesReadable(): boolean;
   /** Whether `da_release.data_as_of` was readable in this snapshot (no release is then a grant fault). */
   releaseReadable(): boolean;
+  /**
+   * `da_release.ca_award_day_from` (`YYYY-MM-DD`) of the snapshot's release; null when the column
+   * is absent, not granted to this login, or null. Never a refusal: the floor then falls back.
+   */
+  publishedFloor(): string | null;
   buyerCounts(buyerCode: string, window: CaWindow): Promise<Result<CaCounts, ApiError>>;
   buyerKeys(query: {
     readonly buyerCode: string;

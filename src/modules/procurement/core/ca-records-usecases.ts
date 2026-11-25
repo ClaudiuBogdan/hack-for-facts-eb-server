@@ -16,17 +16,18 @@ import {
 } from '@/modules/shared/index.js';
 
 import {
-  CA_FLOOR_DAY,
   CA_LIST_MAX_DEPTH,
   CA_LIST_SORTS,
   CA_MAX_PAGE_SIZE,
   CA_WINNER_MAX_KEYS,
   isBeforeFloor,
+  isCalendarDay,
   isPublicCode,
   parseCaRecordId,
   toCaBuyer,
   toCaLot,
   toCaRecord,
+  servedFloor,
   toCaWinner,
   type CaBuyer,
   type CaKey,
@@ -38,6 +39,7 @@ import {
 } from './ca-records.js';
 
 import type {
+  CaAskedWindow,
   CaCounts,
   CaKeySet,
   CaRecordsReader,
@@ -114,13 +116,6 @@ const contractBreak = (what: string): ApiError =>
 
 const BUYER_CODE = /^[1-9][0-9]{1,9}$/u;
 
-const isCalendarDay = (day: string): boolean => {
-  // PostgreSQL has no year 0 (a JavaScript Date does); any other year is clamped or kept.
-  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(day) || day.startsWith('0000')) return false;
-  const parsed = new Date(`${day}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
-};
-
 /** A party code as digits: an `RO` prefix and leading zeros are not accepted (the views key plain codes). */
 const validateCode = (code: unknown, field: string): Result<string, ApiError> =>
   typeof code === 'string' && BUYER_CODE.test(code)
@@ -129,33 +124,46 @@ const validateCode = (code: unknown, field: string): Result<string, ApiError> =>
 const validateBuyerCode = (code: unknown): Result<string, ApiError> =>
   validateCode(code, 'buyerFiscalCode');
 
-/** The window asked for, its start raised to the floor. */
+/**
+ * The window asked for, checked before any read. Its start is raised to the floor only inside the
+ * snapshot (`windowIn`), since the floor is the snapshot's release's.
+ */
 export const validateCaWindow = (
   from: string | null | undefined,
   to: string | null | undefined
-): Result<CaWindow, ApiError> => {
+): Result<CaAskedWindow, ApiError> => {
   for (const [field, day] of [
     ['from', from],
     ['to', to],
   ] as const)
     if (day !== null && day !== undefined && !isCalendarDay(day))
       return err(invalidInput(`${field} must be a calendar day (YYYY-MM-DD)`, field));
-  const start = from === null || from === undefined || from < CA_FLOOR_DAY ? CA_FLOOR_DAY : from;
+  const start = from ?? null;
   const end = to ?? null;
-  if (from !== null && from !== undefined && end !== null && from > end)
+  if (start !== null && end !== null && start > end)
     return err(invalidInput('from is after to', 'from'));
   return ok({ from: start, to: end });
 };
 
-const windowAnswer = (window: CaWindow): CaWindowAnswer => ({
-  floor: CA_FLOOR_DAY,
+/** The asked window in a snapshot: its start raised to that snapshot's floor. */
+export const windowIn = (asked: CaAskedWindow, floor: string): CaWindow => ({
+  from: asked.from === null || asked.from < floor ? floor : asked.from,
+  to: asked.to,
+});
+
+const windowAnswer = (window: CaWindow, floor: string): CaWindowAnswer => ({
+  floor,
   from: window.from,
   to: window.to,
 });
 
 const inSnapshot = async <T>(
   deps: CaRecordsDeps,
-  read: (reader: CaRecordsReader, envelope: CaEnvelope) => Promise<Result<T, ApiError>>
+  read: (
+    reader: CaRecordsReader,
+    envelope: CaEnvelope,
+    floor: string
+  ) => Promise<Result<T, ApiError>>
 ): Promise<Result<T, ApiError>> => {
   if (!deps.repo.enabled) return err(disabled());
   return deps.repo.snapshot(async (reader) => {
@@ -168,10 +176,14 @@ const inSnapshot = async <T>(
           reader.releaseReadable() ? 'no_data' : 'not_readable'
         )
       );
-    return read(reader, {
-      dataAsOf: asOf.value,
-      disclosureKey: reader.namesReadable() ? asOf.value : 'unavailable',
-    });
+    return read(
+      reader,
+      {
+        dataAsOf: asOf.value,
+        disclosureKey: reader.namesReadable() ? asOf.value : 'unavailable',
+      },
+      servedFloor(reader.publishedFloor())
+    );
   });
 };
 
@@ -239,10 +251,11 @@ export const caBuyerSummary = async (
 ): Promise<Result<CaBuyerSummary, ApiError>> => {
   const code = validateBuyerCode(request.buyerFiscalCode);
   if (code.isErr()) return err(code.error);
-  const window = validateCaWindow(request.from, request.to);
-  if (window.isErr()) return err(window.error);
-  return inSnapshot(deps, async (reader, envelope) => {
-    const counts = await reader.buyerCounts(code.value, window.value);
+  const asked = validateCaWindow(request.from, request.to);
+  if (asked.isErr()) return err(asked.error);
+  return inSnapshot(deps, async (reader, envelope, floor) => {
+    const window = windowIn(asked.value, floor);
+    const counts = await reader.buyerCounts(code.value, window);
     if (counts.isErr()) return err(counts.error);
     const probe = await reader.buyerProbe(code.value);
     if (probe.isErr()) return err(probe.error);
@@ -262,7 +275,7 @@ export const caBuyerSummary = async (
       // The place is a record's; the summary does not read one.
       { countyCode: null, siruta: null, region: null }
     );
-    return ok({ ...envelope, ...counts.value, window: windowAnswer(window.value), buyer });
+    return ok({ ...envelope, ...counts.value, window: windowAnswer(window, floor), buyer });
   });
 };
 
@@ -279,8 +292,8 @@ export const listCaBuyerRecords = async (
 ): Promise<Result<CaRecordPage, ApiError>> => {
   const code = validateBuyerCode(request.buyerFiscalCode);
   if (code.isErr()) return err(code.error);
-  const window = validateCaWindow(request.from, request.to);
-  if (window.isErr()) return err(window.error);
+  const asked = validateCaWindow(request.from, request.to);
+  if (asked.isErr()) return err(asked.error);
   const sort = request.sort ?? 'awardDayDesc';
   if (!(CA_LIST_SORTS as readonly string[]).includes(sort))
     return err(invalidInput('Invalid sort.', 'sort'));
@@ -288,12 +301,13 @@ export const listCaBuyerRecords = async (
   if (fault !== null) return err(fault);
   const offset = (request.page - 1) * request.pageSize;
   const limit = Math.min(request.pageSize, CA_LIST_MAX_DEPTH - offset);
-  return inSnapshot(deps, async (reader, envelope) => {
-    const counts = await reader.buyerCounts(code.value, window.value);
+  return inSnapshot(deps, async (reader, envelope, floor) => {
+    const window = windowIn(asked.value, floor);
+    const counts = await reader.buyerCounts(code.value, window);
     if (counts.isErr()) return err(counts.error);
     const keys = await reader.buyerKeys({
       buyerCode: code.value,
-      window: window.value,
+      window,
       sort: sort as CaListSort,
       offset,
       limit,
@@ -308,7 +322,7 @@ export const listCaBuyerRecords = async (
     const total = counts.value.recordCount;
     return ok({
       ...envelope,
-      window: windowAnswer(window.value),
+      window: windowAnswer(window, floor),
       items: items.value,
       page: request.page,
       pageSize: request.pageSize,
@@ -379,18 +393,19 @@ export const caWinnerSummary = async (
 ): Promise<Result<CaWinnerSummary, ApiError>> => {
   const code = validateCode(request.winnerFiscalCode, 'winnerFiscalCode');
   if (code.isErr()) return err(code.error);
-  const window = validateCaWindow(request.from, request.to);
-  if (window.isErr()) return err(window.error);
-  return inSnapshot(deps, async (reader, envelope) => {
+  const asked = validateCaWindow(request.from, request.to);
+  if (asked.isErr()) return err(asked.error);
+  return inSnapshot(deps, async (reader, envelope, floor) => {
+    const window = windowIn(asked.value, floor);
     const set = await winnerKeySet(reader, code.value);
     if (set.isErr()) return err(set.error);
     const keys = set.value.keys;
-    const counts = keys === null ? ok(NO_COUNTS) : await reader.keySetCounts(keys, window.value);
+    const counts = keys === null ? ok(NO_COUNTS) : await reader.keySetCounts(keys, window);
     if (counts.isErr()) return err(counts.error);
     return ok({
       ...envelope,
       ...counts.value,
-      window: windowAnswer(window.value),
+      window: windowAnswer(window, floor),
       winner: set.value.winner,
     });
   });
@@ -409,8 +424,8 @@ export const listCaWinnerRecords = async (
 ): Promise<Result<CaRecordPage, ApiError>> => {
   const code = validateCode(request.winnerFiscalCode, 'winnerFiscalCode');
   if (code.isErr()) return err(code.error);
-  const window = validateCaWindow(request.from, request.to);
-  if (window.isErr()) return err(window.error);
+  const asked = validateCaWindow(request.from, request.to);
+  if (asked.isErr()) return err(asked.error);
   const sort = request.sort ?? 'awardDayDesc';
   if (!(CA_LIST_SORTS as readonly string[]).includes(sort))
     return err(invalidInput('Invalid sort.', 'sort'));
@@ -418,19 +433,19 @@ export const listCaWinnerRecords = async (
   if (fault !== null) return err(fault);
   const offset = (request.page - 1) * request.pageSize;
   const limit = Math.min(request.pageSize, CA_LIST_MAX_DEPTH - offset);
-  return inSnapshot(deps, async (reader, envelope) => {
+  return inSnapshot(deps, async (reader, envelope, floor) => {
+    const window = windowIn(asked.value, floor);
     const set = await winnerKeySet(reader, code.value);
     if (set.isErr()) return err(set.error);
     const keySet = set.value.keys;
-    const counts =
-      keySet === null ? ok(NO_COUNTS) : await reader.keySetCounts(keySet, window.value);
+    const counts = keySet === null ? ok(NO_COUNTS) : await reader.keySetCounts(keySet, window);
     if (counts.isErr()) return err(counts.error);
     const keys =
       keySet === null
         ? ok([])
         : await reader.keySetPage({
             keys: keySet,
-            window: window.value,
+            window,
             sort: sort as CaListSort,
             offset,
             limit,
@@ -447,7 +462,7 @@ export const listCaWinnerRecords = async (
     const total = counts.value.recordCount;
     return ok({
       ...envelope,
-      window: windowAnswer(window.value),
+      window: windowAnswer(window, floor),
       items: items.value,
       page: request.page,
       pageSize: request.pageSize,
@@ -467,7 +482,7 @@ export const getCaRecord = async (
     return err(
       invalidInput('recordId must be <source>:ca:<publication id>:<contract id>', 'recordId')
     );
-  return inSnapshot(deps, async (reader, envelope) => {
+  return inSnapshot(deps, async (reader, envelope, floor) => {
     let key: CaKey = { sourceName: parsed.sourceName, matchId: parsed.matchId };
     // The award day first, from a plain column: nothing more of a record outside the window is read.
     let dated = await reader.awardDayOf(key);
@@ -485,10 +500,10 @@ export const getCaRecord = async (
       if (dated.isErr()) return err(dated.error);
     }
     if (dated.value === null) return err(notFound('Contract award not found.', 'contractAward'));
-    if (isBeforeFloor(dated.value.awardDay))
+    if (isBeforeFloor(dated.value.awardDay, floor))
       return err(
         notFound(
-          `Contract award is outside the published window (award day from ${CA_FLOOR_DAY}).`,
+          `Contract award is outside the published window (award day from ${floor}).`,
           OUTSIDE_WINDOW_RESOURCE
         )
       );

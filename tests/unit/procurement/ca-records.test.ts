@@ -7,10 +7,12 @@ import {
 } from 'kysely';
 import { describe, expect, it } from 'vitest';
 
-import { validateCaWindow } from '@/modules/procurement/core/ca-records-usecases.js';
+import { validateCaWindow, windowIn } from '@/modules/procurement/core/ca-records-usecases.js';
 import {
   CA_FLOOR_DAY,
+  isBeforeFloor,
   parseCaRecordId,
+  servedFloor,
   toCaBuyer,
   toCaRecord,
   toCaWinner,
@@ -213,17 +215,37 @@ describe('record ids and windows', () => {
       expect(parseCaRecordId(id)).toBeNull();
   });
 
-  it('raises the window to the floor and checks its days', () => {
-    expect(validateCaWindow(undefined, undefined)._unsafeUnwrap()).toEqual({
-      from: CA_FLOOR_DAY,
-      to: null,
-    });
-    expect(validateCaWindow('2019-01-01', '2022-12-31')._unsafeUnwrap()).toEqual({
-      from: CA_FLOOR_DAY,
-      to: '2022-12-31',
-    });
+  it('checks the asked days before any read, and raises the window to the floor in the snapshot', () => {
+    const asked = validateCaWindow(undefined, undefined)._unsafeUnwrap();
+    expect(asked).toEqual({ from: null, to: null });
+    expect(windowIn(asked, CA_FLOOR_DAY)).toEqual({ from: CA_FLOOR_DAY, to: null });
+    const early = validateCaWindow('2019-01-01', '2022-12-31')._unsafeUnwrap();
+    expect(windowIn(early, CA_FLOOR_DAY)).toEqual({ from: CA_FLOOR_DAY, to: '2022-12-31' });
+    // A release whose floor is earlier serves the asked start as it is.
+    expect(windowIn(early, '2018-01-01')).toEqual({ from: '2019-01-01', to: '2022-12-31' });
+    expect(windowIn({ from: null, to: null }, '2018-01-01').from).toBe('2018-01-01');
+    // A start on the floor stays on it.
+    expect(windowIn({ from: '2018-01-01', to: null }, '2018-01-01').from).toBe('2018-01-01');
     expect(validateCaWindow('2023-02-30', null).isErr()).toBe(true);
     expect(validateCaWindow('2024-01-02', '2024-01-01').isErr()).toBe(true);
+    // An end before the floor is not refused: the window is empty.
+    expect(validateCaWindow(null, '2019-12-31').isOk()).toBe(true);
+  });
+
+  it('serves the published floor, and 2021-01-01 when none was read or it is not a day', () => {
+    expect(CA_FLOOR_DAY).toBe('2021-01-01');
+    expect(servedFloor('2018-01-01')).toBe('2018-01-01');
+    expect(servedFloor('2022-03-01')).toBe('2022-03-01');
+    for (const value of [null, '', '2018-02-30', '0000-01-01', '2018-1-1', '2018-01-01T00:00:00Z'])
+      expect(servedFloor(value), String(value)).toBe(CA_FLOOR_DAY);
+  });
+
+  it('refuses by id only a day before the floor it is given', () => {
+    expect(isBeforeFloor('2019-06-01', CA_FLOOR_DAY)).toBe(true);
+    expect(isBeforeFloor('2019-06-01', '2018-01-01')).toBe(false);
+    expect(isBeforeFloor('2018-01-01', '2018-01-01')).toBe(false);
+    expect(isBeforeFloor('2017-12-31', '2018-01-01')).toBe(true);
+    expect(isBeforeFloor(null, '2018-01-01')).toBe(false);
   });
 });
 
@@ -278,7 +300,9 @@ describe('identifiers a record may not serve', () => {
   it('refuses a year PostgreSQL cannot hold', () => {
     expect(validateCaWindow(null, '0000-01-01').isErr()).toBe(true);
     // Any other early year is clamped to the floor.
-    expect(validateCaWindow('1899-12-31', null)._unsafeUnwrap().from).toBe(CA_FLOOR_DAY);
+    expect(windowIn(validateCaWindow('1899-12-31', null)._unsafeUnwrap(), CA_FLOOR_DAY).from).toBe(
+      CA_FLOOR_DAY
+    );
   });
 });
 

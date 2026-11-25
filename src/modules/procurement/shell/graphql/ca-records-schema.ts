@@ -26,8 +26,9 @@ import type { Result } from 'neverthrow';
 
 export const caRecordsTypeDefs = /* GraphQL */ `
   """
-  The published window of contract awards: award days from floor (2021-01-01). from is the
-  asked start raised to the floor; to is inclusive. Earlier years are loaded but not published.
+  The published window of contract awards: award days from floor, the first award day the
+  release serves (read with the answer: it can move when a release is published). from is the
+  asked start raised to the floor; to is inclusive. Earlier records are not published.
   """
   type ProcurementCaWindow {
     floor: Date!

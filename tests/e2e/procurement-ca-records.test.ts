@@ -6,7 +6,7 @@
  *
  * Proves: the reader rules (keys first on plain columns, rows by key; no
  * computed column in a keys or count plan, so the 77 s path cannot return), the
- * 2021 floor and undated records, a person buyer never named by code, winner
+ * floor (2021 until a release publishes its own) and undated records, a person buyer never named by code, winner
  * codes only through supplier_names_public, winner-code lists only for a code
  * in the D6 gate (one NotFound for every other code), a re-anchored id, and the
  * refusals (no grant, outside the window, absent).
@@ -1107,6 +1107,191 @@ describe('refusals', () => {
     await expect(
       sql`select 1 from procurement_v3.ca_money_facts limit 1`.execute(api)
     ).rejects.toMatchObject({ code: '42501' });
+  });
+});
+
+// ── The published floor (PROC-ACX6) ─────────────────────────────────────────
+
+describe('the floor a release publishes (da_release.ca_award_day_from)', () => {
+  const ownerDb = (): Kysely<ProdDatabase> => {
+    if (owner === undefined) throw new Error('no owner connection');
+    return owner;
+  };
+  const setFloor = async (day: string | null): Promise<void> => {
+    await sql`update procurement_v3.da_release set ca_award_day_from = ${day}::date`.execute(
+      ownerDb()
+    );
+  };
+  /** The buyer's summary window and count, 1004's by-id answer, and the masked gate code's count. */
+  const observe = async () => {
+    const summary = (await caBuyerSummary(deps, { buyerFiscalCode: BUYER }))._unsafeUnwrap();
+    const byId = await getCaRecord(deps, 'seap:ca:1004:1');
+    const winner = (
+      await caWinnerSummary(deps, { winnerFiscalCode: GATE_MASKED_WINNER })
+    )._unsafeUnwrap();
+    return {
+      floor: summary.window.floor,
+      from: summary.window.from,
+      buyerCount: summary.recordCount,
+      winnerCount: winner.recordCount,
+      winnerFloor: winner.window.floor,
+      record1004: byId.isOk() ? 'served' : byId.error.message,
+    };
+  };
+  const RELEASE_1 = {
+    floor: '2021-01-01',
+    from: '2021-01-01',
+    buyerCount: 5,
+    winnerCount: 2,
+    winnerFloor: '2021-01-01',
+    record1004: 'Contract award is outside the published window (award day from 2021-01-01).',
+  };
+
+  it('serves 2021-01-01 without the column, without its grant, and while it is null', async () => {
+    // No column (release 1 as deployed).
+    expect(await observe()).toEqual(RELEASE_1);
+    await sql`alter table procurement_v3.da_release add column ca_award_day_from date`.execute(
+      ownerDb()
+    );
+    try {
+      // The column, published, but not granted to the API: the read still succeeds.
+      await setFloor('2018-01-01');
+      expect(await observe()).toEqual(RELEASE_1);
+      // Granted, but null (release 1's row).
+      await sql`grant select (ca_award_day_from) on procurement_v3.da_release to ca_api`.execute(
+        ownerDb()
+      );
+      await setFloor(null);
+      expect(await observe()).toEqual(RELEASE_1);
+
+      // Granted and published: 2018 on. 1004 (2019) and 3003 (2020) are inside the window.
+      await setFloor('2018-01-01');
+      expect(await observe()).toEqual({
+        floor: '2018-01-01',
+        from: '2018-01-01',
+        buyerCount: 6,
+        winnerCount: 3,
+        winnerFloor: '2018-01-01',
+        record1004: 'served',
+      });
+      // An asked start after the floor is kept; one before it is raised to it.
+      const asked = (
+        await caBuyerSummary(deps, { buyerFiscalCode: BUYER, from: '2019-06-01' })
+      )._unsafeUnwrap();
+      expect([asked.window, asked.recordCount]).toEqual([
+        { floor: '2018-01-01', from: '2019-06-01', to: null },
+        5,
+      ]);
+      const early = (
+        await caBuyerSummary(deps, { buyerFiscalCode: BUYER, from: '2010-01-01' })
+      )._unsafeUnwrap();
+      expect(early.window.from).toBe('2018-01-01');
+      const list = (
+        await listCaBuyerRecords(deps, {
+          buyerFiscalCode: BUYER,
+          sort: 'awardDayAsc',
+          page: 1,
+          pageSize: 20,
+        })
+      )._unsafeUnwrap();
+      expect(list.items[0]?.recordId).toBe('seap:ca:1004:1');
+      expect(list.window.floor).toBe('2018-01-01');
+
+      // A later floor: 1004 (2019) is outside, refused with that floor's day; 3003 (2020) is in.
+      await setFloor('2020-01-01');
+      expect(await observe()).toEqual({
+        floor: '2020-01-01',
+        from: '2020-01-01',
+        buyerCount: 5,
+        winnerCount: 3,
+        winnerFloor: '2020-01-01',
+        record1004: 'Contract award is outside the published window (award day from 2020-01-01).',
+      });
+
+      // REST, GraphQL and MCP show the same floor.
+      await setFloor('2018-01-01');
+      const rest = fastifyLib();
+      await rest.register(makeCaRecordsRestPlugin(deps), {
+        prefix: '/api/v1/procurement/contract-awards',
+      });
+      try {
+        const summary = await rest.inject({
+          url: `/api/v1/procurement/contract-awards/buyer-summary?buyerFiscalCode=${BUYER}`,
+        });
+        expect(summary.json()).toMatchObject({
+          ok: true,
+          data: { recordCount: 6 },
+          meta: { window: { floor: '2018-01-01', from: '2018-01-01' } },
+        });
+        const byId = await rest.inject({
+          url: '/api/v1/procurement/contract-awards/records/lookup?recordId=seap:ca:1004:1',
+        });
+        expect(byId.statusCode).toBe(200);
+      } finally {
+        await rest.close();
+      }
+      const { typeDefs } = mergeGraphqlSlices(baseTypeDefs, [
+        { source: 'procurement', typeDefs: caRecordsTypeDefs },
+      ]);
+      const graphql = fastifyLib({ logger: false });
+      await graphql.register(
+        makeGraphQLPlugin({
+          schema: [typeDefs],
+          resolvers: [{ ...scalarResolvers, ...makeCaRecordsResolvers(deps) }],
+          isProduction: false,
+          enableGraphiQL: false,
+        })
+      );
+      try {
+        const res = await graphql.inject({
+          method: 'POST',
+          url: '/graphql',
+          headers: { 'content-type': 'application/json' },
+          payload: JSON.stringify({
+            query: `{ procurementContractAwardSummary(buyerFiscalCode: "${BUYER}") { recordCount window { floor from } } }`,
+          }),
+        });
+        expect(res.json()).toEqual({
+          data: {
+            procurementContractAwardSummary: {
+              recordCount: 6,
+              window: { floor: '2018-01-01', from: '2018-01-01' },
+            },
+          },
+        });
+      } finally {
+        await graphql.close();
+      }
+      const dispatcher = createMcpHttpDispatcher(() =>
+        createKernelMcpServer(makeCaRecordsMcpTools(deps))
+      );
+      const response = (await dispatcher.dispatch({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: {
+          name: 'get_procurement_contract_award_summary',
+          arguments: { buyerFiscalCode: BUYER },
+        },
+      })) as { result?: { structuredContent?: Record<string, unknown> } };
+      await dispatcher.close();
+      expect(response.result?.structuredContent).toMatchObject({
+        ok: true,
+        item: { recordCount: 6, window: { floor: '2018-01-01', from: '2018-01-01' } },
+      });
+
+      // A login without the column grant keeps the fallback while the release publishes 2018.
+      await sql`revoke select (ca_award_day_from) on procurement_v3.da_release from ca_api`.execute(
+        ownerDb()
+      );
+      expect(await observe()).toEqual(RELEASE_1);
+    } finally {
+      await sql`alter table procurement_v3.da_release drop column if exists ca_award_day_from`.execute(
+        ownerDb()
+      );
+    }
+    // A dropped column reads as no column.
+    expect(await observe()).toEqual(RELEASE_1);
   });
 });
 

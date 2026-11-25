@@ -7,9 +7,11 @@
  *
  * Rules held here (design page contract-award-public-views.md, procurement-prod's
  * reader rules of 25 Nov):
- * - One floor for every dated list and count: `award_day` from 2021-01-01. A record
- *   with no award day is in no dated list or count, only in `undatedCount`. A record
- *   before the floor is refused by id as outside the published window.
+ * - One floor for every dated list and count: the first award day the release serves
+ *   (`da_release.ca_award_day_from`, read in the request's snapshot), or `CA_FLOOR_DAY` while
+ *   that is not published or not readable. A record with no award day is in no dated list or
+ *   count, only in `undatedCount`. A record before the floor is refused by id as outside the
+ *   published window.
  * - A buyer that is a person (`buyer_person`) is served with its masked name only,
  *   never a name resolved by code (KR9T). Any other buyer is named by code from
  *   `party_public_names`, where its buyer name is public.
@@ -27,8 +29,26 @@ import { databaseError, type ApiError } from '@/modules/shared/index.js';
 import { hasPersonCodeRun, publicFreeText, publicPartyName } from './free-text-rule.js';
 import { servedSupplierName, undisclosedNaming, type SupplierNaming } from './supplier-naming.js';
 
-/** The published window's first award day (owner, 24 Nov: contracts from 2021). */
+/**
+ * The published window's first award day when the release names none (owner, 24 Nov: contracts
+ * from 2021). Release 2 publishes its own in `da_release.ca_award_day_from` (PROC-ACX6).
+ */
 export const CA_FLOOR_DAY = '2021-01-01';
+
+/** A calendar day `YYYY-MM-DD` that PostgreSQL also has (no year 0). */
+export const isCalendarDay = (day: string): boolean => {
+  // PostgreSQL has no year 0 (a JavaScript Date does); any other year is clamped or kept.
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/u.test(day) || day.startsWith('0000')) return false;
+  const parsed = new Date(`${day}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
+};
+
+/**
+ * The floor a snapshot serves: the release's published first award day, or `CA_FLOOR_DAY` when
+ * none was read (no column, no column grant, a null) or it is not a calendar day.
+ */
+export const servedFloor = (published: string | null): string =>
+  published !== null && isCalendarDay(published) ? published : CA_FLOOR_DAY;
 /** The deepest row a list page may reach. */
 export const CA_LIST_MAX_DEPTH = 10_000;
 /**
@@ -365,9 +385,9 @@ const byWinnerOrder = (a: CaWinnerRow, b: CaWinnerRow): number => {
   return a.winnerOrder - b.winnerOrder;
 };
 
-/** Whether an award day is inside the published window (a null day is undated, not outside). */
-export const isBeforeFloor = (awardDay: string | null): boolean =>
-  awardDay !== null && awardDay < CA_FLOOR_DAY;
+/** Whether an award day is before the floor (a null day is undated, not outside). */
+export const isBeforeFloor = (awardDay: string | null, floor: string): boolean =>
+  awardDay !== null && awardDay < floor;
 
 export const toCaRecord = (
   row: CaRecordRow,

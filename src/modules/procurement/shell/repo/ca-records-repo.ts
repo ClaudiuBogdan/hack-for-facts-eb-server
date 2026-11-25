@@ -79,6 +79,13 @@ const PUBLIC_NAMES_NAME = `${DA_RELEASE_SCHEMA}.party_public_names`;
 
 const AS_OF_SQL = sql`to_char(max(data_as_of) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 const STATEMENT_TIMEOUT_MS = 10_000;
+const RELEASE_NAME = `${DA_RELEASE_SCHEMA}.da_release`;
+/**
+ * The release's first served award day (PROC-ACX6, release 2): a column granted on its own. It is
+ * named in SQL only once the catalog says it exists and this login may read it, so a release
+ * without it (or a login without its grant) reads as before, with the fallback floor.
+ */
+const FLOOR_COLUMN = 'ca_award_day_from';
 
 const readError = (error: unknown): ApiError => {
   const code =
@@ -116,6 +123,8 @@ interface Access {
   readonly registry: boolean;
   /** `supplier_disclosure` (the D6 gate) is readable: needed for any winner-code list. */
   readonly disclosure: boolean;
+  /** The release's `ca_award_day_from` as `YYYY-MM-DD`; null when absent, not granted or null. */
+  readonly floor: string | null;
 }
 
 /** What this login may read (catalog only, no view touched), then the release's data_as_of. */
@@ -127,6 +136,7 @@ const probeAccess = async (db: Db): Promise<Access> => {
     registry: boolean;
     disclosure: boolean;
     release: boolean;
+    floor_readable: boolean | null;
   }>`
     select ${sql.join(
       CA_VIEW_NAMES.map((name) => privilege(name)),
@@ -140,11 +150,28 @@ const probeAccess = async (db: Db): Promise<Access> => {
       ${privilege(PUBLIC_NAMES_NAME)} as registry,
       ${privilege(SUPPLIER_DISCLOSURE_NAME)} as disclosure,
       -- The API's grant on da_release is per column (procurement-api-read.sql).
-      coalesce(has_column_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.da_release`}), 'data_as_of', 'SELECT'),
-        false) as release`.execute(db);
+      coalesce(has_column_privilege(to_regclass(${RELEASE_NAME}), 'data_as_of', 'SELECT'),
+        false) as release,
+      -- The floor column, from the catalog only: has_column_privilege raises on an absent column.
+      case when exists (
+            select 1 from pg_attribute a
+            where a.attrelid = to_regclass(${RELEASE_NAME}) and a.attname = ${FLOOR_COLUMN}
+              and a.attnum > 0 and not a.attisdropped)
+          then has_column_privilege(to_regclass(${RELEASE_NAME}), ${FLOOR_COLUMN}, 'SELECT')
+          else false end as floor_readable`.execute(db);
   const row = result.rows[0];
   let asOf: string | null = null;
-  if (row?.release === true) {
+  let floor: string | null = null;
+  if (row?.release === true && row.floor_readable === true) {
+    // The floor on the latest release row (there is one; the latest day if ever more).
+    const release = await sql<{ as_of: string | null; floor: string | null }>`
+      select ${AS_OF_SQL} as as_of,
+        (select to_char(max(${sql.ref(`f.${FLOOR_COLUMN}`)}), 'YYYY-MM-DD') from ${RELEASE} f
+          where f.data_as_of = (select max(data_as_of) from ${RELEASE})) as floor
+      from ${RELEASE}`.execute(db);
+    asOf = release.rows[0]?.as_of ?? null;
+    floor = release.rows[0]?.floor ?? null;
+  } else if (row?.release === true) {
     const release = await sql<{ as_of: string | null }>`
       select ${AS_OF_SQL} as as_of from ${RELEASE}`.execute(db);
     asOf = release.rows[0]?.as_of ?? null;
@@ -157,6 +184,7 @@ const probeAccess = async (db: Db): Promise<Access> => {
     names: row?.names === true,
     registry: row?.registry === true,
     disclosure: row?.disclosure === true,
+    floor,
   };
 };
 
@@ -438,6 +466,7 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
   dataAsOf: () => Promise.resolve(ok(access.asOf)),
   namesReadable: () => access.names,
   releaseReadable: () => access.release,
+  publishedFloor: () => access.floor,
 
   buyerCounts: (buyerCode, window) =>
     attempt(async () => countsOf(await buyerCountsSql(buyerCode, window).execute(trx))),

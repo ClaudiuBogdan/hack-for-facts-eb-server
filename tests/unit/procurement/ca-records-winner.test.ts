@@ -39,6 +39,7 @@ const fakeRepo = (gate: CaWinnerGate, keys: CaWinnerKeys, calls: Calls): CaRecor
     dataAsOf: () => Promise.resolve(ok(AS_OF)),
     namesReadable: () => true,
     releaseReadable: () => true,
+    publishedFloor: () => null,
     winnerGate: () => Promise.resolve(ok(gate)),
     winnerKeys: (_code, limit) => {
       calls.winnerKeys += 1;
