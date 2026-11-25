@@ -18,6 +18,7 @@ import type {
   CaRecordRow,
   CaWinnerRow,
 } from './ca-records.js';
+import type { SupplierNaming } from './supplier-naming.js';
 import type { ApiError } from '@/modules/shared/index.js';
 import type { Result } from 'neverthrow';
 
@@ -34,13 +35,36 @@ export interface CaCounts {
   readonly valuedCount: number;
   /** Of those, under identity review (shown, never additive). */
   readonly identityReviewCount: number;
-  /** The buyer's records with no award day (in no dated list or count). */
+  /** The buyer's (or winner's) records with no award day (in no dated list or count). */
   readonly undatedCount: number;
 }
 
 export interface CaBuyerProbe {
   readonly person: boolean | null;
   readonly maskedName: string | null;
+}
+
+/**
+ * A winner code's place in the gate: whether D6 discloses it (`supplier_disclosure`) and its naming
+ * from `supplier_names_public`. Both are needed before any record of the code is read; either view
+ * not readable reads as not disclosed (fails closed).
+ */
+export interface CaWinnerGate {
+  readonly disclosed: boolean;
+  /** Null when the names view is not readable. */
+  readonly naming: SupplierNaming | null;
+}
+
+/** Every key a winner code wins, and whether every one of its winner rows is in the D6 gate. */
+export interface CaWinnerKeys {
+  readonly keys: readonly CaKey[];
+  readonly allDisclosed: boolean;
+}
+
+/** The keys a list is drawn from: one source and its match ids. */
+export interface CaKeySet {
+  readonly sourceName: string;
+  readonly matchIds: readonly string[];
 }
 
 export interface CaRecordsReader {
@@ -67,6 +91,23 @@ export interface CaRecordsReader {
   currentKeyOf(appearance: CaAppearance): Promise<Result<CaKey | null, ApiError>>;
   /** The buyer's person flag and masked name, read from one of its records; null with none. */
   buyerProbe(buyerCode: string): Promise<Result<CaBuyerProbe | null, ApiError>>;
+  /** The winner code's gate (two by-code reads); call before reading any of its records. */
+  winnerGate(code: string): Promise<Result<CaWinnerGate, ApiError>>;
+  /**
+   * Every key the code wins (`ca_record_winners_public`, one scan: never per row), at most
+   * `limit` of them (the caller refuses a code that reaches it).
+   */
+  winnerKeys(code: string, limit: number): Promise<Result<CaWinnerKeys, ApiError>>;
+  /** The counts of a key set in the window (plain columns only). */
+  keySetCounts(keys: CaKeySet, window: CaWindow): Promise<Result<CaCounts, ApiError>>;
+  /** A page of a key set's dated keys in the window, sorted on plain columns only. */
+  keySetPage(query: {
+    readonly keys: CaKeySet;
+    readonly window: CaWindow;
+    readonly sort: CaListSort;
+    readonly offset: number;
+    readonly limit: number;
+  }): Promise<Result<readonly CaKey[], ApiError>>;
   /** Registry names by code where the buyer name is public (`party_public_names`). Never call for a person. */
   buyerRegistryNames(
     codes: readonly string[]
@@ -78,8 +119,8 @@ export interface CaRecordsRepo {
   readonly enabled: boolean;
   /**
    * One read-only snapshot, refused as unavailable when any of the four views is not readable.
-   * A read that succeeded is answered only if, after it, the release and the names view's
-   * readability are still the ones it read (otherwise a retryable unavailable error).
+   * A read that succeeded is answered only if, after it, the release is the one it read and the
+   * names and disclosure views are no less readable (otherwise a retryable unavailable error).
    */
   snapshot<T>(
     read: (reader: CaRecordsReader) => Promise<Result<T, ApiError>>

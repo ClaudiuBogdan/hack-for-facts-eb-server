@@ -4,7 +4,12 @@
  *
  *   GET /buyer-summary    buyerFiscalCode, from, to
  *   GET /records          buyerFiscalCode, from, to, sort, page, pageSize
+ *   GET /winner-summary   winnerFiscalCode, from, to
+ *   GET /winner-records   winnerFiscalCode, from, to, sort, page, pageSize
  *   GET /records/lookup   recordId
+ *
+ * A winner code outside the D6 gate (or not shown) is 404 with resource
+ * `contractAwardWinner`, the same whether or not it won anything.
  *
  * Unknown or repeated parameters are refused. Envelopes as the DA release:
  * `{ ok:true, data, meta, requestId }` and `{ ok:false, error, message, field?,
@@ -23,8 +28,11 @@ import {
 import { decode, type Decoded, type ParamKind } from './da-release-routes.js';
 import {
   caBuyerSummary,
+  caWinnerSummary,
   getCaRecord,
   listCaBuyerRecords,
+  listCaWinnerRecords,
+  type CaRecordPage,
   type CaRecordsDeps,
 } from '../../core/ca-records-usecases.js';
 
@@ -38,9 +46,23 @@ const WINDOW_PARAMS: Readonly<Record<string, ParamKind>> = {
   to: 'string',
 };
 
+const WINNER_WINDOW_PARAMS: Readonly<Record<string, ParamKind>> = {
+  winnerFiscalCode: 'string',
+  from: 'string',
+  to: 'string',
+};
+
+const PAGE_PARAMS: Readonly<Record<string, ParamKind>> = {
+  sort: 'string',
+  page: 'int',
+  pageSize: 'int',
+};
+
 const PARAMS = {
   summary: WINDOW_PARAMS,
-  records: { ...WINDOW_PARAMS, sort: 'string', page: 'int', pageSize: 'int' },
+  records: { ...WINDOW_PARAMS, ...PAGE_PARAMS },
+  winnerSummary: WINNER_WINDOW_PARAMS,
+  winnerRecords: { ...WINNER_WINDOW_PARAMS, ...PAGE_PARAMS },
   record: { recordId: 'string' },
 } satisfies Record<string, Readonly<Record<string, ParamKind>>>;
 
@@ -123,18 +145,7 @@ export const makeCaRecordsRestPlugin =
       });
     });
 
-    fastify.get('/records', async (request, reply) => {
-      const decoded = decode(request.query, PARAMS.records);
-      if (decoded.isErr()) return sendError(request, reply, decoded.error);
-      const result = await listCaBuyerRecords(deps, {
-        buyerFiscalCode: text(decoded.value, 'buyerFiscalCode'),
-        from: text(decoded.value, 'from'),
-        to: text(decoded.value, 'to'),
-        sort: text(decoded.value, 'sort'),
-        page: int(decoded.value, 'page', 1),
-        pageSize: int(decoded.value, 'pageSize', 20),
-      });
-      if (result.isErr()) return sendError(request, reply, result.error);
+    const sendPage = (request: FastifyRequest, reply: FastifyReply, result: CaRecordPage) => {
       const {
         items,
         page,
@@ -145,7 +156,7 @@ export const makeCaRecordsRestPlugin =
         dataAsOf,
         disclosureKey,
         window,
-      } = result.value;
+      } = result;
       return reply.status(200).send({
         ok: true as const,
         data: items,
@@ -159,6 +170,54 @@ export const makeCaRecordsRestPlugin =
         },
         requestId: request.id,
       });
+    };
+
+    fastify.get('/records', async (request, reply) => {
+      const decoded = decode(request.query, PARAMS.records);
+      if (decoded.isErr()) return sendError(request, reply, decoded.error);
+      const result = await listCaBuyerRecords(deps, {
+        buyerFiscalCode: text(decoded.value, 'buyerFiscalCode'),
+        from: text(decoded.value, 'from'),
+        to: text(decoded.value, 'to'),
+        sort: text(decoded.value, 'sort'),
+        page: int(decoded.value, 'page', 1),
+        pageSize: int(decoded.value, 'pageSize', 20),
+      });
+      if (result.isErr()) return sendError(request, reply, result.error);
+      return sendPage(request, reply, result.value);
+    });
+
+    fastify.get('/winner-summary', async (request, reply) => {
+      const decoded = decode(request.query, PARAMS.winnerSummary);
+      if (decoded.isErr()) return sendError(request, reply, decoded.error);
+      const result = await caWinnerSummary(deps, {
+        winnerFiscalCode: text(decoded.value, 'winnerFiscalCode'),
+        from: text(decoded.value, 'from'),
+        to: text(decoded.value, 'to'),
+      });
+      if (result.isErr()) return sendError(request, reply, result.error);
+      const { dataAsOf, disclosureKey, window, ...data } = result.value;
+      return reply.status(200).send({
+        ok: true as const,
+        data,
+        meta: { dataAsOf, disclosureKey, window },
+        requestId: request.id,
+      });
+    });
+
+    fastify.get('/winner-records', async (request, reply) => {
+      const decoded = decode(request.query, PARAMS.winnerRecords);
+      if (decoded.isErr()) return sendError(request, reply, decoded.error);
+      const result = await listCaWinnerRecords(deps, {
+        winnerFiscalCode: text(decoded.value, 'winnerFiscalCode'),
+        from: text(decoded.value, 'from'),
+        to: text(decoded.value, 'to'),
+        sort: text(decoded.value, 'sort'),
+        page: int(decoded.value, 'page', 1),
+        pageSize: int(decoded.value, 'pageSize', 20),
+      });
+      if (result.isErr()) return sendError(request, reply, result.error);
+      return sendPage(request, reply, result.value);
     });
 
     fastify.get('/records/lookup', async (request, reply) => {

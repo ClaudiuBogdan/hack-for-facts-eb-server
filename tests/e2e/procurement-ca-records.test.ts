@@ -7,8 +7,9 @@
  * Proves: the reader rules (keys first on plain columns, rows by key; no
  * computed column in a keys or count plan, so the 77 s path cannot return), the
  * 2021 floor and undated records, a person buyer never named by code, winner
- * codes only through supplier_names_public, a re-anchored id, and the refusals
- * (no grant, outside the window, absent).
+ * codes only through supplier_names_public, winner-code lists only for a code
+ * in the D6 gate (one NotFound for every other code), a re-anchored id, and the
+ * refusals (no grant, outside the window, absent).
  */
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -20,8 +21,10 @@ import { afterAll, beforeAll, describe, expect, it as vitestIt } from 'vitest';
 import { makeGraphQLPlugin } from '@/infra/graphql/index.js';
 import {
   caBuyerSummary,
+  caWinnerSummary,
   getCaRecord,
   listCaBuyerRecords,
+  listCaWinnerRecords,
   OUTSIDE_WINDOW_RESOURCE,
   type CaRecordsDeps,
 } from '@/modules/procurement/core/ca-records-usecases.js';
@@ -34,6 +37,8 @@ import {
   buyerCountsSql,
   buyerKeysSql,
   currentKeySql,
+  keySetCountsSql,
+  keySetPageSql,
   lotRowsSql,
   makeCaRecordsRepo,
   recordRowsSql,
@@ -60,6 +65,7 @@ let owner: Kysely<ProdDatabase> | undefined;
 let api: Kysely<ProdDatabase> | undefined;
 let noGrant: Kysely<ProdDatabase> | undefined;
 let noNames: Kysely<ProdDatabase> | undefined;
+let noD6: Kysely<ProdDatabase> | undefined;
 let deps: CaRecordsDeps;
 
 const it = (name: string, test: () => Promise<void>): void => {
@@ -82,10 +88,15 @@ const BUYER = cui('4300001');
 const PERSON_BUYER = cui('4300002');
 const BIG_BUYER = cui('4300003');
 const NO_RECORDS_BUYER = cui('4300004');
+const OTHER_BUYER = cui('4300005');
 const GATE_WINNER = cui('5100001');
 const MASKED_WINNER = cui('5100002');
 const WITHHELD_WINNER = cui('5100003');
 const NO_NAMES_ROW_WINNER = cui('5100004');
+/** In the D6 gate with a masked name (KR9T: a masked supplier keeps its code). */
+const GATE_MASKED_WINNER = cui('5100005');
+/** A valid code no record or view knows. */
+const UNKNOWN_WINNER = cui('5100006');
 const BUYER_NAME = 'PRIMARIA TESTULUI';
 const PERSON_REGISTRY_NAME = 'POPESCU IONELA PFA';
 const SECRET_WINNER_NAME = 'SECRETA PERSOANA';
@@ -127,15 +138,19 @@ const GRANTS = `
   create role ca_api login password 'ca_api';
   create role ca_nogrant login password 'ca_nogrant';
   create role ca_nonames login password 'ca_nonames';
-  grant usage on schema procurement_v3 to ca_api, ca_nogrant, ca_nonames;
+  create role ca_nod6 login password 'ca_nod6';
+  grant usage on schema procurement_v3 to ca_api, ca_nogrant, ca_nonames, ca_nod6;
   -- As procurement-api-read.sql: the views' SQL functions (core.cui_is_mintable) are parsed as the caller.
-  grant usage on schema core to ca_api, ca_nogrant, ca_nonames;
+  grant usage on schema core to ca_api, ca_nogrant, ca_nonames, ca_nod6;
   -- As procurement-api-read.sql: da_release is granted per column.
-  grant select (data_as_of) on procurement_v3.da_release to ca_api, ca_nogrant, ca_nonames;
+  grant select (data_as_of) on procurement_v3.da_release to ca_api, ca_nogrant, ca_nonames, ca_nod6;
   grant select on procurement_v3.ca_records_public, procurement_v3.ca_record_winners_public,
-    procurement_v3.ca_record_lots_public, procurement_v3.ca_record_keys_public to ca_api, ca_nonames;
-  grant select on procurement_v3.supplier_names_public, procurement_v3.party_public_names to ca_api, ca_nogrant;
+    procurement_v3.ca_record_lots_public, procurement_v3.ca_record_keys_public to ca_api, ca_nonames, ca_nod6;
+  grant select on procurement_v3.supplier_names_public, procurement_v3.party_public_names
+    to ca_api, ca_nogrant, ca_nod6;
   grant select on procurement_v3.party_public_names to ca_nonames;
+  -- The D6 gate (SEC-GRANTS-PROC-2211): every login but ca_nod6.
+  grant select on procurement_v3.supplier_disclosure to ca_api, ca_nogrant, ca_nonames;
 `;
 
 const AS_OF = '2026-11-24T12:00:00.000000Z';
@@ -236,9 +251,8 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     (${BUYER}, ${BUYER_NAME}, true, true),
     (${PERSON_BUYER}, ${PERSON_REGISTRY_NAME}, true, true)`.execute(db);
   await sql`insert into procurement_v3.supplier_privacy (fiscal_code_clean, supplier_kind, public, method)
-    values (${GATE_WINNER}, 'company', true, 'test'), (${PERSON_BUYER}, 'sole_trader', false, 'test')`.execute(
-    db
-  );
+    values (${GATE_WINNER}, 'company', true, 'test'), (${PERSON_BUYER}, 'sole_trader', false, 'test'),
+      (${GATE_MASKED_WINNER}, 'company', true, 'test')`.execute(db);
   await sql`insert into procurement_v3.da_buyer_geography values (${BUYER}, '54975', 'CJ', 'Nord-Vest', now())`.execute(
     db
   );
@@ -247,12 +261,14 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     namingSql(MASKED_WINNER, 'masked', 'Io*** Po*****'),
     namingSql(WITHHELD_WINNER, 'withheld'),
     namingSql(NO_NAMES_ROW_WINNER, 'code_only'),
+    namingSql(GATE_MASKED_WINNER, 'masked', 'Ma*** Ga***'),
   ])
     await statement.execute(db);
   await sql`insert into procurement_v3.supplier_names_public values
     (${GATE_WINNER}, 'named', 'ALFA CONSTRUCT SRL', true),
     (${MASKED_WINNER}, 'masked', 'Io*** Po*****', true),
-    (${WITHHELD_WINNER}, 'withheld', ${SECRET_WINNER_NAME}, false)`.execute(db);
+    (${WITHHELD_WINNER}, 'withheld', ${SECRET_WINNER_NAME}, false),
+    (${GATE_MASKED_WINNER}, 'masked', 'Ma*** Ga***', true)`.execute(db);
 
   // Buyer's records: 1001 awarded 2025 (a change fact, two lots); 1002 a framework 2024 with a joint win;
   // 1003 under identity review 2023; 1004 before the floor (2019); 1005 undated; 1006 superseded;
@@ -297,6 +313,11 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     { pub: '1007', contract: '1', amount: null, day: '2022-02-02', buyer: BUYER },
     // A person buyer's record.
     { pub: '2001', contract: '1', amount: '10.00', day: '2024-04-04', buyer: PERSON_BUYER },
+    // Another buyer: 3001 won by the masked gate code alone (2023); 3002 a joint win of both gate codes
+    // (2022); 3003 the masked gate code before the floor (2020).
+    { pub: '3001', contract: '1', amount: '99.00', day: '2023-03-03', buyer: OTHER_BUYER },
+    { pub: '3002', contract: '1', amount: '250.00', day: '2022-02-02', buyer: OTHER_BUYER },
+    { pub: '3003', contract: '1', amount: '11.00', day: '2020-02-02', buyer: OTHER_BUYER },
     // Re-anchored: the identity's earliest appearance (900) is its key; 901 is current.
     {
       pub: '901',
@@ -319,6 +340,9 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     ['1008', 'Act aditional', '2025-09-09'],
     ['2001', 'Servicii PFA', '2024-04-04'],
     ['900', 'Prima aparitie', '2025-05-05'],
+    ['3001', 'Furnituri', '2023-03-03'],
+    ['3002', 'Asociere', '2022-02-02'],
+    ['3003', 'Inainte de 2021', '2020-02-02'],
     ['901', 'Reanuntare', '2025-05-05'],
   ] as const)
     await publicationSql(pub, title, day).execute(db);
@@ -334,6 +358,10 @@ const load = async (db: Kysely<ProdDatabase>): Promise<void> => {
     winnerSql('1007', '1', 'w3', 3, null),
     winnerSql('2001', '1', 'w1', 1, GATE_WINNER),
     winnerSql('901', '1', 'w1', 1, GATE_WINNER),
+    winnerSql('3001', '1', 'w1', 1, GATE_MASKED_WINNER),
+    winnerSql('3002', '1', 'w1', 1, GATE_MASKED_WINNER),
+    winnerSql('3002', '1', 'w2', 2, GATE_WINNER),
+    winnerSql('3003', '1', 'w1', 1, GATE_MASKED_WINNER),
   ])
     await statement.execute(db);
   for (const statement of [
@@ -424,6 +452,7 @@ beforeAll(async () => {
   api = connect(asRole('ca_api'));
   noGrant = connect(asRole('ca_nogrant'));
   noNames = connect(asRole('ca_nonames'));
+  noD6 = connect(asRole('ca_nod6'));
   deps = { repo: makeCaRecordsRepo(api, true) };
 }, 240_000);
 
@@ -431,6 +460,7 @@ afterAll(async () => {
   await api?.destroy();
   await noGrant?.destroy();
   await noNames?.destroy();
+  await noD6?.destroy();
   await owner?.destroy();
   await container?.stop();
 });
@@ -518,6 +548,25 @@ describe('reader rule 1 on the real views', () => {
     expect(names.filter((name) => name === 'ca_money_facts')).toHaveLength(1);
     expect(names).not.toContain('subplan');
     for (const relation of COMPUTED_RELATIONS) expect(names).not.toContain(relation);
+  });
+
+  it('a winner’s key-set page and counts read no computed column', async () => {
+    const keys = {
+      sourceName: 'seap',
+      matchIds: Array.from({ length: 5000 }, (_v, i) => `ca:b${String(i + 1)}:1`),
+    };
+    const statements = [
+      keySetCountsSql(keys, WINDOW),
+      ...(['awardDayDesc', 'awardDayAsc', 'amountDesc'] as const).map((sort) =>
+        keySetPageSql({ keys, window: WINDOW, sort, offset: 0, limit: 50 })
+      ),
+    ];
+    for (const statement of statements) {
+      const names = (await planOf(statement)).map((r) => r.relation);
+      expect(names.filter((name) => name === 'ca_money_facts')).toHaveLength(1);
+      expect(names).not.toContain('subplan');
+      for (const relation of COMPUTED_RELATIONS) expect(names).not.toContain(relation);
+    }
   });
 
   it('the plan check sees the slow shape (a computed column in the keys statement)', async () => {
@@ -766,6 +815,137 @@ describe('a buyer’s contract awards', () => {
   });
 });
 
+describe('a winner code’s contract awards', () => {
+  it('counts and lists a gate code’s records from 2021, a joint win included', async () => {
+    const summary = (
+      await caWinnerSummary(deps, { winnerFiscalCode: GATE_MASKED_WINNER })
+    )._unsafeUnwrap();
+    // 3001 and 3002 dated from 2021; 3003 (2020) out.
+    expect(summary).toMatchObject({
+      recordCount: 2,
+      valuedCount: 2,
+      identityReviewCount: 0,
+      undatedCount: 0,
+      dataAsOf: AS_OF,
+      disclosureKey: AS_OF,
+      winner: {
+        order: null,
+        displayKind: 'person_masked',
+        fiscalCode: GATE_MASKED_WINNER,
+        name: 'Ma*** Ga***',
+        disclosed: true,
+      },
+    });
+    const page = (
+      await listCaWinnerRecords(deps, {
+        winnerFiscalCode: GATE_MASKED_WINNER,
+        page: 1,
+        pageSize: 20,
+      })
+    )._unsafeUnwrap();
+    expect(page.total).toBe(2);
+    expect(page.items.map((item) => item.recordId)).toEqual(['seap:ca:3001:1', 'seap:ca:3002:1']);
+    // The joint win shows both gate codes, the masked one by its masked name only.
+    expect(page.items[1]?.winners).toEqual([
+      {
+        order: 1,
+        displayKind: 'person_masked',
+        fiscalCode: GATE_MASKED_WINNER,
+        name: 'Ma*** Ga***',
+        disclosed: true,
+      },
+      {
+        order: 2,
+        displayKind: 'company',
+        fiscalCode: GATE_WINNER,
+        name: 'ALFA CONSTRUCT SRL',
+        disclosed: true,
+      },
+    ]);
+  });
+
+  it('pages a large gate code’s records within bounds, with undated and review records apart', async () => {
+    const summary = (
+      await caWinnerSummary(deps, { winnerFiscalCode: GATE_WINNER })
+    )._unsafeUnwrap();
+    // 1001, 1002, 1003 (review), 2001, 900, 3002 and the 20,000 volume records; 1004 (2019) out; 1005 undated.
+    expect(summary).toMatchObject({
+      recordCount: 20006,
+      valuedCount: 20006,
+      identityReviewCount: 1,
+      undatedCount: 1,
+    });
+    for (const sort of ['awardDayDesc', 'amountDesc'] as const)
+      for (const page of [1, 200]) {
+        const started = performance.now();
+        const answer = (
+          await listCaWinnerRecords(deps, {
+            winnerFiscalCode: GATE_WINNER,
+            sort,
+            page,
+            pageSize: 50,
+          })
+        )._unsafeUnwrap();
+        const elapsed = performance.now() - started;
+        expect(answer.items).toHaveLength(50);
+        expect(answer.total).toBe(20006);
+        expect(answer.depthLimited).toBe(true);
+        expect(elapsed).toBeLessThan(3000);
+      }
+    const window = (
+      await listCaWinnerRecords(deps, {
+        winnerFiscalCode: GATE_WINNER,
+        from: '2025-03-10',
+        to: '2025-03-10',
+        sort: 'awardDayAsc',
+        page: 1,
+        pageSize: 50,
+      })
+    )._unsafeUnwrap();
+    expect(new Set(window.items.map((item) => item.awardDay))).toEqual(new Set(['2025-03-10']));
+    expect(window.items.map((item) => item.recordId)).toContain('seap:ca:1001:1');
+  });
+
+  it('answers every code outside the gate with the same NotFound', async () => {
+    const answers = [];
+    for (const code of [MASKED_WINNER, WITHHELD_WINNER, NO_NAMES_ROW_WINNER, UNKNOWN_WINNER]) {
+      answers.push((await caWinnerSummary(deps, { winnerFiscalCode: code }))._unsafeUnwrapErr());
+      answers.push(
+        (
+          await listCaWinnerRecords(deps, { winnerFiscalCode: code, page: 1, pageSize: 5 })
+        )._unsafeUnwrapErr()
+      );
+    }
+    // MASKED_WINNER shows its code (code_shown) and has a record, but D6 does not disclose it.
+    for (const answer of answers)
+      expect(answer).toEqual({
+        type: 'NotFound',
+        message: 'No published contract awards for this supplier code.',
+        resource: 'contractAwardWinner',
+      });
+  });
+
+  it('fails closed without the D6 view or the names view', async () => {
+    if (noD6 === undefined || noNames === undefined) throw new Error('no database');
+    for (const db of [noD6, noNames]) {
+      const refused = (
+        await caWinnerSummary(
+          { repo: makeCaRecordsRepo(db, true) },
+          { winnerFiscalCode: GATE_WINNER }
+        )
+      )._unsafeUnwrapErr();
+      expect(refused).toMatchObject({ type: 'NotFound', resource: 'contractAwardWinner' });
+    }
+  });
+
+  it('refuses a malformed code before any read', async () => {
+    for (const code of ['RO123456', '0123456', '1960101123456', 'x'])
+      expect(
+        (await caWinnerSummary(deps, { winnerFiscalCode: code }))._unsafeUnwrapErr()
+      ).toMatchObject({ type: 'InvalidInput', field: 'winnerFiscalCode' });
+  });
+});
+
 describe('one contract award', () => {
   it('serves the record with its lots', async () => {
     const detail = (await getCaRecord(deps, 'seap:ca:1001:1'))._unsafeUnwrap();
@@ -875,6 +1055,26 @@ describe('REST', () => {
         url: `/api/v1/procurement/contract-awards/records?buyerFiscalCode=${BUYER}&winnerCount=2`,
       });
       expect(unknown.statusCode).toBe(400);
+      const winnerSummary = await app.inject({
+        url: `/api/v1/procurement/contract-awards/winner-summary?winnerFiscalCode=${GATE_MASKED_WINNER}`,
+      });
+      expect(winnerSummary.headers['cache-control']).toBe('no-store');
+      expect(winnerSummary.json()).toMatchObject({
+        ok: true,
+        data: { recordCount: 2, winner: { displayKind: 'person_masked' } },
+      });
+      const winnerRecords = await app.inject({
+        url: `/api/v1/procurement/contract-awards/winner-records?winnerFiscalCode=${GATE_MASKED_WINNER}&pageSize=1`,
+      });
+      expect(winnerRecords.json()).toMatchObject({
+        ok: true,
+        meta: { page: { total: 2 }, hasMore: true },
+      });
+      const outsideGate = await app.inject({
+        url: `/api/v1/procurement/contract-awards/winner-records?winnerFiscalCode=${MASKED_WINNER}`,
+      });
+      expect(outsideGate.statusCode).toBe(404);
+      expect(outsideGate.json()).toMatchObject({ resource: 'contractAwardWinner' });
     } finally {
       await app.close();
     }
@@ -950,6 +1150,22 @@ describe('GraphQL', () => {
       expect(keysOnly.body.data).toEqual({
         procurementContractAwards: { total: 5, depthLimited: false },
       });
+      const byWinner = await gql(
+        `{ procurementContractAwardWinnerSummary(winnerFiscalCode: "${GATE_MASKED_WINNER}") { recordCount winner { displayKind fiscalCode } }
+           procurementContractAwardsByWinner(winnerFiscalCode: "${GATE_MASKED_WINNER}", pageSize: 1) { total items { recordId } } }`
+      );
+      expect(byWinner.cacheControl).toBe('no-store');
+      expect(byWinner.body.data).toEqual({
+        procurementContractAwardWinnerSummary: {
+          recordCount: 2,
+          winner: { displayKind: 'person_masked', fiscalCode: GATE_MASKED_WINNER },
+        },
+        procurementContractAwardsByWinner: { total: 2, items: [{ recordId: 'seap:ca:3001:1' }] },
+      });
+      const offGate = await gql(
+        `{ procurementContractAwardsByWinner(winnerFiscalCode: "${MASKED_WINNER}") { total } }`
+      );
+      expect(offGate.body.errors?.[0]?.extensions).toMatchObject({ code: 'NOT_FOUND' });
       expect(detail.body.data).toEqual({
         procurementContractAward: {
           reanchored: true,

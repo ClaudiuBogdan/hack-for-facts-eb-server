@@ -29,15 +29,24 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
-import { daV3Table, DA_RELEASE_SCHEMA, SUPPLIER_NAMES_NAME } from './da-v3-sql.js';
+import {
+  daV3Table,
+  DA_RELEASE_SCHEMA,
+  SUPPLIER_DISCLOSURE,
+  SUPPLIER_DISCLOSURE_NAME,
+  SUPPLIER_NAMES_NAME,
+} from './da-v3-sql.js';
 import { namingFromView, type SupplierNamesViewRow } from '../../core/supplier-naming.js';
 
 import type {
   CaBuyerProbe,
   CaCounts,
+  CaKeySet,
   CaRecordsReader,
   CaRecordsRepo,
   CaWindow,
+  CaWinnerGate,
+  CaWinnerKeys,
 } from '../../core/ca-records-ports.js';
 import type {
   CaAppearance,
@@ -100,6 +109,8 @@ interface Access {
   readonly views: boolean;
   readonly names: boolean;
   readonly registry: boolean;
+  /** `supplier_disclosure` (the D6 gate) is readable: needed for any winner-code list. */
+  readonly disclosure: boolean;
 }
 
 /** What this login may read (catalog only, no view touched), then the release's data_as_of. */
@@ -108,6 +119,7 @@ const probeAccess = async (db: Db): Promise<Access> => {
     views: boolean;
     names: boolean;
     registry: boolean;
+    disclosure: boolean;
     release: boolean;
   }>`
     select ${sql.join(
@@ -116,6 +128,7 @@ const probeAccess = async (db: Db): Promise<Access> => {
     )} as views,
       ${privilege(SUPPLIER_NAMES_NAME)} as names,
       ${privilege(PUBLIC_NAMES_NAME)} as registry,
+      ${privilege(SUPPLIER_DISCLOSURE_NAME)} as disclosure,
       -- The API's grant on da_release is per column (procurement-api-read.sql).
       coalesce(has_column_privilege(to_regclass(${`${DA_RELEASE_SCHEMA}.da_release`}), 'data_as_of', 'SELECT'),
         false) as release`.execute(db);
@@ -131,6 +144,7 @@ const probeAccess = async (db: Db): Promise<Access> => {
     views: row?.views === true,
     names: row?.names === true,
     registry: row?.registry === true,
+    disclosure: row?.disclosure === true,
   };
 };
 
@@ -246,31 +260,89 @@ const RECORD_COLUMNS = sql`
   r.buyer_name_masked, r.cpv_code, r.cpv_division, r.cpv_group, r.cpv_class, r.procedure_id,
   r.notice_no, r.title, r.source_url, r.winner_count, r.lot_count`;
 
-/** The keys statement of a buyer's dated records in a window (plain columns only). */
-export const buyerKeysSql = (query: {
-  readonly buyerCode: string;
+/** A buyer's records (the plain column). */
+const buyerScope = (buyerCode: string): RawBuilder<unknown> => sql`r.buyer_code = ${buyerCode}`;
+/** A key set's records: one source's match ids, as every by-key read probes them. */
+const keySetScope = (keys: CaKeySet): RawBuilder<unknown> =>
+  sql`r.source_name = ${keys.sourceName} and r.match_id = any(${keys.matchIds}::text[])`;
+
+interface PageQuery {
   readonly window: CaWindow;
   readonly sort: CaListSort;
   readonly offset: number;
   readonly limit: number;
-}): RawBuilder<{ source_name: string; match_id: string }> => sql`
+}
+
+const keysPageSql = (
+  scope: RawBuilder<unknown>,
+  query: PageQuery
+): RawBuilder<{ source_name: string; match_id: string }> => sql`
   select r.source_name, r.match_id
   from ${RECORDS} r
-  where r.buyer_code = ${query.buyerCode} and ${windowSql(query.window)}
+  where ${scope} and ${windowSql(query.window)}
   order by ${ORDER[query.sort]}
   offset ${query.offset} limit ${query.limit}`;
 
-/** The counts statement of a buyer (plain columns only). */
-export const buyerCountsSql = (
-  buyerCode: string,
-  window: CaWindow
-): RawBuilder<{ records: number; valued: number; review: number; undated: number }> => sql`
+interface CountsRow {
+  records: number;
+  valued: number;
+  review: number;
+  undated: number;
+}
+
+const countsSql = (scope: RawBuilder<unknown>, window: CaWindow): RawBuilder<CountsRow> => sql`
   select count(*) filter (where ${windowSql(window)})::integer as records,
     count(*) filter (where ${windowSql(window)} and r.amount_lei is not null)::integer as valued,
     count(*) filter (where ${windowSql(window)} and r.status = 'identity_review')::integer as review,
     count(*) filter (where r.award_day is null)::integer as undated
   from ${RECORDS} r
-  where r.buyer_code = ${buyerCode}`;
+  where ${scope}`;
+
+/** The keys statement of a buyer's dated records in a window (plain columns only). */
+export const buyerKeysSql = (query: PageQuery & { readonly buyerCode: string }) =>
+  keysPageSql(buyerScope(query.buyerCode), query);
+
+/** The counts statement of a buyer (plain columns only). */
+export const buyerCountsSql = (buyerCode: string, window: CaWindow) =>
+  countsSql(buyerScope(buyerCode), window);
+
+/** The keys statement of a key set's dated records in a window (plain columns only). */
+export const keySetPageSql = (query: PageQuery & { readonly keys: CaKeySet }) =>
+  keysPageSql(keySetScope(query.keys), query);
+
+/** The counts statement of a key set (plain columns only). */
+export const keySetCountsSql = (keys: CaKeySet, window: CaWindow) =>
+  countsSql(keySetScope(keys), window);
+
+/** Whether D6 discloses a code: a by-code read of `supplier_disclosure`. */
+export const disclosedCodeSql = (code: string): RawBuilder<{ disclosed: boolean }> => sql`
+  select exists (select 1 from ${SUPPLIER_DISCLOSURE} d where d.fiscal_code_clean = ${code}) as disclosed`;
+
+/** A code's row of the names view, by code. */
+export const supplierNamesSql = (
+  codes: readonly string[]
+): RawBuilder<{
+  code: string;
+  naming: string | null;
+  display_name: string | null;
+  code_shown: boolean | null;
+}> => sql`
+  select v.fiscal_code_clean as code, v.naming, v.display_name, v.code_shown
+  from ${SUPPLIER_NAMES} v
+  where v.fiscal_code_clean = any(${codes}::text[])`;
+
+/**
+ * Every key a winner code wins, with each winner row's D6 flag (one scan of the winners view:
+ * procurement-prod measured 0.56-0.66 s whatever the code, so once per lookup, never per row).
+ */
+export const winnerKeysSql = (
+  code: string,
+  limit: number
+): RawBuilder<{ source_name: string; match_id: string; supplier_disclosed: boolean | null }> => sql`
+  select distinct w.source_name, w.match_id, w.supplier_disclosed
+  from ${WINNERS} w
+  where w.fiscal_code_clean = ${code}
+  limit ${limit}`;
 
 /** The rows statement of one source's keys. */
 export const recordRowsSql = (
@@ -338,20 +410,65 @@ export const buyerAnyKeySql = (
   select r.source_name, r.match_id from ${RECORDS} r
   where r.buyer_code = ${buyerCode} limit 1`;
 
+const countsOf = (result: { rows: readonly CountsRow[] }): CaCounts => {
+  const row = result.rows[0];
+  return {
+    recordCount: row?.records ?? 0,
+    valuedCount: row?.valued ?? 0,
+    identityReviewCount: row?.review ?? 0,
+    undatedCount: row?.undated ?? 0,
+  };
+};
+
+const HIDDEN_ROW: SupplierNamesViewRow = { naming: null, displayName: null, codeShown: false };
+
 const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
   dataAsOf: () => Promise.resolve(ok(access.asOf)),
   namesReadable: () => access.names,
 
   buyerCounts: (buyerCode, window) =>
-    attempt(async (): Promise<CaCounts> => {
-      const result = await buyerCountsSql(buyerCode, window).execute(trx);
-      const row = result.rows[0];
+    attempt(async () => countsOf(await buyerCountsSql(buyerCode, window).execute(trx))),
+
+  keySetCounts: (keys, window) =>
+    attempt(async () => countsOf(await keySetCountsSql(keys, window).execute(trx))),
+
+  keySetPage: (query) =>
+    attempt(async () => {
+      const result = await keySetPageSql(query).execute(trx);
+      return result.rows.map((row) => ({ sourceName: row.source_name, matchId: row.match_id }));
+    }),
+
+  winnerGate: (code) =>
+    attempt(async (): Promise<CaWinnerGate> => {
+      // D6 and the names view must both be readable, or no code is in the gate (fails closed).
+      if (!access.disclosure || !access.names) return { disclosed: false, naming: null };
+      const disclosed = await disclosedCodeSql(code).execute(trx);
+      if (disclosed.rows[0]?.disclosed !== true) return { disclosed: false, naming: null };
+      const names = await supplierNamesSql([code]).execute(trx);
+      // Two rows for one code (never expected): not in the gate.
+      if (names.rows.length > 1) return { disclosed: true, naming: namingFromView(HIDDEN_ROW) };
+      const row = names.rows[0];
       return {
-        recordCount: row?.records ?? 0,
-        valuedCount: row?.valued ?? 0,
-        identityReviewCount: row?.review ?? 0,
-        undatedCount: row?.undated ?? 0,
+        disclosed: true,
+        naming: namingFromView(
+          row === undefined
+            ? undefined
+            : { naming: row.naming, displayName: row.display_name, codeShown: row.code_shown }
+        ),
       };
+    }),
+
+  winnerKeys: (code, limit) =>
+    attempt(async (): Promise<CaWinnerKeys> => {
+      const result = await winnerKeysSql(code, limit).execute(trx);
+      const keys = new Map<string, CaKey>();
+      let allDisclosed = true;
+      for (const row of result.rows) {
+        if (row.supplier_disclosed !== true) allDisclosed = false;
+        const key = { sourceName: row.source_name, matchId: row.match_id };
+        keys.set(keyText(key), key);
+      }
+      return { keys: [...keys.values()], allDisclosed };
     }),
 
   buyerKeys: (query) =>
@@ -405,17 +522,7 @@ const makeReader = (trx: Db, access: Access): CaRecordsReader => ({
       if (codes.length === 0 || !access.names) return rows;
       const views = new Map<string, SupplierNamesViewRow>();
       for (let start = 0; start < codes.length; start += NAME_CHUNK) {
-        const result = await sql<{
-          code: string;
-          naming: string | null;
-          display_name: string | null;
-          code_shown: boolean | null;
-        }>`
-          select v.fiscal_code_clean as code, v.naming, v.display_name, v.code_shown
-          from ${SUPPLIER_NAMES} v
-          where v.fiscal_code_clean = any(${codes.slice(start, start + NAME_CHUNK)}::text[])`.execute(
-          trx
-        );
+        const result = await supplierNamesSql(codes.slice(start, start + NAME_CHUNK)).execute(trx);
         for (const row of result.rows) {
           const next = {
             naming: row.naming,
@@ -519,9 +626,12 @@ export const makeCaRecordsRepo = (db: Db, enabled: boolean): CaRecordsRepo => ({
         });
       const before = seen.access;
       if (result.isErr() || before === null) return result;
-      // After the read: the same release, and the names view no less readable than it was.
+      // After the read: the same release, and the names and D6 views no less readable than they were.
       const now = await probeAccess(db);
-      return now.asOf === before.asOf && now.views && (now.names || !before.names)
+      return now.asOf === before.asOf &&
+        now.views &&
+        (now.names || !before.names) &&
+        (now.disclosure || !before.disclosure)
         ? result
         : err(REPUBLISHED());
     } catch (error) {

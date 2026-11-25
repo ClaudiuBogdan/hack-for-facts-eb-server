@@ -31,6 +31,11 @@ import { servedSupplierName, undisclosedNaming, type SupplierNaming } from './su
 export const CA_FLOOR_DAY = '2021-01-01';
 /** The deepest row a list page may reach. */
 export const CA_LIST_MAX_DEPTH = 10_000;
+/**
+ * The most keys one winner code's list is drawn from (prod, 25 Nov: at most 46,785 for one code,
+ * read in 0.12-0.14 s); a code past it is refused rather than paged from a cut key set.
+ */
+export const CA_WINNER_MAX_KEYS = 100_000;
 export const CA_MAX_PAGE_SIZE = 50;
 
 export const CA_LIST_SORTS = ['awardDayDesc', 'awardDayAsc', 'amountDesc'] as const;

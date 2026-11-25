@@ -1,8 +1,8 @@
 /**
  * Contract awards (PROC-KB0Z step 1): the usecases REST and GraphQL share. A
  * buyer's counts, a buyer's records (newest award first, oldest first or by
- * amount) and one record's detail, each in one snapshot. No lei sum (see
- * `ca-records.ts`).
+ * amount), the same two for a winner code in the D6 gate, and one record's
+ * detail, each in one snapshot. No lei sum (see `ca-records.ts`).
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -20,21 +20,30 @@ import {
   CA_LIST_MAX_DEPTH,
   CA_LIST_SORTS,
   CA_MAX_PAGE_SIZE,
+  CA_WINNER_MAX_KEYS,
   isBeforeFloor,
   isPublicCode,
   parseCaRecordId,
   toCaBuyer,
   toCaLot,
   toCaRecord,
+  toCaWinner,
   type CaBuyer,
   type CaKey,
   type CaListSort,
   type CaLot,
   type CaRecord,
   type CaRecordRow,
+  type CaWinner,
 } from './ca-records.js';
 
-import type { CaCounts, CaRecordsReader, CaRecordsRepo, CaWindow } from './ca-records-ports.js';
+import type {
+  CaCounts,
+  CaKeySet,
+  CaRecordsReader,
+  CaRecordsRepo,
+  CaWindow,
+} from './ca-records-ports.js';
 
 export interface CaRecordsDeps {
   readonly repo: CaRecordsRepo;
@@ -62,6 +71,12 @@ export interface CaBuyerSummary extends CaEnvelope, CaCounts {
   readonly buyer: CaBuyer;
 }
 
+export interface CaWinnerSummary extends CaEnvelope, CaCounts {
+  readonly window: CaWindowAnswer;
+  /** The winner as every record shows it (company, person_masked or code_only; order null). */
+  readonly winner: CaWinner;
+}
+
 export interface CaRecordPage extends CaEnvelope {
   readonly window: CaWindowAnswer;
   readonly items: readonly CaRecord[];
@@ -84,6 +99,13 @@ export interface CaRecordDetail extends CaEnvelope {
 /** The refusal for a record before the floor: it is loaded, but outside the published window. */
 export const OUTSIDE_WINDOW_RESOURCE = 'contractAwardOutsideWindow';
 
+/**
+ * The one answer for every winner code outside the gate (not D6-disclosed, its code not shown, no
+ * names row, either view unreadable, or no such code): it never says whether the code won anything.
+ */
+const WINNER_NOT_FOUND = (): ApiError =>
+  notFound('No published contract awards for this supplier code.', 'contractAwardWinner');
+
 const disabled = (): ApiError =>
   serviceUnavailable('Contract awards are not enabled on this server.');
 
@@ -99,16 +121,13 @@ const isCalendarDay = (day: string): boolean => {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === day;
 };
 
-/** A buyer code as digits: an `RO` prefix and leading zeros are not accepted (the views key plain codes). */
-const validateBuyerCode = (code: unknown): Result<string, ApiError> =>
+/** A party code as digits: an `RO` prefix and leading zeros are not accepted (the views key plain codes). */
+const validateCode = (code: unknown, field: string): Result<string, ApiError> =>
   typeof code === 'string' && BUYER_CODE.test(code)
     ? ok(code)
-    : err(
-        invalidInput(
-          'buyerFiscalCode must be a fiscal code: 2-10 digits, no leading zero',
-          'buyerFiscalCode'
-        )
-      );
+    : err(invalidInput(`${field} must be a fiscal code: 2-10 digits, no leading zero`, field));
+const validateBuyerCode = (code: unknown): Result<string, ApiError> =>
+  validateCode(code, 'buyerFiscalCode');
 
 /** The window asked for, its start raised to the floor. */
 export const validateCaWindow = (
@@ -280,6 +299,141 @@ export const listCaBuyerRecords = async (
     if (rows.value.length !== keys.value.length) return err(contractBreak('key without a row'));
     const items = await recordsOf(reader, rows.value);
     if (items.isErr()) return err(items.error);
+    const total = counts.value.recordCount;
+    return ok({
+      ...envelope,
+      window: windowAnswer(window.value),
+      items: items.value,
+      page: request.page,
+      pageSize: request.pageSize,
+      total,
+      hasMore: offset + items.value.length < Math.min(total, CA_LIST_MAX_DEPTH),
+      depthLimited: total > CA_LIST_MAX_DEPTH,
+    });
+  });
+};
+
+/**
+ * A winner code's key set, read only for a code in the gate exactly as the DA supplier filter keys
+ * it: D6 discloses the code (`supplier_disclosure`, fails closed), the names view shows it
+ * (code_shown, any naming), and every winner row of the code says supplier_disclosed. Anything
+ * else is the one WINNER_NOT_FOUND.
+ */
+const winnerKeySet = async (
+  reader: CaRecordsReader,
+  code: string
+): Promise<Result<{ winner: CaWinner; keys: CaKeySet | null }, ApiError>> => {
+  const gate = await reader.winnerGate(code);
+  if (gate.isErr()) return err(gate.error);
+  const naming = gate.value.naming;
+  if (!gate.value.disclosed || naming?.source !== 'view' || naming.kind === 'hidden')
+    return err(WINNER_NOT_FOUND());
+  const winner = toCaWinner({
+    sourceName: '',
+    matchId: '',
+    winnerOrder: null,
+    fiscalCode: code,
+    supplierDisclosed: true,
+    naming,
+  });
+  // A gate code toCaWinner would not show (not an organization code's shape): outside the gate.
+  if (winner.fiscalCode !== code || winner.disclosed !== true) return err(WINNER_NOT_FOUND());
+  const found = await reader.winnerKeys(code, CA_WINNER_MAX_KEYS + 1);
+  if (found.isErr()) return err(found.error);
+  // The same snapshot read the code as disclosed: a winner row that says otherwise is a break.
+  if (!found.value.allDisclosed) return err(contractBreak('winner disclosure'));
+  const keys = found.value.keys;
+  if (keys.length > CA_WINNER_MAX_KEYS)
+    return err(serviceUnavailable('This supplier has more contract awards than a list may read.'));
+  const first = keys[0];
+  if (first === undefined) return ok({ winner, keys: null });
+  // One source today (prod, 25 Nov); offset paging across sources would need another shape.
+  if (keys.some((key) => key.sourceName !== first.sourceName))
+    return err(contractBreak('winner key set'));
+  return ok({
+    winner,
+    keys: { sourceName: first.sourceName, matchIds: keys.map((key) => key.matchId) },
+  });
+};
+
+const NO_COUNTS: CaCounts = {
+  recordCount: 0,
+  valuedCount: 0,
+  identityReviewCount: 0,
+  undatedCount: 0,
+};
+
+export const caWinnerSummary = async (
+  deps: CaRecordsDeps,
+  request: { winnerFiscalCode: unknown; from?: string | null; to?: string | null }
+): Promise<Result<CaWinnerSummary, ApiError>> => {
+  const code = validateCode(request.winnerFiscalCode, 'winnerFiscalCode');
+  if (code.isErr()) return err(code.error);
+  const window = validateCaWindow(request.from, request.to);
+  if (window.isErr()) return err(window.error);
+  return inSnapshot(deps, async (reader, envelope) => {
+    const set = await winnerKeySet(reader, code.value);
+    if (set.isErr()) return err(set.error);
+    const keys = set.value.keys;
+    const counts = keys === null ? ok(NO_COUNTS) : await reader.keySetCounts(keys, window.value);
+    if (counts.isErr()) return err(counts.error);
+    return ok({
+      ...envelope,
+      ...counts.value,
+      window: windowAnswer(window.value),
+      winner: set.value.winner,
+    });
+  });
+};
+
+export const listCaWinnerRecords = async (
+  deps: CaRecordsDeps,
+  request: {
+    winnerFiscalCode: unknown;
+    from?: string | null;
+    to?: string | null;
+    sort?: string | null;
+    page: number;
+    pageSize: number;
+  }
+): Promise<Result<CaRecordPage, ApiError>> => {
+  const code = validateCode(request.winnerFiscalCode, 'winnerFiscalCode');
+  if (code.isErr()) return err(code.error);
+  const window = validateCaWindow(request.from, request.to);
+  if (window.isErr()) return err(window.error);
+  const sort = request.sort ?? 'awardDayDesc';
+  if (!(CA_LIST_SORTS as readonly string[]).includes(sort))
+    return err(invalidInput('Invalid sort.', 'sort'));
+  const fault = checkPage(request.page, request.pageSize);
+  if (fault !== null) return err(fault);
+  const offset = (request.page - 1) * request.pageSize;
+  const limit = Math.min(request.pageSize, CA_LIST_MAX_DEPTH - offset);
+  return inSnapshot(deps, async (reader, envelope) => {
+    const set = await winnerKeySet(reader, code.value);
+    if (set.isErr()) return err(set.error);
+    const keySet = set.value.keys;
+    const counts =
+      keySet === null ? ok(NO_COUNTS) : await reader.keySetCounts(keySet, window.value);
+    if (counts.isErr()) return err(counts.error);
+    const keys =
+      keySet === null
+        ? ok([])
+        : await reader.keySetPage({
+            keys: keySet,
+            window: window.value,
+            sort: sort as CaListSort,
+            offset,
+            limit,
+          });
+    if (keys.isErr()) return err(keys.error);
+    const rows = keys.value.length === 0 ? ok([]) : await reader.recordsByKeys(keys.value);
+    if (rows.isErr()) return err(rows.error);
+    if (rows.value.length !== keys.value.length) return err(contractBreak('key without a row'));
+    const items = await recordsOf(reader, rows.value);
+    if (items.isErr()) return err(items.error);
+    // Every record of the list shows the code it was asked for among its winners.
+    if (!items.value.every((item) => item.winners.some((w) => w.fiscalCode === code.value)))
+      return err(contractBreak('winner list'));
     const total = counts.value.recordCount;
     return ok({
       ...envelope,

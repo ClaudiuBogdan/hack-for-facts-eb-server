@@ -13,8 +13,10 @@ import { GRAPHQL_ERROR_CODE, type ApiError } from '@/modules/shared/index.js';
 import { markNoStore } from './no-store.js';
 import {
   caBuyerSummary,
+  caWinnerSummary,
   getCaRecord,
   listCaBuyerRecords,
+  listCaWinnerRecords,
   OUTSIDE_WINDOW_RESOURCE,
   type CaRecordsDeps,
 } from '../../core/ca-records-usecases.js';
@@ -138,6 +140,24 @@ export const caRecordsTypeDefs = /* GraphQL */ `
     undatedCount: Int!
   }
 
+  """
+  A winner code's contract awards in the window: counts only (no lei sum). Only a supplier in the
+  direct-acquisition gate (D6) whose code is shown has one; every other code is NOT_FOUND, the same
+  answer whether or not it won anything. undatedCount counts its records with no award day.
+  """
+  type ProcurementCaWinnerSummary {
+    dataAsOf: DateTime!
+    "dataAsOf (a winner lookup needs the names view). Every contract-award answer is no-store."
+    disclosureKey: String!
+    window: ProcurementCaWindow!
+    "As its records show it: company, person_masked or code_only, with disclosed true; order null."
+    winner: ProcurementCaWinner!
+    recordCount: Int!
+    valuedCount: Int!
+    identityReviewCount: Int!
+    undatedCount: Int!
+  }
+
   type ProcurementCaRecordPage {
     dataAsOf: DateTime!
     disclosureKey: String!
@@ -197,6 +217,30 @@ export const caRecordsTypeDefs = /* GraphQL */ `
     snapshot: compare dataAsOf with the other contract-award fields of the operation.
     """
     procurementContractAward(recordId: ID!): ProcurementCaRecordDetail!
+    """
+    A winner code's contract awards in the published window: counts. NOT_FOUND for any code
+    outside the direct-acquisition gate (D6) or not shown. Its own snapshot: compare dataAsOf with
+    the other contract-award fields of the operation.
+    """
+    procurementContractAwardWinnerSummary(
+      winnerFiscalCode: String!
+      from: Date
+      to: Date
+    ): ProcurementCaWinnerSummary!
+    """
+    The contract awards a winner code won in the published window (a joint win included), as
+    procurementContractAwards pages them. NOT_FOUND for any code outside the direct-acquisition
+    gate (D6) or not shown. Its own snapshot: compare dataAsOf with the other contract-award
+    fields of the operation.
+    """
+    procurementContractAwardsByWinner(
+      winnerFiscalCode: String!
+      from: Date
+      to: Date
+      sort: ProcurementCaListSort = awardDayDesc
+      page: Int = 1
+      pageSize: Int = 20
+    ): ProcurementCaRecordPage!
   }
 `;
 
@@ -220,6 +264,18 @@ interface WindowArgs {
   to?: string | null;
 }
 
+interface WinnerWindowArgs {
+  winnerFiscalCode: string;
+  from?: string | null;
+  to?: string | null;
+}
+
+interface PageArgs {
+  sort?: string | null;
+  page?: number | null;
+  pageSize?: number | null;
+}
+
 export const makeCaRecordsResolvers = (deps: CaRecordsDeps) => ({
   ProcurementCaWinner: {
     name: (winner: { name: string | null }, _a: unknown, context: unknown) => {
@@ -236,7 +292,7 @@ export const makeCaRecordsResolvers = (deps: CaRecordsDeps) => ({
     },
     procurementContractAwards: async (
       _root: unknown,
-      args: WindowArgs & { sort?: string | null; page?: number | null; pageSize?: number | null },
+      args: WindowArgs & PageArgs,
       context: unknown
     ) => {
       markNoStore(context);
@@ -255,6 +311,28 @@ export const makeCaRecordsResolvers = (deps: CaRecordsDeps) => ({
     ) => {
       markNoStore(context);
       return unwrap(await getCaRecord(deps, args.recordId));
+    },
+    procurementContractAwardWinnerSummary: async (
+      _root: unknown,
+      args: WinnerWindowArgs,
+      context: unknown
+    ) => {
+      markNoStore(context);
+      return unwrap(await caWinnerSummary(deps, args));
+    },
+    procurementContractAwardsByWinner: async (
+      _root: unknown,
+      args: WinnerWindowArgs & PageArgs,
+      context: unknown
+    ) => {
+      markNoStore(context);
+      return unwrap(
+        await listCaWinnerRecords(deps, {
+          ...args,
+          page: args.page ?? 1,
+          pageSize: args.pageSize ?? 20,
+        })
+      );
     },
   },
 });
