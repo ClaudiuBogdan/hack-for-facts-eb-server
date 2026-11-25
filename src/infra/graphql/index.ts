@@ -2,7 +2,11 @@ import { makeExecutableSchema, type IExecutableSchemaDefinition } from '@graphql
 import { Kind, type DocumentNode, type OperationDefinitionNode, type FieldNode } from 'graphql';
 import mercuriusPlugin, { type IResolvers, type MercuriusLoaders } from 'mercurius';
 
-import { makeGraphQLErrorFormatter, makeGraphQLValidationRules } from './security.js';
+import {
+  loggedGraphQLErrors,
+  makeGraphQLErrorFormatter,
+  makeGraphQLValidationRules,
+} from './security.js';
 
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
@@ -185,7 +189,8 @@ export const makeGraphQLPlugin = (options: GraphQLOptions): FastifyPluginAsync =
       // Log at appropriate level
       if (hasErrors) {
         context.reply.log.warn(
-          { ...logEntry, errors: execution.errors },
+          // Redacted: an error message can quote a value the caller sent.
+          { ...logEntry, errors: loggedGraphQLErrors(execution.errors) },
           `GraphQL ${operationType} "${operationName ?? 'anonymous'}" completed with ${String(errorCount)} error(s)`
         );
       } else {

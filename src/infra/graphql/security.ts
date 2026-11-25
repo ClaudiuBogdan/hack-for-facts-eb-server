@@ -106,11 +106,75 @@ const SAFE_ERROR_CODES = new Set([
   'GRAPHQL_VALIDATION_FAILED',
 ]);
 
-/** Shared production error redaction for every public GraphQL surface. */
+/**
+ * Runs of 11+ digits, each joined by at most one white-space character or dash (a personal
+ * numeric code, also as written with separators), and e-mail addresses, in the NFKC form.
+ */
+const LOGGED_CODE_RUN = /[0-9](?:[\s\u0085\p{Pd}\u2212]?[0-9]){10,}/gu;
+const LOGGED_EMAIL = /[^\s@]+@[^\s@]+\.[^\s@]+/gu;
+
+/**
+ * Text as it may be logged: a GraphQL error message can quote a value the caller sent (a
+ * variable-coercion error quotes it whole), so personal codes and e-mail addresses are redacted.
+ */
+export const redactLoggedText = (text: string): string =>
+  text.normalize('NFKC').replace(LOGGED_EMAIL, '[email]').replace(LOGGED_CODE_RUN, '[digits]');
+
+export interface LoggedGraphQLError {
+  readonly code: string | null;
+  readonly path: readonly (string | number)[] | null;
+  readonly message: string;
+}
+
+/** What is logged of GraphQL errors: code, path and the redacted message (never the error object). */
+export const loggedGraphQLErrors = (
+  errors: readonly GraphQLError[] | undefined
+): LoggedGraphQLError[] =>
+  (errors ?? []).flatMap((error) => {
+    // Mercurius wraps a validation failure's errors in one error (MER_ERR_GQL_VALIDATION).
+    const nested: unknown = (error.originalError as { errors?: unknown } | undefined)?.errors;
+    const all: readonly GraphQLError[] = Array.isArray(nested)
+      ? (nested as GraphQLError[])
+      : [error];
+    return all.map((each) => {
+      const code = (each.extensions as Record<string, unknown> | undefined)?.['code'];
+      return {
+        code: typeof code === 'string' ? code : null,
+        path: Array.isArray(each.path) ? each.path : null,
+        message: redactLoggedText(each.message),
+      };
+    });
+  });
+
+const noop = (): void => undefined;
+/** Mercurius's default formatter logs each error's message whole; it gets this logger instead. */
+const SILENT_LOG = {
+  trace: noop,
+  debug: noop,
+  info: noop,
+  warn: noop,
+  error: noop,
+  fatal: noop,
+  child: () => SILENT_LOG,
+};
+
+/**
+ * Shared error formatting for every public GraphQL surface: errors are logged redacted
+ * (`loggedGraphQLErrors`), and in production the response is redacted too.
+ */
 export const makeGraphQLErrorFormatter =
   (isProduction: boolean): NonNullable<MercuriusOptions['errorFormatter']> =>
   (execution, context) => {
-    const response = mercuriusPlugin.defaultErrorFormatter(execution, context);
+    const log =
+      (context.reply as { log?: typeof context.app.log } | undefined)?.log ?? context.app.log;
+    for (const error of loggedGraphQLErrors(execution.errors))
+      log.info({ graphqlError: error }, 'GraphQL error');
+    // The default formatter shapes the response as before; only its own logging is silenced.
+    const quiet = Object.create(context, {
+      reply: { value: { log: SILENT_LOG } },
+      app: { value: { log: SILENT_LOG } },
+    }) as typeof context;
+    const response = mercuriusPlugin.defaultErrorFormatter(execution, quiet);
 
     if (!isProduction) return response;
 
