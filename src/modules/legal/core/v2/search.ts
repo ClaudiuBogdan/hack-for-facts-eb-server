@@ -209,6 +209,13 @@ export interface LegalV2HitVerifier {
       readonly uses: readonly V2HitUse[];
     }[]
   ): Promise<Result<ReadonlyMap<number, VerifiedUse>, ApiError>>;
+  /**
+   * The provision's outline path in the served form (its render block id, namespaced in a
+   * composed form), read for one RETURNED section only, so a section and the outline name one
+   * node by one path. Null, and the section is dropped, unless the outline reads the same act,
+   * form, composition and serving unit as the verification did.
+   */
+  confirmPath?(actId: string, use: VerifiedUse): Promise<Result<string | null, ApiError>>;
 }
 
 /**
@@ -220,12 +227,14 @@ export interface LegalV2HitVerifier {
 export interface VerifiedUse {
   readonly use: V2HitUse;
   /**
-   * The provision's outline path in the served form (its render block id, namespaced in a
-   * composed form), so a section and the outline name one node by one path. Null when the
-   * outline cannot name it.
+   * The section's node path when the verifier has no outline to confirm it with: the parser's
+   * address. With an outline (`confirmPath`), the path comes from there, per returned section.
    */
   readonly path: string | null;
   readonly composed: boolean;
+  /** The served component's ordinal and the composition the verification read. */
+  readonly ordinal: number;
+  readonly compositionDigest: string | null;
   /** Verified UTF-16 range in the served form. The index use is unit-local. */
   readonly charStart: number;
   readonly charEnd: number;
@@ -422,6 +431,7 @@ export const searchLegalV2Engine = async (
   if (sums.isErr()) return err(sums.error);
   const summaryOf = (actId: string): LegalActSummary | null => sums.value.get(actId) ?? null;
 
+  const wantSections = query.channel !== 'docs';
   let postFiltered = 0;
   const acts: LegalDocHit[] = [];
   const sections: LegalSectionHit[] = [];
@@ -437,9 +447,17 @@ export const searchLegalV2Engine = async (
     }
     const provenance = provRes.value.get(actId) ?? null;
     acts.push({ act, summary, score: ranked.scores.get(actId) ?? 0, provenance });
-    for (const h of ranked.sections.get(actId) ?? []) {
+    for (const h of wantSections ? (ranked.sections.get(actId) ?? []) : []) {
       const v = verifiedOf.get(h);
       if (v === undefined) continue;
+      // The outline is read only for a section that is returned (never for docs-only results).
+      let nodePath = v.path;
+      if (deps.verifier.confirmPath !== undefined) {
+        const confirmed = await deps.verifier.confirmPath(actId, v);
+        if (confirmed.isErr()) return err(confirmed.error);
+        if (confirmed.value === null) continue;
+        nodePath = confirmed.value;
+      }
       // The served form's own facts, with the act's amendment facts merged in.
       const served: LegalVersionProvenance = {
         ...v.servedForm,
@@ -459,7 +477,7 @@ export const searchLegalV2Engine = async (
           : (v.address ?? `seq:${String(v.use.provisionSeq)}`),
         articleNumber: null,
         nodeLabel: v.label,
-        nodePath: v.path,
+        nodePath,
         charStart: v.charStart,
         charEnd: v.charEnd,
         snippet: v.sameWording ? h.snippet : null,
@@ -481,7 +499,6 @@ export const searchLegalV2Engine = async (
     split.penaltiesMentioned !== undefined;
   if (callerFilteredBridged || postFiltered > 0) caveats.push(V2_BRIDGED_FILTER_CAVEAT);
 
-  const wantSections = query.channel !== 'docs';
   return ok({
     acts,
     sections: wantSections ? sections : [],

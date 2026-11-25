@@ -105,7 +105,7 @@ const renderHeadSql = (
              ? sql`null`
              : wantedChunk === undefined
                ? foldedPairHash(db)
-               : sql`case when ${wantedChunk}::int <= coalesce(gate.public_chunks, 0)
+               : sql`case when ${wantedChunk}::int between 0 and coalesce(gate.public_chunks, 0)
                           then ${foldedPairHash(db)} end`
          }
               else u.text_sha256 end as text_sha256

@@ -51,6 +51,7 @@ import { V2_BRIDGE_GATE } from '@/modules/legal/shell/repo/v2/gate.js';
 import {
   makeLegalOutlineRepoV2,
   makeV2OutlineReader,
+  type V2ProvisionPaths,
 } from '@/modules/legal/shell/repo/v2/outline-v2.js';
 import {
   makeLegalRenderRepoV2,
@@ -683,38 +684,59 @@ run('legal_v2 on real DDL', () => {
     }
   });
 
-  it('drops a verified hit unless the outline confirms it under the same composition', async () => {
+  it('returns a section only when the outline confirms its act, composition and unit', async () => {
     const reader = makeV2OutlineReader(db);
     const hits = pairHits.map((h, key) => ({ ...h, key }));
-    const verified = async (paths: Parameters<typeof makeLegalV2HitVerifier>[1]) =>
-      (await makeLegalV2HitVerifier(db, paths).verifyUses(hits))._unsafeUnwrap();
-    // Control: the same hits are confirmed by the outline of the composition they were read in.
-    const confirmed = await verified(reader.provisionPaths);
-    expect(confirmed.size).toBeGreaterThan(0);
-    for (const use of confirmed.values()) expect(use.path).not.toBeNull();
-    // Another composition (a body replaced between the two reads): no hit is returned.
+    const verifier = (paths: Parameters<typeof makeLegalV2HitVerifier>[1]) =>
+      makeLegalV2HitVerifier(db, paths);
+    const uses = [
+      ...(await verifier(reader.provisionPaths).verifyUses(hits))._unsafeUnwrap().values(),
+    ];
+    expect(uses.length).toBe(2);
+    const confirm = async (
+      paths: Parameters<typeof makeLegalV2HitVerifier>[1],
+      actId = '7'
+    ): Promise<(string | null)[]> =>
+      Promise.all(
+        uses.map(async (u) => (await verifier(paths).confirmPath!(actId, u))._unsafeUnwrap())
+      );
+    // Control: the outline of the composition the verification read names both sections.
+    expect(await confirm(reader.provisionPaths)).toEqual(['0.1', '1.1']);
+    const altered = (change: (p: V2ProvisionPaths) => V2ProvisionPaths) => async (id: string) =>
+      (await reader.provisionPaths(id)).map((p) => (p === null ? null : change(p)));
+    // Another composition (a body replaced between the two reads).
     expect(
-      (
-        await verified(async (id) =>
-          (await reader.provisionPaths(id)).map((p) =>
-            p === null ? null : { ...p, compositionDigest: 'another composition' }
-          )
-        )
-      ).size
-    ).toBe(0);
-    // A form the outline no longer reads (restricted between the two reads): no hit either.
-    expect((await verified(() => Promise.resolve(ok(null)))).size).toBe(0);
+      await confirm(altered((p) => ({ ...p, compositionDigest: 'another composition' })))
+    ).toEqual([null, null]);
+    // The form moved to another act by an identity publication, same composition.
+    expect(await confirm(altered((p) => ({ ...p, actId: '8' })))).toEqual([null, null]);
+    expect(await confirm(reader.provisionPaths, '8')).toEqual([null, null]);
+    // A serving unit withdrawn and restored under another id, same composition.
+    expect(
+      await confirm(
+        altered((p) => ({
+          ...p,
+          unitIds: new Map([
+            [0, '6'],
+            [1, '70'],
+          ]),
+        }))
+      )
+    ).toEqual(['0.1', null]);
+    // A form the outline no longer reads (restricted between the two reads).
+    expect(await confirm(() => Promise.resolve(ok(null)))).toEqual([null, null]);
   });
 
-  it('reads one outline per returned section, not one per form its wording appears in', async () => {
+  it('reads no outline to verify, and one per section it returns', async () => {
     const reader = makeV2OutlineReader(db);
     const asked: string[] = [];
     const counting: Parameters<typeof makeLegalV2HitVerifier>[1] = (id) => {
       asked.push(id);
       return reader.provisionPaths(id);
     };
-    // One section whose wording the index records in two verifiable forms (a passage repeated
-    // across versions): only the retained use's outline is read.
+    const verifier = makeLegalV2HitVerifier(db, counting);
+    // A section whose wording the index records in two verifiable forms (a passage repeated
+    // across versions), and the pair's two sections.
     const candidate = {
       ...sectionHit,
       key: 0,
@@ -738,9 +760,13 @@ run('legal_v2 on real DDL', () => {
       ],
     };
     const out = (
-      await makeLegalV2HitVerifier(db, counting).verifyUses([candidate])
+      await verifier.verifyUses([candidate, ...pairHits.map((h, i) => ({ ...h, key: i + 1 }))])
     )._unsafeUnwrap();
-    expect(out.size).toBe(1);
+    expect(out.size).toBe(3);
+    expect(asked).toEqual([]);
+    const first = out.get(0);
+    expect(first?.servedForm.documentId).toBe('f101');
+    expect((await verifier.confirmPath!('7', first!))._unsafeUnwrap()).not.toBeNull();
     expect(asked).toEqual(['f101']);
   });
 
@@ -850,12 +876,14 @@ run('legal_v2 on real DDL', () => {
       'unsupported shape with a restricted component',
       'restricted',
       sql`with shape as (update legal_v2.form_components set slot = 'whole' where unit_id = 7 returning 1)
-          update legal_v2.text_units set privacy_class = 'restricted' where unit_id = 6`,
+          update legal_v2.form_components set privacy_class = 'restricted' where unit_id = 6`,
     ],
     [
       'missing body with a restricted header chunk',
       'restricted',
-      sql`with gone as (delete from legal_v2.unit_render where unit_id = 7 returning 1)
+      sql`with gone as (update legal_v2.form_components
+                          set slot = 'missing_body', unit_id = null, linked_page_id = '5107'
+                        where unit_id = 7 returning 1)
           update legal_v2.unit_render set privacy_class = 'restricted' where unit_id = 6`,
     ],
     [
@@ -872,6 +900,11 @@ run('legal_v2 on real DDL', () => {
       'blank label wording',
       'label_missing',
       sql`update legal_v2.forms set portal_label_raw = '  ' where form_id = 106`,
+    ],
+    [
+      'label of tabs and line breaks',
+      'label_missing',
+      sql`update legal_v2.forms set portal_label_raw = E'\t\n' where form_id = 106`,
     ],
     [
       'label wording alone',

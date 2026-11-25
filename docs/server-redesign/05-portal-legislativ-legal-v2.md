@@ -67,8 +67,9 @@ behaviour unchanged.
   All its chunks must be public. A pair also needs BOTH the Portal's literal label and its date (the header supplies
   them); a whole consolidation keeps the earlier rule, the label or its date, so nothing readable before disappears.
   - Cost: each unit answers "any public chunk" and "any restricted chunk" with `EXISTS`; only the render info counts
-    chunks, for `chunkCount`. One act's form read is shared by the card, version list, provenance and selection of a
-    request while it is in flight. A partial index on restricted `unit_render` rows belongs in the scrapper.
+    chunks, for `chunkCount`. No form read is shared between calls, even while in flight: a shared read could carry a
+    privacy verdict taken before a restriction committed. A partial index on restricted `unit_render` rows belongs in
+    the scrapper.
   - `sourceUrl` of a form whose verdict is restricted is null, before any fallback. An unreadable form otherwise
     names its whole or header capture, a body capture only when nothing else is bound.
 - **Default form** (`isCanonical`, `canonical`). The owner's decision of 2026-11-12: the policy `latest_any_kind`, the
@@ -148,7 +149,8 @@ behaviour unchanged.
     the use's whole range; public chunks of that same unit covering the entire range. The section's label and range
     come from that verified occurrence. Its `nodePath` is the provision's outline path (the render block id,
     namespaced in a pair), read through the outline's own reader and cache, so a section and the outline name one
-    node by one path. `servedForm.sourceUrl` is the form's source from the gate: the whole unit's capture, or a
+    node by one path. The outline is read only for a section that is returned (never for a docs-only result), and the
+    section is dropped unless the outline's gate reads the same act, composition and serving unit as the verification. `servedForm.sourceUrl` is the form's source from the gate: the whole unit's capture, or a
     pair's header, never the body page. In a pair the section key identifies the unit and provision sequence even if both pages
     use the same article address. Highlight offsets include all preceding component text and the display boundary.
     The index snippet is shown only when the occurrence's content key is the indexed wording's key. `servedForm` carries the form (LEG-X3AV) with the act's

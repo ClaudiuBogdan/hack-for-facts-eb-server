@@ -222,6 +222,8 @@ describe('searchLegalV2Engine', () => {
                         use,
                         path: `b${use.formId}`,
                         composed: false,
+                        ordinal: 0,
+                        compositionDigest: null,
                         charStart: 21,
                         charEnd: 24,
                         // The verified occurrence's own facts.

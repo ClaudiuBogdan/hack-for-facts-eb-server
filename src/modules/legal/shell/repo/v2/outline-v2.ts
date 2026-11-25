@@ -55,6 +55,7 @@ interface OutlineRow extends OutlineGateRow {
 
 interface OutlineGateRow {
   form_id: string;
+  act_id: string;
   ordinal: number;
   composition_digest: string;
   unit_id: string;
@@ -69,11 +70,16 @@ interface FormOutline {
   readonly paths: ReadonlyMap<string, string>;
   /** The composition these paths were read from (gate row). */
   readonly compositionDigest: string | null;
+  /** The form's act and, per component ordinal, its serving unit (gate rows). */
+  readonly actId: string;
+  readonly unitIds: ReadonlyMap<number, string>;
 }
 
-/** The provision paths of one readable form, with the composition they belong to. */
+/** The provision paths of one readable form, with the composition, act and units they belong to. */
 export interface V2ProvisionPaths {
   readonly compositionDigest: string | null;
+  readonly actId: string;
+  readonly unitIds: ReadonlyMap<number, string>;
   readonly paths: ReadonlyMap<string, string>;
 }
 
@@ -95,7 +101,7 @@ const OUTLINE_COMPONENTS_SQL = sql`
   join legal_v2.form_components c on c.form_id = f.form_id and c.privacy_class = 'public'
   join legal_v2.text_units u on u.unit_id = c.unit_id and u.privacy_class = 'public'`;
 
-const OUTLINE_KEY_SQL = sql`f.form_id::text as form_id, gate.composition_digest, c.ordinal, u.unit_id::text as unit_id,
+const OUTLINE_KEY_SQL = sql`f.form_id::text as form_id, f.act_id::text as act_id, gate.composition_digest, c.ordinal, u.unit_id::text as unit_id,
   (select string_agg(p.provision_seq::text, ',' order by p.provision_seq)
      from legal_v2.unit_provisions p
     where p.unit_id = u.unit_id and p.privacy_class <> 'public') as restricted_provisions`;
@@ -104,6 +110,7 @@ const cacheKey = (rows: readonly OutlineGateRow[]): string =>
   JSON.stringify(
     rows.map((r) => [
       r.form_id,
+      r.act_id,
       r.composition_digest,
       r.ordinal,
       r.unit_id,
@@ -187,6 +194,8 @@ export const makeV2OutlineReader = (db: Db): V2OutlineReader => {
         blocks: composePresentationBlocks(units),
         paths: new Map(keyed.map((k) => [k.key, k.entry.path])),
         compositionDigest: first.composition_digest,
+        actId: first.act_id,
+        unitIds: new Map(result.rows.map((r) => [r.ordinal, r.unit_id])),
       };
       remember(cacheKey(result.rows), value);
       return ok(value);
@@ -269,7 +278,14 @@ export const makeV2OutlineReader = (db: Db): V2OutlineReader => {
     documentId: string
   ): Promise<Result<V2ProvisionPaths | null, ApiError>> =>
     (await outlineFor(documentId)).map((o) =>
-      o === null ? null : { compositionDigest: o.compositionDigest, paths: o.paths }
+      o === null
+        ? null
+        : {
+            compositionDigest: o.compositionDigest,
+            actId: o.actId,
+            unitIds: o.unitIds,
+            paths: o.paths,
+          }
     );
 
   return { repo: { outline, entryByPath }, provisionPaths };

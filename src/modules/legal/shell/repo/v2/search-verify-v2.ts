@@ -28,7 +28,7 @@ import { COMPONENT_BOUNDARY } from '../../../core/v2/composition.js';
 import { formDocumentId, versionKindOf } from '../../../core/v2/forms.js';
 import { v2ProvisionKey } from '../../../core/v2/outline.js';
 
-import type { V2OutlineReader, V2ProvisionPaths } from './outline-v2.js';
+import type { V2OutlineReader } from './outline-v2.js';
 import type { LegalV2HitVerifier, V2HitUse, VerifiedUse } from '../../../core/v2/search.js';
 
 type Db = Kysely<ProdDatabase>;
@@ -131,34 +131,17 @@ export const makeLegalV2HitVerifier = (
       return err(databaseError('legal_v2 hit verification failed', error));
     }
     const byIdx = new Map(rows.map((r) => [r.idx, r]));
-    // The outline path of a verified provision, read only for the uses that may be returned:
-    // per section the first use whose form the outline still reads, under the SAME composition
-    // the verification read. A form unreadable at the second read, a changed composition or a
-    // provision the outline does not name drops that use (and the next use of the section is
-    // tried); nothing is returned with an unconfirmed path.
-    const pathsByForm = new Map<string, V2ProvisionPaths | null>();
-    const pathOf = async (row: VerifiedRow): Promise<Result<string | null, ApiError>> => {
-      if (provisionPaths === undefined) return ok(row.address);
-      if (!pathsByForm.has(row.form_id)) {
-        const res = await provisionPaths(formDocumentId(row.form_id));
-        if (res.isErr()) return err(res.error);
-        pathsByForm.set(row.form_id, res.value);
-      }
-      const read = pathsByForm.get(row.form_id);
-      if (read === null || read === undefined) return ok(null);
-      if (read.compositionDigest !== row.composition_digest) return ok(null);
-      return ok(read.paths.get(v2ProvisionKey(row.ordinal, row.provision_seq)) ?? null);
-    };
+    // No outline is read here: the verification ranks and filters; the outline path is
+    // confirmed later, only for the sections that are returned (`confirmPath`).
     const out = new Map<number, VerifiedUse>();
     for (const f of flat) {
       const row = byIdx.get(f.idx);
       if (out.has(f.key) || row === undefined) continue;
-      const path = await pathOf(row);
-      if (path.isErr()) return err(path.error);
-      if (provisionPaths !== undefined && path.value === null) continue;
       out.set(f.key, {
         use: f.use,
-        path: path.value,
+        path: row.address,
+        ordinal: row.ordinal,
+        compositionDigest: row.composition_digest,
         composed: row.composed,
         charStart: row.char_start,
         charEnd: row.char_end,
@@ -183,4 +166,23 @@ export const makeLegalV2HitVerifier = (
     }
     return ok(out);
   },
+  ...(provisionPaths !== undefined && {
+    confirmPath: async (
+      actId: string,
+      v: VerifiedUse
+    ): Promise<Result<string | null, ApiError>> => {
+      const documentId = v.servedForm.documentId ?? null;
+      const seq = v.use.provisionSeq;
+      if (documentId === null || seq === null) return ok(null);
+      const read = await provisionPaths(documentId);
+      if (read.isErr()) return err(read.error);
+      const o = read.value;
+      // The outline's own gate, now: same act, same composition, same serving unit at that
+      // ordinal. Anything else (an identity publication, a replaced or restricted unit between
+      // the two reads) drops the section rather than mix two publications.
+      if (o?.actId !== actId || o.compositionDigest !== v.compositionDigest) return ok(null);
+      if (o.unitIds.get(v.ordinal) !== v.use.unitId) return ok(null);
+      return ok(o.paths.get(v2ProvisionKey(v.ordinal, seq)) ?? null);
+    },
+  }),
 });

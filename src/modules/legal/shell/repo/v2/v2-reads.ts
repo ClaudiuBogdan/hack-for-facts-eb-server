@@ -123,7 +123,8 @@ export const formReadableSql = (countChunks: boolean) => sql`
       when f.ended or fc.form_id is null or x.units = 0 or x.empty_unit then 'not_loaded'
       when not (x.whole or (f.form_kind = 'consolidation' and x.pair)) then 'composition_not_served'
       when f.form_kind = 'consolidation' and x.pair
-           and (nullif(btrim(f.portal_label_raw), '') is null or f.portal_label_date is null)
+           and (f.portal_label_raw is null or f.portal_label_raw !~ '[^[:space:]]'
+                or f.portal_label_date is null)
         then 'label_missing'
       when f.form_kind = 'consolidation' and x.whole
            and f.portal_label_raw is null and f.portal_label_date is null then 'label_missing'
