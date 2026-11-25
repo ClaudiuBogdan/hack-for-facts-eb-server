@@ -20,6 +20,8 @@
  * redesign app, which would require a live kernel/postgres.
  */
 
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { brotliCompressSync, deflateSync, gunzipSync, gzipSync, zstdCompressSync } from 'node:zlib';
 
 import fastifyLib, { type FastifyInstance } from 'fastify';
@@ -194,12 +196,13 @@ describe('app-level compression — request bodies (CVE-2026-124851)', () => {
     expect(res.json<{ code: string }>().code).toBe('FST_CP_ERR_INVALID_CONTENT_ENCODING');
   });
 
-  it('still decodes gzip, deflate and br bodies', async () => {
+  it('still decodes gzip, deflate and br bodies, and passes identity through', async () => {
     const instance = await buildEchoApp();
     for (const [encoding, payload] of [
       ['gzip', gzipSync(Buffer.from(BODY))],
       ['deflate', deflateSync(Buffer.from(BODY))],
       ['br', brotliCompressSync(Buffer.from(BODY))],
+      ['identity', Buffer.from(BODY)],
     ] as const) {
       const res = await instance.inject({
         method: 'POST',
@@ -212,6 +215,17 @@ describe('app-level compression — request bodies (CVE-2026-124851)', () => {
         query: '{ health { status } }',
       });
     }
+  });
+
+  it('no route sets its own decompress options (they would restore the zstd default)', () => {
+    const files = readdirSync('src', { recursive: true, encoding: 'utf8' }).filter((file) =>
+      file.endsWith('.ts')
+    );
+    const offenders = files.filter((file) =>
+      /\bdecompress\s*:/u.test(readFileSync(join('src', file), 'utf8'))
+    );
+    expect(offenders).toEqual([]);
+    expect(files.length).toBeGreaterThan(100);
   });
 
   it('never answers in zstd, whatever the client accepts', async () => {

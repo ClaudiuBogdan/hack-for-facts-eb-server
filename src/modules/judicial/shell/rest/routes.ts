@@ -152,6 +152,22 @@ export const makeJudicialRestPlugin =
           requestId: request.id,
         });
       }
+      // A refusal before the handler (an unsupported Content-Encoding is 415) stays a client
+      // error, with a fixed message, never a database fault.
+      if (
+        typeof fault.statusCode === 'number' &&
+        Number.isInteger(fault.statusCode) &&
+        fault.statusCode >= 400 &&
+        fault.statusCode < 500
+      ) {
+        return reply.status(fault.statusCode).send({
+          ok: false as const,
+          error: fault.statusCode === 429 ? 'RateLimited' : 'RequestRejected',
+          message:
+            fault.statusCode === 429 ? 'rate limit exceeded; retry later' : 'request rejected',
+          requestId: request.id,
+        });
+      }
       request.log.error({ err: error }, '[judicial] REST route failed');
       return reply.status(500).send({
         ok: false as const,
