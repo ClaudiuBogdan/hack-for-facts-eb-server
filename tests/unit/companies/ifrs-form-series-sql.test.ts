@@ -387,6 +387,22 @@ describe('a runtime that cannot read the views answers unknown, never none', () 
     expect(viewReads).toBe(2);
   });
 
+  it('lost views do not take the file URLs of the other reads with them', async () => {
+    const SELECTION = 'from "companies_v2"."financial_source_selection" as "s"';
+    const { db, statements } = scriptedDb((sql) =>
+      sql.includes(FORM_VIEW) && !sql.includes('limit') ? pgError('42501') : views([], [])(sql)
+    );
+    const repo = makeCompaniesRepo(db);
+    expect((await repo.getIfrsFormSeries(CUI))._unsafeUnwrap()).toBeNull();
+    // The retry without the URL join failed too: the resource join was not the cause.
+    await repo.getLongFormOnlyStatements(CUI);
+    const longForm = statements.filter(
+      (s) => s.sql.includes(SELECTION) && !s.sql.includes('limit')
+    );
+    expect(longForm).toHaveLength(1);
+    expect(longForm[0]?.sql).toContain(RESOURCES);
+  });
+
   it('a real database error stays an error, never an empty or unknown answer', async () => {
     for (const code of ['57014', '08006']) {
       for (const failing of [IFRS_VIEW, FORM_VIEW]) {

@@ -1194,8 +1194,15 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
     const getProfileData = vi.fn();
     const getFinancials = vi.fn();
     const getFlowSummary = vi.fn();
+    const getLongFormOnlyStatements = vi.fn();
+    const getIfrsFormSeries = vi.fn();
     const d = deps({
-      repo: { getProfileData: getProfileData as never, getFinancials: getFinancials as never },
+      repo: {
+        getProfileData: getProfileData as never,
+        getFinancials: getFinancials as never,
+        getLongFormOnlyStatements: getLongFormOnlyStatements as never,
+        getIfrsFormSeries: getIfrsFormSeries as never,
+      },
       flows: { getFlowSummary: getFlowSummary as never },
     });
     const results = [
@@ -1214,6 +1221,8 @@ describe('withheld identifiers (>10 digits, CNP-shaped — P0 containment 2026-0
     }
     expect(getProfileData).not.toHaveBeenCalled();
     expect(getFinancials).not.toHaveBeenCalled();
+    expect(getLongFormOnlyStatements).not.toHaveBeenCalled();
+    expect(getIfrsFormSeries).not.toHaveBeenCalled();
     expect(getFlowSummary).not.toHaveBeenCalled();
   });
 

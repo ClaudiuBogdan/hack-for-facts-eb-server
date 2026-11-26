@@ -986,9 +986,11 @@ export const makeCompaniesRepo = (
           if (!isCapabilityError(error)) throw error;
         }
       }
+      // The read without the URL join failed too, so the resource join was
+      // not the cause: only the views are marked unreadable.
       capabilityCache = {
         at: Date.now(),
-        promise: Promise.resolve({ ...withoutUrls, ifrsForm: false }),
+        promise: Promise.resolve({ ...capabilities, ifrsForm: false }),
       };
       return ok(null);
     } catch (error) {
