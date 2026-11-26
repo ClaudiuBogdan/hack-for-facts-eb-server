@@ -72,7 +72,9 @@ beforeAll(async () => {
     return;
   }
   available = true;
-});
+  // Longer than Testcontainers' own 120 s readiness limit, so a slow start is never
+  // abandoned by the hook timeout and then left running.
+}, 150_000);
 
 afterAll(async () => {
   try {

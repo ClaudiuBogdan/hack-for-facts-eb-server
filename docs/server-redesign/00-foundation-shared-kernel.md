@@ -102,7 +102,8 @@ src/modules/
   `jit_above_cost` made PostgreSQL compile the company profile's financial
   statements read for about 1.6 s on every request. It is a per-pool choice:
   the procurement module's own pool keeps the server default. It is a session
-  setting, so it needs a direct connection or a session-mode pooler.
+  setting, so it needs a direct connection or a session-mode pooler. The hook
+  has its own 10 s deadline, because pg-pool's connect timer ends before it.
 - **No write path.** Repos use `selectFrom`/`with`/raw `sql` for reads only.
   Reject any plan that proposes server-side writes to `transparenta_prod`.
 - **Heavy domains** (budget 298 tables incl. range/list partitions; procurement

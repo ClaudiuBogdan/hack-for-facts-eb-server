@@ -8,9 +8,10 @@
  * reaching a real server is proven by `tests/e2e/prod-pool-jit.test.ts`.
  */
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createProdDb, kernelPoolConfig, turnJitOff } from '@/modules/shared/shell/db/pool.js';
+import { makeKernel } from '@/modules/shared/index.js';
+import { createProdDb, turnJitOff } from '@/modules/shared/shell/db/pool.js';
 
 const BASE = 'postgres://reader:p%40ss%3Fw0rd@db.internal:5432/transparenta_prod';
 const AWKWARD = `${BASE}?options=-c work_mem%3D5MB&application_name=api#deploy`;
@@ -72,19 +73,54 @@ describe('prod pool jit', () => {
     const failure = new Error('unrecognized configuration parameter "jit"');
     await expect(turnJitOff({ query: () => Promise.reject(failure) })).rejects.toBe(failure);
   });
+
+  describe('deadline', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('gives up on a server that never answers, so the checkout is not held', async () => {
+      vi.useFakeTimers();
+      const silent = { query: () => new Promise<unknown>(() => undefined) };
+      const outcome = turnJitOff(silent).then(
+        () => 'settled',
+        (error: unknown) => (error instanceof Error ? error.message : 'not an error')
+      );
+      // The pool's connect timeout no longer covers this round trip: its own bound does.
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await outcome).toBe('set jit = off: no answer in 10000 ms');
+    });
+
+    it('leaves no timer behind once the server has answered', async () => {
+      vi.useFakeTimers();
+      await turnJitOff({ query: () => Promise.resolve() });
+      expect(vi.getTimerCount()).toBe(0);
+      await expect(
+        turnJitOff({ query: () => Promise.reject(new Error('refused')) })
+      ).rejects.toThrow('refused');
+      expect(vi.getTimerCount()).toBe(0);
+    });
+  });
 });
 
 describe('kernel pool', () => {
-  it('asks for jit off on the shared pool every source module reads through', () => {
-    expect(kernelPoolConfig({ prodDatabaseUrl: BASE })).toEqual({
-      connectionString: BASE,
-      jit: 'off',
+  it('asks for jit off on the shared pool every source module reads through', async () => {
+    const quiet = () => undefined;
+    // Nothing is dialled: empty search hosts cannot be reached, and pg connects lazily.
+    const kernel = await makeKernel({
+      prodDatabaseUrl: BASE,
+      meiliHost: '',
+      meiliApiKey: '',
+      opensearchUrl: '',
+      logger: { info: quiet, warn: quiet, error: quiet, debug: quiet },
     });
-    expect(kernelPoolConfig({ prodDatabaseUrl: BASE, poolMax: 10, dbSsl: true })).toEqual({
-      connectionString: BASE,
-      jit: 'off',
-      max: 10,
-      ssl: true,
-    });
+    try {
+      expect(kernel.pool.options.onConnect).toBe(turnJitOff);
+      expect(kernel.pool.options.connectionString).toBe(BASE);
+    } finally {
+      await kernel.close();
+    }
   });
 });

@@ -119,18 +119,37 @@ interface SessionClient {
 }
 
 /**
+ * How long `set jit = off` may take on a new connection. pg-pool stops its
+ * connect timer before the hook runs, so without this a server that accepts the
+ * connection and then stops answering would hold the checkout for good. Equal
+ * to the pool's default `connectionTimeoutMillis`.
+ */
+const JIT_OFF_DEADLINE_MS = 10_000;
+
+/**
  * pg-pool's `onConnect` of a pool asked for `jit: 'off'` (exported for the
  * unit test). pg-pool awaits it before the new client is handed out, and
- * closes the client when it rejects, so no read runs on a connection that
- * still compiles. A session setting, not the startup `options`: node-pg lets
- * an `options` parameter of the connection URL replace the pool's own, and an
- * explicit `options` switches off its `PGOPTIONS` fallback. The URL is
- * therefore never rewritten for this. Nothing here issues `reset all` or
- * `discard all`, which would undo it; `set local jit` in a transaction ends
- * with that transaction.
+ * closes the client when it rejects (a failed statement, or no answer within
+ * the deadline), so no read runs on a connection that still compiles. A
+ * session setting, not the startup `options`: node-pg lets an `options`
+ * parameter of the connection URL replace the pool's own, and an explicit
+ * `options` switches off its `PGOPTIONS` fallback. The URL is therefore never
+ * rewritten for this. Nothing here issues `reset all` or `discard all`, which
+ * would undo it; `set local jit` in a transaction ends with that transaction.
  */
 export const turnJitOff = async (client: SessionClient): Promise<void> => {
-  await client.query('set jit = off');
+  let deadline: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    deadline = setTimeout(() => {
+      reject(new Error(`set jit = off: no answer in ${String(JIT_OFF_DEADLINE_MS)} ms`));
+    }, JIT_OFF_DEADLINE_MS);
+  });
+  try {
+    // The race also takes the statement's late rejection once the deadline won.
+    await Promise.race([client.query('set jit = off'), expired]);
+  } finally {
+    clearTimeout(deadline);
+  }
 };
 
 /**
@@ -184,22 +203,6 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
 
   return { db, pool };
 };
-
-/**
- * The shared kernel pool's config (exported for the unit test). It asks for
- * `jit: 'off'`: its reads are short and per entity, and compiling one cost the
- * company profile about 1.6 s on every request (CQA-22).
- */
-export const kernelPoolConfig = (config: {
-  readonly prodDatabaseUrl: string;
-  readonly poolMax?: number;
-  readonly dbSsl?: boolean;
-}): ProdDbConfig => ({
-  connectionString: config.prodDatabaseUrl,
-  jit: 'off',
-  ...(config.poolMax !== undefined && { max: config.poolMax }),
-  ...(config.dbSsl !== undefined && { ssl: config.dbSsl }),
-});
 
 /** The procurement pool's size: its reads are few and bounded (one module). */
 const PROCUREMENT_POOL_MAX = 5;
