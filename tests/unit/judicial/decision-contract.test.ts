@@ -389,7 +389,9 @@ describe('decisions repo — list bound, ORIGINAL page, native year and strict c
       filter: { sourceSystem: { eq: 'x' }, decisionYear: { gte: 5, lte: 4 } },
       page: PAGE,
     });
-    expect(executed[0]?.sql).toMatch(/where "d"\."source_system" = \$1 and false/u);
+    expect(executed[0]?.sql).toContain(
+      'where d.privacy_class = \'public\' and "d"."source_system" = $1 and false'
+    );
     await repo.list({
       filter: { sourceSystem: { eq: 'x' }, decisionYear: { isNull: true } },
       page: PAGE,
@@ -442,7 +444,9 @@ describe('decisions repo — list bound, ORIGINAL page, native year and strict c
       filter: { sourceSystem: { eq: 'x' }, decisionDate: { gte: '2024-01-02', lte: '2024-01-01' } },
       page: PAGE,
     });
-    expect(executed[0]?.sql).toMatch(/where "d"\."source_system" = \$1 and false/u);
+    expect(executed[0]?.sql).toContain(
+      'where d.privacy_class = \'public\' and "d"."source_system" = $1 and false'
+    );
     await repo.list({
       filter: { sourceSystem: { eq: 'x' }, decisionDate: { isNull: true } },
       page: PAGE,
@@ -583,14 +587,18 @@ describe('decisions repo — list bound, ORIGINAL page, native year and strict c
     expect((await repo.getById('007'))._unsafeUnwrapErr().type).toBe('InvalidInput');
     expect(executed).toEqual([]);
     expect((await repo.getById('-9223372036854775808'))._unsafeUnwrap()).toBeNull();
-    expect(executed[0]?.sql).toContain('where d.decision_id = $1::bigint');
+    expect(executed[0]?.sql).toContain(
+      "where d.privacy_class = 'public' and d.decision_id = $1::bigint"
+    );
     expect(executed[0]?.parameters).toEqual(['-9223372036854775808']);
   });
 
   it('getBySource binds BOTH exact text values (untrimmed)', async () => {
     const { repo, executed } = decisionsRepo();
     await repo.getBySource('  ccr_decision ', 'a/b:c?d#é');
-    expect(executed[0]?.sql).toContain('where d.source_system = $1 and d.source_ref = $2');
+    expect(executed[0]?.sql).toContain(
+      "where d.privacy_class = 'public' and d.source_system = $1 and d.source_ref = $2"
+    );
     expect(executed[0]?.parameters).toEqual(['  ccr_decision ', 'a/b:c?d#é']);
   });
 

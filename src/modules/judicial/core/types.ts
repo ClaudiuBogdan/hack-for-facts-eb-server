@@ -399,13 +399,8 @@ export interface JudicialAsOf {
 
 // ── Stored decisions (API-04) ──────────────────────────────────────────────────
 //
-// SCOPED TASK OVERRIDE (human instruction, 2026-10-04): the three decision
-// tables (`justice.issuing_bodies`, `justice.decisions`,
-// `justice.decision_subject_links`) are served AS STORED — both stored decision
-// privacy classes and the link evidence included — while dedicated privacy
-// work is deferred. Statuses are recorded labels: nothing here verifies a
-// subject identity or promotes a link. The override does NOT change the case,
-// party, hearing, company, case-lineage, citation, search or contributor policy.
+// Only public decisions and their links are visible through the data API.
+// Both labels remain valid filter inputs for compatibility.
 
 /** `justice.decisions.privacy_class` (DB CHECK `decisions_privacy_class_check`). */
 export const JUDICIAL_DECISION_PRIVACY_CLASSES = ['public', 'restricted'] as const;
@@ -501,7 +496,7 @@ export interface JudicialDecisionSubjectLink {
   readonly method: string | null;
   readonly confidenceScore: string | null;
   readonly validationStatus: JudicialDecisionLinkStatus;
-  /** The stored JSON value, served as stored under the scoped override above. */
+  /** The stored JSON value, returned for links of public decisions. */
   readonly evidence: unknown;
   readonly resolverVersion: string | null;
   readonly createdAt: string;

@@ -269,7 +269,7 @@ export const judicialDecisionsSpec: CollectionFilterSpec = {
       column: { alias: 'd', column: 'privacy_class' },
       enumValues: JUDICIAL_DECISION_PRIVACY_CLASSES,
       description:
-        'The stored privacy class label (public or restricted); both are served as stored.',
+        'The stored privacy class label (public or restricted); restricted matches no public decisions.',
     },
   ],
   sort: { default: 'decisionId', allowed: ['decisionId'] },

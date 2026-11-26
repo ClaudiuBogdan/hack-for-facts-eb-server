@@ -52,7 +52,7 @@ const decisionEnums = [
   ),
   enumSdl(
     'JudicialDecisionPrivacyClass',
-    'The stored privacy class label of a decision. Both are served as stored (scoped instruction; dedicated privacy work deferred).',
+    'The stored privacy class label of a decision. Only public decisions are returned.',
     JUDICIAL_DECISION_PRIVACY_CLASSES
   ),
   enumSdl(
@@ -344,7 +344,7 @@ const objectsAndQuery = /* GraphQL */ `
     createdAt: DateTime!
   }
 
-  "A stored decision row, every value as stored (scoped instruction: both privacy classes are served; dedicated privacy work is deferred). Not merged by ECLI, application number or number/year."
+  "A public decision row with stored values. Not merged by ECLI, application number or number/year."
   type JudicialDecision {
     "Native decision_id as an exact decimal string."
     decisionId: BigInt!
@@ -378,7 +378,7 @@ const objectsAndQuery = /* GraphQL */ `
     updatedAt: DateTime!
   }
 
-  "A stored decision-to-subject link, one item per link row. subjectRef is exact stored text with no cross-domain join; validationStatus is a recorded label; evidence is the stored JSON value (served as stored under the scoped instruction)."
+  "A stored decision-to-subject link, one item per link row. subjectRef is exact stored text with no cross-domain join; validationStatus is a recorded label; evidence is the stored JSON value for a public decision."
   type JudicialDecisionSubjectLink {
     linkId: BigInt!
     decisionId: BigInt!
