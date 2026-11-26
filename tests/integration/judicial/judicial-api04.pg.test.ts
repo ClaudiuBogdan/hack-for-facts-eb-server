@@ -1383,15 +1383,15 @@ describeApi04('judicial API-04 — actual DDL, explicit throwaway database', () 
             caseNumber: '99/2024',
           })
         ).toMatchObject({ ok: true, summary: 'No matching case.' });
-        for (const [id, object] of [
-          [COLL.one, 'obiect unu'],
-          [COLL.two, 'obiect doi'],
-        ] as const) {
+        // JUST-9Q9C: the two colliding rows store different object texts
+        // ('obiect unu', 'obiect doi'); neither is served, so the exact id is
+        // the control.
+        for (const id of [COLL.one, COLL.two]) {
           const byId = await gqlDirect(
             reader,
             `{ judicialCase(caseId: "${id}") { case { caseId object } } }`
           );
-          expect(byId.data).toEqual({ judicialCase: { case: { caseId: id, object } } });
+          expect(byId.data).toEqual({ judicialCase: { case: { caseId: id, object: null } } });
         }
         // caseId precedence: an exact id wins over the (ambiguous) pair; an absent
         // id never falls back to the pair.
@@ -2221,8 +2221,116 @@ describeApi04('judicial API-04 — actual DDL, explicit throwaway database', () 
         ).toBe(404);
         expect((await rest(reader, `/cases/${COLL.two}`)).body).toMatchObject({
           ok: true,
-          data: { case: { caseId: COLL.two, object: 'obiect doi' } },
+          data: { case: { caseId: COLL.two, object: null } },
         });
+      })
+    );
+
+    it(
+      'JUST-9Q9C: the stored object text is served on no transport, and its search is refused on all three',
+      each(async (reader) => {
+        // Independent witness: three seeded cases of court A store an object text.
+        const stored = await setup?.query<{ n: number }>(
+          `select count(*)::int as n from justice.cases
+            where institution_code = $1 and object like 'obiect %'`,
+          [COURT_A]
+        );
+        expect(stored?.rows).toEqual([{ n: 3 }]);
+
+        // Served: every case of court A, on every transport, with a null object
+        // and no trace of the stored text in the raw reply.
+        const listed = await rest(reader, `/cases?institutionCode=${COURT_A}`);
+        const restCases = listed.body['data'] as { caseId: string; object: string | null }[];
+        expect(restCases).toHaveLength(5);
+        expect(restCases.map((c) => c.object)).toEqual([null, null, null, null, null]);
+        const gqlList = await gqlHttp(
+          reader,
+          `{ judicialCases(filter: { institutionCode: { in: ["${COURT_A}"] } }) { edges { node { caseId object } } } }`
+        );
+        const edges = (
+          gqlList.data?.['judicialCases'] as { edges: { node: { object: string | null } }[] }
+        ).edges;
+        expect(edges.map((e) => e.node.object)).toEqual([null, null, null, null, null]);
+        const mcpList = await mcpHttp(reader, 'list_judicial_cases', {
+          institutionCode: [COURT_A],
+        });
+        const mcpCases = (mcpList.structured?.items ?? []) as { object?: unknown }[];
+        expect(mcpCases.map((c) => c.object)).toEqual([null, null, null, null, null]);
+        const detail = await rest(reader, '/cases/4001');
+        expect(detail.status).toBe(200);
+        expect(detail.body).toMatchObject({
+          ok: true,
+          data: { case: { caseId: '4001', object: null } },
+        });
+        const mcpDetail = await mcpHttp(reader, 'get_judicial_case', { caseId: '4001' });
+        expect(mcpDetail.isError).toBe(false);
+        expect(mcpDetail.structured).toMatchObject({
+          ok: true,
+          item: { case: { caseId: '4001', object: null } },
+        });
+        expect(listed.status).toBe(200);
+        expect(gqlList.errors).toBeUndefined();
+        expect(mcpList.isError).toBe(false);
+        for (const raw of [
+          listed.raw,
+          JSON.stringify(gqlList),
+          mcpList.raw,
+          detail.raw,
+          mcpDetail.raw,
+        ]) {
+          expect(raw).not.toContain('obiect');
+        }
+
+        // Searched: q is refused on the list and on the aggregate, on every
+        // transport, and no reply repeats the query.
+        const NEEDLE = 'obiect-cautat';
+        const restList = await rest(reader, `/cases?institutionCode=${COURT_A}&q=${NEEDLE}`);
+        const restAgg = await rest(
+          reader,
+          `/cases/aggregate?groupBy=court&institutionCode=${COURT_A}&q=${NEEDLE}`
+        );
+        for (const reply of [restList, restAgg]) {
+          expect(reply.status).toBe(400);
+          expect(reply.body).toMatchObject({ ok: false, error: 'InvalidInput', field: 'q' });
+          expect(reply.raw).not.toContain(NEEDLE);
+        }
+        const filter = `{ institutionCode: { in: ["${COURT_A}"] }, q: { contains: "${NEEDLE}" } }`;
+        const gqlRefusedList = await gqlHttp(
+          reader,
+          `{ judicialCases(filter: ${filter}) { edges { node { caseId } } } }`
+        );
+        const gqlRefusedAgg = await gqlHttp(
+          reader,
+          `{ judicialCaseload(groupBy: court, filter: ${filter}) { denominator } }`
+        );
+        for (const reply of [gqlRefusedList, gqlRefusedAgg]) {
+          expect(reply.errors?.[0]?.extensions?.code).toBe('INVALID_INPUT');
+          expect(JSON.stringify(reply)).not.toContain(NEEDLE);
+        }
+        const mcpRefusedList = await mcpHttp(reader, 'list_judicial_cases', {
+          institutionCode: [COURT_A],
+          q: NEEDLE,
+        });
+        expect(mcpRefusedList.structured).toMatchObject({ ok: false, errorCode: 'INVALID_INPUT' });
+        expect(mcpRefusedList.raw).not.toContain(NEEDLE);
+        // The MCP caseload tool declares no q argument: an extra one never
+        // reaches the filter, so the count is the unsearched one (all 5 cases).
+        const mcpAgg = await mcpHttp(reader, 'get_court_caseload', {
+          groupBy: 'court',
+          institutionCode: [COURT_A],
+          q: NEEDLE,
+        });
+        expect(mcpAgg.structured).toMatchObject({ ok: true, item: { denominator: 5 } });
+        expect(mcpAgg.raw).not.toContain(NEEDLE);
+
+        // The presence filter and a null q are still accepted.
+        const present = await rest(reader, `/cases?institutionCode=${COURT_A}&objectIsNull=false`);
+        expect(ids(present.body['data'] as unknown[], 'caseId')).toHaveLength(3);
+        const nullQ = await gqlHttp(
+          reader,
+          `{ judicialCases(filter: { institutionCode: { in: ["${COURT_A}"] }, q: null }) { edges { node { caseId } } } }`
+        );
+        expect(nullQ.errors).toBeUndefined();
       })
     );
 
@@ -2243,8 +2351,11 @@ describeApi04('judicial API-04 — actual DDL, explicit throwaway database', () 
           hearings: { hearingIndex: number }[];
           asOf: { asOf: string | null; sourceSlug: string };
         };
+        // JUST-9Q9C: no party name or name key is published, for any kind. The
+        // seeded company party (name key 700, a publishable rule) is listed by
+        // kind only.
         expect(data.parties.map((p) => [p.partyKind, p.nameKeyId, p.name])).toEqual([
-          ['company', '700', null],
+          ['company', null, null],
           ['person', null, null],
         ]);
         expect(data.personPartyCount).toBe(1);

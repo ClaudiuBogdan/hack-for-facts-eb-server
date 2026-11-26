@@ -81,11 +81,13 @@ export const resolveJudicialFiltersInput = {
   dim: z
     .enum(JUDICIAL_RESOLVE_DIMS)
     .describe(
-      'Dimension to resolve: court (name→institution_code), courtLevel (label→enum), companyName (name→name_key_id; company/public dictionary ONLY — a person name returns zero rows), category (label→code).'
+      'Dimension to resolve: court (name→institution_code), courtLevel (label→enum), companyName (returns zero rows at present: no party name is published, JUST-9Q9C), category (label→code).'
     ),
   q: z
     .string()
-    .describe('The free-text query (court name, level label, company name, or category label).'),
+    .describe(
+      'The free-text query (court name, level label, or category label; a company name resolves nothing at present).'
+    ),
   limit: z
     .number()
     .int()

@@ -1,7 +1,9 @@
 /**
  * Judicial module — cases repo (plan 08 §4). Reads `justice.cases` (+ a bounded
- * join to `justice.courts` for the `courtLevel` virtual + aggregate). NO PII:
- * `justice.cases` has no name column; `object` is the procedural subject, safe.
+ * join to `justice.courts` for the `courtLevel` virtual + aggregate).
+ * `justice.cases` has no name column. While `PARTY_NAMES_PUBLISHED` is false
+ * `object` is neither read out nor searchable (JUST-9Q9C; `CASE_OBJECT`,
+ * `prepareCaseFilter`).
  *
  * BOUNDING RULE (§7.1): the case list + aggregate REQUIRE a court/period bound
  * (institutionCode | courtLevel | year* | modified*). An unbounded request over
@@ -39,6 +41,7 @@ import {
   type ProdDatabase,
 } from '@/modules/shared/index.js';
 
+import { PARTY_NAMES_PUBLISHED } from './constants.js';
 import {
   checkVirtualFields,
   clampLimit,
@@ -73,10 +76,16 @@ type Db = Kysely<ProdDatabase>;
 const MAX_LIST = 50;
 const AGG_GROUP_CAP = 500;
 
+/**
+ * JUST-9Q9C: while `PARTY_NAMES_PUBLISHED` is false the stored object text is
+ * not read out of the database: every case read selects a null in its place.
+ */
+const CASE_OBJECT = PARTY_NAMES_PUBLISHED ? sql`c.object` : sql`null::text as object`;
+
 const CASE_SELECT = sql`
   c.case_id::text as case_id, c.source_slug, c.institution_code, c.case_number,
   c.case_number_old, c.department, c.category, c.category_name, c.stage, c.stage_name,
-  c.object, ${sessionDateDisplay(sql`c.source_opened_at`)} as source_opened_at,
+  ${CASE_OBJECT}, ${sessionDateDisplay(sql`c.source_opened_at`)} as source_opened_at,
   ${utcTimestampDisplay(sql`c.latest_source_modified_at`)} as latest_source_modified_at
 `;
 
@@ -112,7 +121,8 @@ const mapCase = (r: CaseRow): JudicialCase => ({
   categoryName: r.category_name,
   stage: r.stage,
   stageName: r.stage_name,
-  object: r.object,
+  // JUST-9Q9C: never served while party names are unpublished, whatever the row holds.
+  object: PARTY_NAMES_PUBLISHED ? r.object : null,
   sourceOpenedAt: r.source_opened_at,
   sourceOpenedAtBasis: sourceOpenedAtBasisFor(r.source_slug),
   latestSourceModifiedAt: r.latest_source_modified_at,
@@ -237,6 +247,9 @@ export const isCaseSortKey = (text: string): boolean => {
   return field('hour') <= 23 && field('minute') <= 59 && field('second') <= 59;
 };
 
+const CASE_OBJECT_SEARCH_REFUSED =
+  'q is not available: the case object text is not published and cannot be searched';
+
 /** A normalized, validated case filter plus its ONE compiled year interval. */
 interface PreparedCaseFilter {
   readonly filter: FilterInput;
@@ -251,6 +264,12 @@ interface PreparedCaseFilter {
 const prepareCaseFilter = (raw: unknown): Result<PreparedCaseFilter, ApiError> => {
   const normalized = normalizeJudicialFilter(judicialCasesSpec, raw);
   if (normalized.isErr()) return err(normalized.error);
+  // JUST-9Q9C: while the object text is unpublished it is not searchable
+  // either, on the list or on the aggregate. The message is fixed: it never
+  // repeats the query. A null `q` is absent.
+  if (!PARTY_NAMES_PUBLISHED && fieldOf(normalized.value, 'q') !== undefined) {
+    return err(invalidInput(CASE_OBJECT_SEARCH_REFUSED, 'q'));
+  }
   const virtual = checkVirtualFields(judicialCasesSpec, normalized.value);
   if (virtual.isErr()) return err(virtual.error);
   const year = yearInterval(fieldOf(normalized.value, 'year'));

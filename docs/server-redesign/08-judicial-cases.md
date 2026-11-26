@@ -22,6 +22,8 @@
 
 ## 0. The privacy invariant, stated once (read this before anything else)
 
+> **2026-11-26:** party names and the case object text are withheld pending JUST-9Q9C.
+
 The justice domain stores litigation. Litigation names **natural persons**. The
 single unrecoverable mistake this module can make is to emit a natural person's
 name (or a free-text field that can contain one) on any public surface. The
@@ -172,7 +174,7 @@ export interface JudicialCase {
   readonly categoryName: string | null;
   readonly stage: string | null;
   readonly stageName: string | null;
-  readonly object: string | null; // raw object text — safe (procedural subject, not parties)
+  readonly object: string | null; // raw object text; served null at present (§0 note)
   readonly sourceOpenedAt: string | null; // source-dependent date (see sourceOpenedAtBasis)
   readonly sourceOpenedAtBasis: 'portal_header_data' | 'iccj_archive_case_date' | 'unknown';
   readonly latestSourceModifiedAt: string | null;
@@ -865,7 +867,7 @@ cursor `fhash` + tri-surface equivalence. The module invents no DSL.
 | `stage`                        | string[] | `in`                       | `cases.stage`                                                                                                                                                     | `stage`                    | `[String!]`             | —                        |
 | `year` / `yearFrom` / `yearTo` | int      | `eq`/`gte`/`lte`/`between` | session calendar year of `cases.source_opened_at` — a source-dependent clock (see §10 date basis); mixed-source ranges combine clocks; operators intersect (§4.2) | `yearFrom`/`yearTo`        | `{from,to}`             | year                     |
 | `modifiedFrom`/`modifiedTo`    | date     | `between`                  | `cases.latest_source_modified_at` / `cases_modified_idx`                                                                                                          | `modifiedFrom`/`To`        | `{from,to}`             | —                        |
-| `q`                            | string   | `contains`                 | `cases.object`, parameterized PostgreSQL ILIKE                                                                                                                    | `q`                        | `String`                | resolver step            |
+| `q`                            | string   | `contains`                 | `cases.object`, parameterized PostgreSQL ILIKE. **Refused at present, see the §0 note**                                                                           | `q`                        | `String`                | resolver step            |
 | `hasObject`                    | bool     | `isNull` (mandatory op)    | `cases.object IS [NOT] NULL`                                                                                                                                      | `objectIsNull`             | `Boolean`               | coverage                 |
 | `sort`                         | enum     | —                          | `modifiedAt`(default,desc) / `openedAt`                                                                                                                           | `sort`                     | `JudicialCaseSort`      | —                        |
 
