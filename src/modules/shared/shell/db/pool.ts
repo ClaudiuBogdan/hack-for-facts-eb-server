@@ -76,6 +76,14 @@ export interface ProdDbConfig {
   readonly idleTimeoutMillis?: number;
   readonly ssl?: boolean;
   readonly sslRejectUnauthorized?: boolean;
+  /**
+   * `'off'` sends `-c jit=off` when a connection starts (CQA-22); absent, the
+   * pool keeps the server default. For pools of short one-entity reads: the
+   * planner's estimate of the company profile's financial statements read
+   * crossed `jit_above_cost`, and compiling it took about 1.66 s of a 1.68 s
+   * read. A pool whose aggregates may gain from JIT does not ask.
+   */
+  readonly jit?: 'off';
 }
 
 export interface ProdDb {
@@ -104,14 +112,44 @@ const sslOptionFor = (config: ProdDbConfig): pg.PoolConfig['ssl'] => {
 const stripSslmode = (connectionString: string): string =>
   connectionString.replace(/([?&])sslmode=[a-z-]+&?/iu, '$1').replace(/[?&]$/u, '');
 
+const JIT_OFF = '-c jit=off';
+
+const isOptionsParameter = (pair: string): boolean => new URLSearchParams(pair).has('options');
+
+/**
+ * The connection string and startup `options` of a pool (pure, exported for
+ * the unit test). A pool that does not ask for `jit: 'off'` keeps its URL byte
+ * for byte. For one that does, node-pg would let an `options` parameter of the
+ * URL replace the pool's own, so that parameter is taken out of the URL and
+ * its value (read as node-pg reads it) is sent after `-c jit=off`: both reach
+ * the server, and on the same setting the URL, the deployment's word, wins.
+ */
+export const prodStartupSettings = (
+  config: Pick<ProdDbConfig, 'connectionString' | 'jit'>
+): { readonly connectionString: string; readonly options?: string } => {
+  const { connectionString } = config;
+  if (config.jit !== 'off') return { connectionString };
+  const queryAt = connectionString.indexOf('?');
+  if (queryAt === -1) return { connectionString, options: JIT_OFF };
+  const base = connectionString.slice(0, queryAt);
+  const query = connectionString.slice(queryAt + 1);
+  const fromUrl = new URLSearchParams(query).getAll('options').at(-1) ?? '';
+  const kept = query.split('&').filter((pair) => !isOptionsParameter(pair));
+  return {
+    connectionString: kept.length === 0 ? base : `${base}?${kept.join('&')}`,
+    options: fromUrl === '' ? JIT_OFF : `${JIT_OFF} ${fromUrl}`,
+  };
+};
+
 export const createProdDb = (config: ProdDbConfig): ProdDb => {
   const max = config.max ?? 15;
   // pg-pool does not preconnect `min` clients; after real traffic it retains
   // this bounded floor instead of paying a new TLS tunnel handshake after idle.
   const min = Math.min(config.min ?? 4, max);
   const ssl = sslOptionFor(config);
+  const startup = prodStartupSettings(config);
   const pool = new Pool({
-    connectionString: stripSslmode(config.connectionString),
+    connectionString: stripSslmode(startup.connectionString),
     max,
     min,
     connectionTimeoutMillis: config.connectionTimeoutMillis ?? 10_000,
@@ -121,6 +159,7 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
     // Per-pool type parsers (string-typed int8/date/timestamp[tz]) — never global.
     types: prodTypeParsers,
     ...(ssl !== undefined ? { ssl } : {}),
+    ...(startup.options !== undefined ? { options: startup.options } : {}),
   });
 
   // pg-pool removes its idle error listener while a connection is checked out.
@@ -154,7 +193,8 @@ const PROCUREMENT_POOL_MAX = 5;
 /**
  * The procurement module's database (PRJ-54YB): its own pool and login when `connectionString`
  * is set, else the kernel's own `db`, the same pool and login as today. `close` destroys only a
- * pool this opened. The URL is never logged.
+ * pool this opened. The URL is never logged. Its own pool does not ask for `jit: 'off'`: its
+ * aggregates may gain from JIT, so it keeps the server default (CQA-22).
  */
 export const procurementDbFor = (
   kernelDb: Kysely<ProdDatabase>,

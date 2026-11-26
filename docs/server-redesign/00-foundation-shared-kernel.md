@@ -96,6 +96,11 @@ src/modules/
 - **Pool**: single `pg.Pool` (read-tuned). Defaults: `max` env-driven (10–20 for
   the serving API), `connectionTimeoutMillis: 10_000`, `idleTimeoutMillis: 30_000`,
   `statement_timeout` set per query class (see §5.5). Closed on `app.close()`.
+  The shared pool starts every connection with `-c jit=off` (`jit: 'off'` on
+  `createProdDb`, CQA-22): its reads are short and per entity, and a planner
+  estimate over `jit_above_cost` made PostgreSQL compile the company profile's
+  financial statements read for about 1.6 s on every request. It is a per-pool
+  choice: the procurement module's own pool keeps the server default.
 - **No write path.** Repos use `selectFrom`/`with`/raw `sql` for reads only.
   Reject any plan that proposes server-side writes to `transparenta_prod`.
 - **Heavy domains** (budget 298 tables incl. range/list partitions; procurement

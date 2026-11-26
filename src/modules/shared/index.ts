@@ -160,6 +160,9 @@ const DEFAULT_MEILI_INDEXES = ['entities'] as const;
 export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
   const { db, pool } = createProdDb({
     connectionString: config.prodDatabaseUrl,
+    // The shared pool's reads are short and per entity; compiling one cost the
+    // company profile about 1.6 s on every request (CQA-22).
+    jit: 'off',
     ...(config.poolMax !== undefined && { max: config.poolMax }),
     ...(config.dbSsl !== undefined && { ssl: config.dbSsl }),
   });
