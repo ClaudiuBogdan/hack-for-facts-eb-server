@@ -536,6 +536,7 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       UNRESOLVED: 'unresolved',
     },
     CompanyQualificationAssessment: { ASSESSED: 'assessed', NOT_ASSESSED: 'not_assessed' },
+    CompanyReportingForm: { IFRS: 'ifrs' },
     CompanyCaenClassState: {
       CLASS: 'class',
       SHORT_TOKEN: 'short_token',

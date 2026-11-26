@@ -23,6 +23,8 @@ export const stubRepo = (
   getFinancials: vi.fn(async () => ok([])),
   // Known: no long-format-only statement (null would mean "unknown").
   getLongFormOnlyStatements: vi.fn(async () => ok([])),
+  // Known: no IFRS-file year and no marked typed year (null would mean "unknown").
+  getIfrsFormSeries: vi.fn(async () => ok({ years: [], marks: [] })),
   getFinancialQualityAssessment: vi.fn(async () =>
     ok({ assessedYears: [], assessedAt: null, flags: [] })
   ),

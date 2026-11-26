@@ -629,6 +629,16 @@ output: { ok, kind:'resolution', query, matches: [{ value, label, cui?, confiden
   names; echoes resolved entities.
 - **`get_company_financials`** — `input { cui, yearFrom?, yearTo? }` → year series
   - latest + trajectory. Calls `makeCompanyFinancials`.
+  - **IFRS-form series (PRIV-ZVPV, 2026-11-26).** `companyFinancials.ifrsFormYears`, and the
+    same list on this tool, serve the Ministry of Finance IFRS-file years (filer class `ir`,
+    FY2012–2018) from the view `companies_v2.ifrs_form_financials`. Each typed year carries
+    `reportingForm` / `formEvidence` from `companies_v2.statement_reporting_form`; null means
+    unmarked, never "the ordinary form". Each view is its own one-company statement behind one
+    capability probe and is never folded into the typed statements read. The figures are source
+    observations outside the admission policy: they never enter `years`, `latest`, `trajectory`,
+    a summary or `hasFinancials`, and a trajectory across a change of form answers
+    `reporting_form_changed`. Public rows only, under the long-format list's public-line witness
+    and parent rule; the file URL comes from the repo's own gated join, not the view's column.
 - **`company_county_profile`** — `input: CompanyFilter + groupBy` → count-ranked
   aggregate with `denominator` + `coverage` (catalog Coverage Gate). **Refuses /
   labels** value-weighted ("biggest by turnover") rankings as not-yet-publishable —

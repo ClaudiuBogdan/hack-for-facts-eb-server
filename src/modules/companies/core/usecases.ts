@@ -70,6 +70,7 @@ import {
   type CompanyRegistryEnvelope,
   type Pinned,
 } from './registry.js';
+import { markReportingForms } from './reporting-form.js';
 import {
   COMPANY_TERRITORY_COVERAGE_NOTE,
   type CaenCodeHit,
@@ -83,6 +84,7 @@ import {
   type CompanyFinancialYear,
   type CompanyMetricStatus,
   type CompanyGroupBy,
+  type CompanyIfrsFormYear,
   type CompanyListRow,
   type CompanyNameHit,
   type CompanySnapshot,
@@ -1001,14 +1003,30 @@ const sameBasis = (a: CompanyFinancialYear, b: CompanyFinancialYear): boolean =>
   a.qualification.evaluatorVersion === b.qualification.evaluatorVersion &&
   a.qualification.releaseId === b.qualification.releaseId;
 
+/**
+ * A profile never compares across a change of form: the two typed years are
+ * marked differently (IFRS on one side only), or IFRS-file years, which are
+ * kept outside the typed history, lie between them. Unknown forms (nothing
+ * marked, no list) change nothing.
+ */
+const formChanged = (
+  latest: CompanyFinancialYear,
+  prior: CompanyFinancialYear,
+  ifrsFormYears: readonly CompanyIfrsFormYear[]
+): boolean =>
+  latest.reportingForm !== prior.reportingForm ||
+  ifrsFormYears.some((y) => y.year > prior.year && y.year < latest.year);
+
 const computeTrajectory = (
-  years: readonly CompanyFinancialYear[]
+  years: readonly CompanyFinancialYear[],
+  ifrsFormYears: readonly CompanyIfrsFormYear[]
 ): CompanyFinancialTrajectory | null => {
   if (years.length < 2) return null;
   // years arrive DESC; [0] = latest, [1] = prior.
   const latest = years[0];
   const prior = years[1];
   if (latest === undefined || prior === undefined) return null;
+  const changed = formChanged(latest, prior, ifrsFormYears);
 
   const intDiff = (a: string, b: string): string | null =>
     INTEGER_TEXT.test(a) && INTEGER_TEXT.test(b) ? (BigInt(a) - BigInt(b)).toString() : null;
@@ -1018,6 +1036,7 @@ const computeTrajectory = (
     metric: 'turnover' | 'employees' | 'net_result',
     diff: (a: string, b: string) => string | null
   ): { value: string | null; reason: string | null } => {
+    if (changed) return { reason: 'reporting_form_changed', value: null };
     if (
       latest.qualification.assessment !== 'assessed' ||
       prior.qualification.assessment !== 'assessed'
@@ -1058,6 +1077,13 @@ const computeTrajectory = (
  * only when BOTH are known to be empty: a CUI with only long-format statements
  * answers `years: []` with them, and an unreadable ledger stays visible as
  * `longFormOnly: null` (unknown), never as "no statement".
+ *
+ * The IFRS-form series (PRIV-ZVPV) rides beside both: the Ministry IFRS-file
+ * years as their own list, and a mark on each typed year reported on the IFRS
+ * form. Both come from one repo answer, so they are known together or unknown
+ * together (`ifrsFormYears: null`, no year marked). An IFRS-file year is a
+ * long-format-only statement, so a ledger known to hold none settles "nothing
+ * exists" even when the views are not readable.
  */
 export const makeCompanyFinancials = async (
   deps: CompanyUsecaseDeps,
@@ -1066,20 +1092,31 @@ export const makeCompanyFinancials = async (
   const cui = normalizeCui(rawCui);
   if (cui === null) return err(invalidCui());
   if (isWithheldCompanyIdentifier(cui)) return err(withheldIdentifier());
-  const [res, longForm] = await Promise.all([
+  const [res, longForm, series] = await Promise.all([
     deps.repo.getFinancials(cui),
     deps.repo.getLongFormOnlyStatements(cui),
+    deps.repo.getIfrsFormSeries(cui),
   ]);
   if (res.isErr()) return err(res.error);
   if (longForm.isErr()) return err(longForm.error);
-  const years = res.value;
+  if (series.isErr()) return err(series.error);
+  const years = markReportingForms(res.value, series.value?.marks ?? []);
   const longFormOnly = longForm.value;
-  if (years.length === 0 && longFormOnly !== null && longFormOnly.length === 0) return ok(null);
+  const ifrsFormYears = series.value?.years ?? null;
+  if (
+    years.length === 0 &&
+    longFormOnly !== null &&
+    longFormOnly.length === 0 &&
+    (ifrsFormYears === null || ifrsFormYears.length === 0)
+  ) {
+    return ok(null);
+  }
   return ok({
     years,
     latest: years[0] ?? null,
-    trajectory: computeTrajectory(years),
+    trajectory: computeTrajectory(years, ifrsFormYears ?? []),
     longFormOnly,
+    ifrsFormYears,
   });
 };
 

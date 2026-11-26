@@ -206,7 +206,9 @@ describe('one statement per financial read, every optional leg gated in ON', () 
     await repo.getFinancials('42443305');
     await repo.getFinancials('42443305');
     const probes = statements.filter((s) => !s.sql.includes(STATEMENT_READ));
-    expect(probes).toHaveLength(3);
+    // Qualification, resources, the long-format ledger, and the two IFRS-form views.
+    expect(probes).toHaveLength(5);
+    expect(probes.every((s) => s.sql.includes('limit'))).toBe(true);
     const viewProbe = probes.find((s) => s.sql.includes(VIEW));
     expect(viewProbe?.sql).toMatch(/"q"\."privacy_class" = \$\d+/u);
     expect(viewProbe?.sql).toContain('as "q_statuses"');

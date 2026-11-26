@@ -327,6 +327,15 @@ export interface CompanyStatementSource {
   readonly contributingSources: readonly CompanyStatementContribution[] | null;
 }
 
+/**
+ * The publisher's reporting form a company-year is marked with (PRIV-ZVPV).
+ * One value today. It states the form the publisher used, never the company's
+ * accounting basis. A company-year without a mark is UNMARKED, which proves no
+ * other form.
+ */
+export const COMPANY_REPORTING_FORMS = ['ifrs'] as const;
+export type CompanyReportingForm = (typeof COMPANY_REPORTING_FORMS)[number];
+
 export interface CompanyFinancialYear {
   readonly year: number;
   /** Publisher: 'anaf' (FY2019+) or 'mfp' (FY2008–2018 bulk backfill). Seam CHECK-enforced at 2019. */
@@ -342,10 +351,21 @@ export interface CompanyFinancialYear {
   readonly lines: Record<string, unknown> | null;
   readonly source: CompanyStatementSource;
   readonly qualification: CompanyStatementQualification;
+  /**
+   * The form this statement is marked with (`statement_reporting_form`), read
+   * only where ONE company's statements are shown. Null = not marked, or not
+   * read on this surface (lists, batches), or the marker is not readable:
+   * never "the ordinary form".
+   */
+  readonly reportingForm: CompanyReportingForm | null;
+  /** How the form is known (e.g. `anaf_statement_layout`); null exactly when `reportingForm` is. */
+  readonly formEvidence: string | null;
 }
 
 /**
- * Why a trajectory delta is null: fewer_than_two_statements, not_assessed
+ * Why a trajectory delta is null: fewer_than_two_statements,
+ * reporting_form_changed (the two years are on different forms, or IFRS-file
+ * years lie between them: checked first, for all three deltas), not_assessed
  * (either year), policy_incompatible (different policy digest, evaluator or
  * release), latest_not_reported / prior_not_reported (that year's metric is
  * not `reported`), not_exact (a value that is not a plain number).
@@ -393,6 +413,59 @@ export interface CompanyLongFormStatement {
 }
 
 /**
+ * One company-year of the Ministry of Finance's IFRS file (filer class `ir`,
+ * FY2012-2018), read from `companies_v2.ifrs_form_financials` (PRIV-ZVPV).
+ * SOURCE OBSERVATIONS with a verified mapping, OUTSIDE the analytics admission
+ * policy: never qualified, never part of the typed history, its latest year,
+ * its trajectory, a summary or `hasFinancials`. A blank source cell is null
+ * and an explicit zero is '0'; nothing is coalesced. `turnover` is the
+ * reporting form's net turnover, not the sales line of an IFRS income
+ * statement. `netResult` is profit minus loss only when the source carries
+ * both. `employees` is a headcount, never money.
+ */
+export interface CompanyIfrsFormYear {
+  readonly year: number;
+  /** Publisher: 'mfp' (the Ministry of Finance). */
+  readonly sourceSystem: string;
+  readonly reportingForm: CompanyReportingForm;
+  /** How the form is known: `mfp_filer_class_ir` (the Ministry published it in its IFRS file). */
+  readonly formEvidence: string;
+  readonly turnover: Money | null;
+  readonly netProfit: Money | null;
+  readonly netLoss: Money | null;
+  readonly netResult: Money | null;
+  readonly employees: BigIntString | null;
+  /** The Ministry file the line was read from; null when not recorded or not readable. */
+  readonly sourceUrl: string | null;
+  /** The capture (`mfp:<package>:<year>:<resource>`), exactly as recorded. */
+  readonly sourceSnapshotId: string;
+  /** The line in that file the figures were read from; null when no figure cell is retained. */
+  readonly sourceRowNumber: string | null;
+  /** Fingerprint of the statement's indicator layout: not its values or bytes. */
+  readonly statementProfileHash: string;
+  readonly metricRuleVersion: string;
+}
+
+/**
+ * A company-year reported on a named form (`statement_reporting_form`): the
+ * Ministry's IFRS file, or ANAF's IFRS statement layout (FY2019+). It marks
+ * the typed statement of the same year, publisher and layout.
+ */
+export interface CompanyReportingFormMark {
+  readonly year: number;
+  readonly sourceSystem: string;
+  readonly statementProfileHash: string | null;
+  readonly reportingForm: CompanyReportingForm;
+  readonly formEvidence: string;
+}
+
+/** Both IFRS-form reads of one CUI: known together or unknown together. */
+export interface CompanyIfrsFormSeries {
+  readonly years: readonly CompanyIfrsFormYear[];
+  readonly marks: readonly CompanyReportingFormMark[];
+}
+
+/**
  * Statements recorded under a CUI, as attributed source observations (CD-08):
  * the namespace is the CUI, not company membership — it may have no core
  * organization or be a public non-company one. Withheld under a known
@@ -400,13 +473,17 @@ export interface CompanyLongFormStatement {
  * `longFormOnly` lists the statements kept outside it by policy — `[]` when
  * none is known, `null` when this runtime cannot read the selection ledger
  * (unknown, never "none"). A CUI with only long-format statements answers
- * with `years: []`, `latest: null`, `trajectory: null`.
+ * with `years: []`, `latest: null`, `trajectory: null`. `ifrsFormYears` carries
+ * the figures of the Ministry IFRS-file years among them, newest first: `[]`
+ * when none, `null` when this runtime cannot read the IFRS-form views, and
+ * then no typed year carries a `reportingForm` either.
  */
 export interface CompanyFinancials {
   readonly years: readonly CompanyFinancialYear[];
   readonly latest: CompanyFinancialYear | null;
   readonly trajectory: CompanyFinancialTrajectory | null;
   readonly longFormOnly: readonly CompanyLongFormStatement[] | null;
+  readonly ifrsFormYears: readonly CompanyIfrsFormYear[] | null;
 }
 
 /**

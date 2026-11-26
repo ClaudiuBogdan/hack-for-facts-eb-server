@@ -38,7 +38,9 @@ import { stubRepo as sharedStubRepo } from './repo-fixtures.js';
 import type { CompaniesRepository, CompanyProfileData } from '@/modules/companies/core/ports.js';
 import type {
   CompanyFinancialYear,
+  CompanyIfrsFormYear,
   CompanyLongFormStatement,
+  CompanyReportingFormMark,
   CompanyRegistrationDiffData,
   CompanyRegistrationEditionSide,
   CompanyRegistrationField,
@@ -92,6 +94,8 @@ const finYear = (
   employees,
   source: statementSource(year),
   qualification: evaluated(turnover, employees, netProfit, netLoss),
+  reportingForm: null,
+  formEvidence: null,
   summary: {
     turnover,
     netProfit,
@@ -281,6 +285,7 @@ describe('makeCompanyFinancials long-format-only statements (metadata beside the
       latest: null,
       trajectory: null,
       longFormOnly: [longForm(2013), longForm(2012)],
+      ifrsFormYears: [],
     });
   });
 
@@ -296,8 +301,8 @@ describe('makeCompanyFinancials long-format-only statements (metadata beside the
       },
     });
     const out = unwrap(await makeCompanyFinancials(d, '1590082'));
-    expect(out?.years).toBe(typed);
-    expect(out?.latest).toBe(typed[0]);
+    expect(out?.years).toEqual(typed);
+    expect(out?.latest).toEqual(typed[0]);
     expect(out?.longFormOnly).toEqual([longForm(2012)]);
   });
 
@@ -309,6 +314,7 @@ describe('makeCompanyFinancials long-format-only statements (metadata beside the
       latest: null,
       trajectory: null,
       longFormOnly: null,
+      ifrsFormYears: [],
     });
   });
 
@@ -321,6 +327,223 @@ describe('makeCompanyFinancials long-format-only statements (metadata beside the
       },
     });
     expect((await makeCompanyFinancials(d, '1590082')).isErr()).toBe(true);
+  });
+});
+
+describe('makeCompanyFinancials IFRS-form series (PRIV-ZVPV)', () => {
+  /** The layout every `finYear` fixture carries (`statementSource`). */
+  const LAYOUT = 'b2'.repeat(32);
+  const OTHER_LAYOUT = 'd5'.repeat(32);
+
+  const ifrsYear = (
+    year: number,
+    over: Partial<CompanyIfrsFormYear> = {}
+  ): CompanyIfrsFormYear => ({
+    year,
+    sourceSystem: 'mfp',
+    reportingForm: 'ifrs',
+    formEvidence: 'mfp_filer_class_ir',
+    turnover: '14764836448',
+    netProfit: '2399947986',
+    netLoss: '0',
+    netResult: '2399947986',
+    employees: '13322',
+    sourceUrl: `https://data.gov.ro/dataset/s/resource/r${String(year)}/download/web_ir.txt`,
+    sourceSnapshotId: `mfp:situatii_financiare_${String(year)}:${String(year)}:r${String(year)}`,
+    sourceRowNumber: '57',
+    statementProfileHash: 'c4'.repeat(32),
+    metricRuleVersion: 'anaf-bilant-metric-v1',
+    ...over,
+  });
+  const mark = (
+    year: number,
+    over: Partial<CompanyReportingFormMark> = {}
+  ): CompanyReportingFormMark => ({
+    year,
+    sourceSystem: year >= 2019 ? 'anaf' : 'mfp',
+    statementProfileHash: LAYOUT,
+    reportingForm: 'ifrs',
+    formEvidence: 'anaf_statement_layout',
+    ...over,
+  });
+  const onLayout = (year: CompanyFinancialYear, hash: string | null): CompanyFinancialYear => ({
+    ...year,
+    source: { ...year.source, statementProfileHash: hash },
+  });
+  const financials = async (
+    typed: readonly CompanyFinancialYear[],
+    series: {
+      years: readonly CompanyIfrsFormYear[];
+      marks: readonly CompanyReportingFormMark[];
+    } | null,
+    longForm: readonly CompanyLongFormStatement[] | null = []
+  ) =>
+    unwrap(
+      await makeCompanyFinancials(
+        deps({
+          repo: {
+            getFinancials: vi.fn(async () => ok(typed)),
+            getIfrsFormSeries: vi.fn(async () => ok(series)),
+            getLongFormOnlyStatements: vi.fn(async () => ok(longForm)),
+          },
+        }),
+        '1590082'
+      )
+    );
+  const REFUSED = {
+    employeesDelta: null,
+    employeesDeltaReason: 'reporting_form_changed',
+    netResultDelta: null,
+    netResultDeltaReason: 'reporting_form_changed',
+    turnoverDelta: null,
+    turnoverDeltaReason: 'reporting_form_changed',
+  };
+
+  it('serves the IFRS-file years beside the typed history, never inside it', async () => {
+    const typed = [
+      finYear(2011, '16565465973.00', '22052', '3757000000.00', '0.00'),
+      finYear(2010, '13952000000.00', '24662', '1799000000.00', '0.00'),
+    ];
+    const ifrs = [ifrsYear(2018), ifrsYear(2017)];
+    const out = await financials(typed, { years: ifrs, marks: [] });
+    expect(out?.ifrsFormYears).toEqual(ifrs);
+    // The typed history, its latest year and its comparison never see them.
+    expect(out?.years.map((y) => y.year)).toEqual([2011, 2010]);
+    expect(out?.latest?.year).toBe(2011);
+    expect(out?.trajectory).toMatchObject({
+      fromYear: 2010,
+      toYear: 2011,
+      turnoverDelta: '2613465973.00',
+      turnoverDeltaReason: null,
+      employeesDelta: '-2610',
+      netResultDelta: '1958000000.00',
+    });
+  });
+
+  it('marks a typed year by its year, publisher and layout, and leaves every other year unmarked', async () => {
+    const typed = [
+      finYear(2024, '1100.00', '12'),
+      onLayout(finYear(2023, '1000.00', '10'), OTHER_LAYOUT),
+      finYear(2022, '900.00', '9'),
+      onLayout(finYear(2021, '800.00', '8'), null),
+      finYear(2020, '700.00', '7'),
+    ];
+    const out = await financials(typed, {
+      years: [],
+      marks: [
+        mark(2024),
+        mark(2023), // another layout that year
+        mark(2022, { sourceSystem: 'mfp' }), // another publisher
+        mark(2021, { statementProfileHash: null }), // an unknown layout never matches
+      ],
+    });
+    expect(out?.years.map((y) => [y.year, y.reportingForm, y.formEvidence])).toEqual([
+      [2024, 'ifrs', 'anaf_statement_layout'],
+      [2023, null, null],
+      [2022, null, null],
+      [2021, null, null],
+      [2020, null, null],
+    ]);
+    expect(out?.latest?.reportingForm).toBe('ifrs');
+    // Nothing else of the statement changes.
+    expect({ ...out?.years[0], reportingForm: null, formEvidence: null }).toEqual(typed[0]);
+  });
+
+  it('refuses every delta across a change of form, in either direction', async () => {
+    const latest = finYear(2024, '1100.00', '12', '60.00', '0.00');
+    const prior = finYear(2023, '1000.00', '10');
+    // IFRS-form latest, unmarked prior.
+    const fromUnmarked = await financials([latest, onLayout(prior, OTHER_LAYOUT)], {
+      years: [],
+      marks: [mark(2024)],
+    });
+    expect(fromUnmarked?.trajectory).toEqual({ fromYear: 2023, toYear: 2024, ...REFUSED });
+    // Unmarked latest, IFRS-form prior.
+    const toUnmarked = await financials([onLayout(latest, OTHER_LAYOUT), prior], {
+      years: [],
+      marks: [mark(2023)],
+    });
+    expect(toUnmarked?.trajectory).toEqual({ fromYear: 2023, toYear: 2024, ...REFUSED });
+  });
+
+  it('compares two IFRS-form typed years; a held net result keeps its own reason', async () => {
+    const latest: CompanyFinancialYear = {
+      ...finYear(2025, '1100.00', '12', '120.00', '30.00'),
+      // Profit and loss are both present; the evaluator holds the net (the 464d layout).
+      qualification: assessedQualification({ net_result: 'held_profile' }, null),
+    };
+    const prior = finYear(2024, '1000.00', '10', '50.00', '0.00');
+    const out = await financials([latest, prior], { years: [], marks: [mark(2025), mark(2024)] });
+    expect(out?.years.map((y) => y.reportingForm)).toEqual(['ifrs', 'ifrs']);
+    expect(out?.trajectory).toEqual({
+      fromYear: 2024,
+      toYear: 2025,
+      turnoverDelta: '100.00',
+      turnoverDeltaReason: null,
+      employeesDelta: '2',
+      employeesDeltaReason: null,
+      netResultDelta: null,
+      netResultDeltaReason: 'latest_not_reported',
+    });
+  });
+
+  it('refuses a comparison that jumps over IFRS-file years', async () => {
+    const typed = [finYear(2017, '1100.00', '12'), finYear(2011, '1000.00', '10')];
+    const between = [2016, 2015, 2014, 2013, 2012].map((year) => ifrsYear(year));
+    expect((await financials(typed, { years: between, marks: [] }))?.trajectory).toEqual({
+      fromYear: 2011,
+      toYear: 2017,
+      ...REFUSED,
+    });
+    // IFRS-file years outside the compared pair change nothing.
+    const outside = [ifrsYear(2019), ifrsYear(2018), ifrsYear(2010)];
+    expect((await financials(typed, { years: outside, marks: [] }))?.trajectory).toMatchObject({
+      turnoverDelta: '100.00',
+      turnoverDeltaReason: null,
+    });
+  });
+
+  it('views not readable: the list is unknown, no year is marked, the comparison is as before', async () => {
+    const typed = [finYear(2024, '1100.00', '12'), onLayout(finYear(2023, '1000.00', '10'), null)];
+    const out = await financials(typed, null);
+    expect(out?.ifrsFormYears).toBeNull();
+    expect(out?.years.map((y) => y.reportingForm)).toEqual([null, null]);
+    expect(out?.trajectory).toMatchObject({ turnoverDelta: '100.00', turnoverDeltaReason: null });
+  });
+
+  it('a failed series read fails the answer (never a partial "none")', async () => {
+    const d = deps({
+      repo: {
+        getIfrsFormSeries: vi.fn(async () =>
+          err({ type: 'Database' as const, message: 'getIfrsFormSeries failed' })
+        ),
+      },
+    });
+    expect((await makeCompanyFinancials(d, '1590082')).isErr()).toBe(true);
+  });
+
+  it('answers null only when nothing is known to exist', async () => {
+    expect(await financials([], { years: [], marks: [] })).toBeNull();
+    // An IFRS-file year is a long-format-only statement: none of those, none of these.
+    expect(await financials([], null)).toBeNull();
+    const longForm: CompanyLongFormStatement = {
+      year: 2013,
+      sourceSystem: 'mfp',
+      filerClass: 'ir',
+      sourceSnapshotId: 'mfp:situatii_financiare_2013:2013:r2013',
+      resourceUrl: null,
+    };
+    expect(await financials([], { years: [ifrsYear(2013)], marks: [] }, [longForm])).toEqual({
+      years: [],
+      latest: null,
+      trajectory: null,
+      longFormOnly: [longForm],
+      ifrsFormYears: [ifrsYear(2013)],
+    });
+    // Unknown ledger, readable views: the figures are still served.
+    expect(
+      (await financials([], { years: [ifrsYear(2013)], marks: [] }, null))?.ifrsFormYears
+    ).toEqual([ifrsYear(2013)]);
   });
 });
 

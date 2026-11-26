@@ -373,6 +373,15 @@ const objectsAndQuery = /* GraphQL */ `
     source: CompanyStatementSource!
     "The statement's qualification under the ACTIVE published admission policy. Only REPORTED values may enter a derived figure or comparison; NOT_ASSESSED means no value may (it never means reported)."
     qualification: CompanyStatementQualification!
+    "The form this statement is marked with, read only where ONE company's statements are shown (company, companyFinancials). On a FY2019+ statement IFRS means ANAF published it on its IFRS statement layout. Null = not marked: never 'the ordinary form'. Also null on lists and batches (not read there) and when the marker is not readable (CompanyFinancials.ifrsFormYears is then null too). Never join or compare a marked year with an unmarked one. The net result of an IFRS-form statement comes only from qualification.netResult."
+    reportingForm: CompanyReportingForm
+    "How the form is known: anaf_statement_layout (the statement's layout is ANAF's IFRS layout). Null exactly when reportingForm is."
+    formEvidence: String
+  }
+
+  "The publisher's reporting form a company-year is marked with: the form the publisher used (the Ministry of Finance's IFRS file, or ANAF's IFRS statement layout), not the company's accounting basis. One value today. A statement without a mark is UNMARKED, which proves no other form."
+  enum CompanyReportingForm {
+    IFRS
   }
 
   "Whether the evaluator could qualify a statement. NOT_ASSESSED carries a reason and no statuses."
@@ -504,7 +513,7 @@ const objectsAndQuery = /* GraphQL */ `
     flags: [CompanyFinancialQualityFlag!]!
   }
 
-  "Latest vs prior statement year. A delta uses only REPORTED values of that metric in both years under the same policy digest, evaluator and release (the net from the evaluator's netResult); one held metric removes only its own delta. Money deltas are exact at the inputs' own scale (two places minimum). Each null delta names its reason: not_assessed, policy_incompatible, latest_not_reported, prior_not_reported, not_exact."
+  "Latest vs prior statement year. A delta uses only REPORTED values of that metric in both years under the same policy digest, evaluator and release (the net from the evaluator's netResult); one held metric removes only its own delta. Money deltas are exact at the inputs' own scale (two places minimum). Each null delta names its reason: reporting_form_changed (the two years are on different reporting forms, or Ministry IFRS-file years lie between them: checked first, all three deltas), not_assessed, policy_incompatible, latest_not_reported, prior_not_reported, not_exact."
   type CompanyFinancialTrajectory {
     fromYear: Int
     toYear: Int
@@ -524,9 +533,50 @@ const objectsAndQuery = /* GraphQL */ `
     trajectory: CompanyFinancialTrajectory
     "Statements kept outside the typed history by policy (long format only), newest first. [] = none known; null = this runtime cannot read the selection ledger (unknown, never 'none')."
     longFormOnly: [CompanyLongFormStatement!]
+    "The Ministry of Finance IFRS-file years (filer class ir, FY2012-2018) with their figures, newest first; each is also a longFormOnly statement. Never part of years, latest or trajectory. [] = none; null = this runtime cannot read the IFRS-form views (unknown, never 'none'), and then no year carries a reportingForm either."
+    ifrsFormYears: [CompanyIfrsFormYear!]
   }
 
-  "A statement the selection ledger promoted in LONG FORMAT ONLY (e.g. MFP IFRS filers, class ir), witnessed by a public indicator line of the same CUI, year, publisher, anchor capture and layout. File-level only: it names no physical row and claims neither that the selected line nor that every line is retained. Metadata only: no value, summary or qualification, and it certifies no economic figure. Not a year without a filing."
+  """
+  One company-year of the Ministry of Finance's IFRS file (filer class ir).
+  SOURCE OBSERVATIONS with a verified mapping, OUTSIDE the analytics
+  admission policy: not qualified, without qualification statuses, and never
+  part of the typed history, its latest year, its trajectory, a summary or
+  hasFinancials. Draw or compare them only with other years on the same form:
+  never across a change of form, an unmarked year or a missing year. Served
+  only for a public statement witnessed by a public line of the same file and
+  layout, and withheld when a known organization for the CUI is non-public.
+  """
+  type CompanyIfrsFormYear {
+    year: Int!
+    "Publisher: mfp (the Ministry of Finance)."
+    sourceSystem: String!
+    reportingForm: CompanyReportingForm!
+    "How the form is known: mfp_filer_class_ir (the Ministry published the statement in its IFRS file)."
+    formEvidence: String!
+    "The reporting form's net turnover as filed, exact: not the sales line of an IFRS income statement. Null = a blank source cell, never 0."
+    turnover: Money
+    "As filed, exact. Null = a blank source cell; an explicit zero is 0."
+    netProfit: Money
+    "As filed, exact. Null = a blank source cell; an explicit zero is 0."
+    netLoss: Money
+    "Net profit minus net loss, only when the source carries both; null otherwise, never a one-sided figure."
+    netResult: Money
+    "Average number of employees: a headcount as a decimal string, never money."
+    employees: BigInt
+    "The Ministry's data.gov.ro file the line was read from; null when not recorded or not readable."
+    sourceUrl: String
+    "The capture (mfp:<package>:<year>:<resource>), exactly as recorded."
+    sourceSnapshotId: String!
+    "The line of that file the figures were read from; null when no figure cell is retained."
+    sourceRowNumber: String
+    "Fingerprint of the statement's indicator layout: not its values, not its bytes."
+    statementProfileHash: String!
+    "The metric rule version whose per-layout rules resolved the figures."
+    metricRuleVersion: String!
+  }
+
+  "A statement the selection ledger promoted in LONG FORMAT ONLY (e.g. MFP IFRS filers, class ir), witnessed by a public indicator line of the same CUI, year, publisher, anchor capture and layout. File-level only: it names no physical row and claims neither that the selected line nor that every line is retained. Metadata only: no value, summary or qualification, and it certifies no economic figure. Not a year without a filing. The figures of the Ministry IFRS-file years among them are served separately, as CompanyFinancials.ifrsFormYears."
   type CompanyLongFormStatement {
     year: Int!
     "Publisher (mfp)."
