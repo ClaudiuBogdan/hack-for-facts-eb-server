@@ -1,10 +1,8 @@
 /**
  * Judicial module — stored decisions repo (API-04). Reads the three decision
  * tables: `justice.issuing_bodies` (small reference), `justice.decisions` and
- * `justice.decision_subject_links`. SERVED AS STORED under the scoped human
- * instruction recorded in core/types.ts: both stored privacy classes and the
- * link evidence JSON are returned; nothing is verified, promoted, joined to a
- * subject domain or normalized.
+ * `justice.decision_subject_links`. Every decision and its subject links must
+ * belong to the public class before they enter a result or cursor page.
  *
  * NATIVE VALUES. IDs are selected as `::text` (never a JS number); the native
  * `date` renders through `nativeDateDisplay` and the row-operation timestamps
@@ -68,6 +66,8 @@ import type { DecisionListOptions, JudicialDecisionRepo } from '../../core/ports
 type Db = Kysely<ProdDatabase>;
 
 // ── selections (named stored columns only) ─────────────────────────────────────
+
+const publicDecision = sql`d.privacy_class = 'public'`;
 
 const DECISION_SELECT = sql`
   d.decision_id::text as decision_id, d.issuing_body, d.source_system, d.source_ref,
@@ -465,7 +465,7 @@ export const makeJudicialDecisionRepo = (db: Db): JudicialDecisionRepo => {
       const r = await sql<DecisionRow>`
         select ${DECISION_SELECT}
         from justice.decisions d
-        where d.decision_id = ${decisionId}::bigint
+        where ${publicDecision} and d.decision_id = ${decisionId}::bigint
       `.execute(db);
       const row = r.rows[0];
       return ok(row === undefined ? null : mapDecision(row));
@@ -493,7 +493,7 @@ export const makeJudicialDecisionRepo = (db: Db): JudicialDecisionRepo => {
       const r = await sql<DecisionRow>`
         select ${DECISION_SELECT}
         from justice.decisions d
-        where d.source_system = ${sourceSystem} and d.source_ref = ${sourceRef}
+        where ${publicDecision} and d.source_system = ${sourceSystem} and d.source_ref = ${sourceRef}
       `.execute(db);
       const row = r.rows[0];
       return ok(row === undefined ? null : mapDecision(row));
@@ -529,7 +529,7 @@ export const makeJudicialDecisionRepo = (db: Db): JudicialDecisionRepo => {
       const r = await sql<DecisionRow>`
         select ${DECISION_SELECT}
         from justice.decisions d
-        where ${composeWhere(conds)}
+        where ${publicDecision} and ${composeWhere(conds)}
         order by d.decision_id desc
         limit ${limit + 1}
       `.execute(db);
@@ -575,6 +575,7 @@ export const makeJudicialDecisionRepo = (db: Db): JudicialDecisionRepo => {
                ${exactTimestampText(sql`l.created_at`)} as created_at,
                ${exactTimestampText(sql`l.updated_at`)} as updated_at
         from justice.decision_subject_links l
+        join justice.decisions d on d.decision_id = l.decision_id and ${publicDecision}
         where ${composeWhere(conds)}
         order by l.link_id desc
         limit ${limit + 1}
@@ -625,7 +626,7 @@ export const makeJudicialDecisionRepo = (db: Db): JudicialDecisionRepo => {
       const r = await sql<{ source_system: string }>`
         select distinct d.source_system
         from justice.decisions d
-        where d.source_system ilike ${pattern} escape '\\'
+        where ${publicDecision} and d.source_system ilike ${pattern} escape '\\'
         order by d.source_system asc
         limit ${capped.value}
       `.execute(db);

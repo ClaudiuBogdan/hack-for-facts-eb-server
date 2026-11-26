@@ -578,7 +578,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const listDecisionsTool: KernelMcpTool = {
     name: 'list_judicial_decisions',
     description:
-      'List stored decisions as stored (both privacy classes; dedicated privacy work is deferred), decisionId DESC (a surrogate-key order, not recency), cursor-paged. REQUIRES sourceSystem or issuingBody (exact text). Optional exact-text/presence filters (decisionNo, decisionKind, outcomeNormalized, ecli, applicationNo, <field>IsNull), decisionYear (the stored smallint; 0 and negative allowed) with From/To/Gte/Lte/IsNull, decisionDateIsNull, privacyClass. first 1 to 50 (default 20); after = meta.cursor.next.',
+      'List public decisions, decisionId DESC (a surrogate-key order, not recency), cursor-paged. REQUIRES sourceSystem or issuingBody (exact text). Optional exact-text/presence filters (decisionNo, decisionKind, outcomeNormalized, ecli, applicationNo, <field>IsNull), decisionYear (the stored smallint; 0 and negative allowed) with From/To/Gte/Lte/IsNull, decisionDateIsNull, privacyClass. first 1 to 50 (default 20); after = meta.cursor.next.',
     inputShape: listJudicialDecisionsInput,
     strictInput: true,
     async handler(args): Promise<McpToolOutput> {
@@ -603,7 +603,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getDecisionTool: KernelMcpTool = {
     name: 'get_judicial_decision',
     description:
-      'Get one stored decision by native decisionId (a canonical signed int8 decimal string), every field as stored. Returns no item when no row has that id.',
+      'Get one public decision by native decisionId (a canonical signed int8 decimal string), every field as stored. Returns no item when no row has that id.',
     inputShape: getJudicialDecisionInput,
     strictInput: true,
     async handler(args): Promise<McpToolOutput> {
@@ -631,7 +631,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getDecisionBySourceTool: KernelMcpTool = {
     name: 'get_judicial_decision_by_source',
     description:
-      'Get one stored decision by its exact unique source identity: sourceSystem AND sourceRef, both exact text (no trimming; ECLI/application numbers are not lookup keys). Returns no item when absent.',
+      'Get one public decision by its exact unique source identity: sourceSystem AND sourceRef, both exact text (no trimming; ECLI/application numbers are not lookup keys). Returns no item when absent.',
     inputShape: getJudicialDecisionBySourceInput,
     strictInput: true,
     async handler(args): Promise<McpToolOutput> {
@@ -659,7 +659,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const listDecisionLinksTool: KernelMcpTool = {
     name: 'list_judicial_decision_subject_links',
     description:
-      'Stored decision-to-subject link rows as stored (one item per link; statuses are recorded labels, not verification; subject references are exact text with no identity resolution), linkId DESC, cursor-paged. REQUIRES exactly one anchor: decisionId, or subjectKind with subjectRef. Optional validationStatus list. first 1 to 50 (default 20); after = meta.cursor.next.',
+      'Subject links of public decisions (one item per link; statuses are recorded labels, not verification; subject references are exact text with no identity resolution), linkId DESC, cursor-paged. REQUIRES exactly one anchor: decisionId, or subjectKind with subjectRef. Optional validationStatus list. first 1 to 50 (default 20); after = meta.cursor.next.',
     inputShape: listJudicialDecisionSubjectLinksInput,
     strictInput: true,
     async handler(args): Promise<McpToolOutput> {

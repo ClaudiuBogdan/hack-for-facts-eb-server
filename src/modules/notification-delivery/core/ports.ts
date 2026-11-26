@@ -73,6 +73,14 @@ export interface UpdateDeliveryStatusInput {
  * Repository for notification outbox records.
  */
 export interface NotificationOutboxRepository {
+  hasApprovedReplyExcerpt(input: {
+    threadId: string;
+    threadKey: string;
+    entityCui: string;
+    entryId: string;
+    excerpt: string;
+  }): Promise<Result<boolean, DeliveryError>>;
+
   /**
    * Creates an outbox record with unique constraint protection.
    * Returns DuplicateDelivery error if delivery_key already exists.

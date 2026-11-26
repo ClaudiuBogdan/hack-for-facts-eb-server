@@ -3,8 +3,7 @@
  *
  * Nineteen GET paths over the SAME usecases GraphQL and MCP call (Fastify adds
  * the matching HEAD). No write route, no raw body/source fetch, no new client
- * deep link. Stored decisions are served AS STORED under the scoped human
- * instruction recorded in core/types.ts; every existing case/party/hearing/
+ * deep link. Only public decisions and their links are served; every existing case/party/hearing/
  * company/lineage/citation rule is unchanged (the usecase projections are
  * reused, never a new SELECT).
  *
@@ -478,7 +477,7 @@ export const makeJudicialRestPlugin =
       }
     );
 
-    // ── stored decisions (served as stored) ───────────────────────────────────
+    // ── public decisions ───────────────────────────────────
 
     fastify.get(
       '/issuing-bodies',

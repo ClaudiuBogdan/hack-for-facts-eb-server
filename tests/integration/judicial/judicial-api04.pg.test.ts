@@ -248,7 +248,7 @@ const DECISIONS: readonly DecisionSeed[] = [
     ecli: 'ECLI:API04:SHARED',
     appNo: 'APP-1',
     attrsJson: JSON.stringify(MAX_ATTRS),
-    privacy: 'restricted',
+    privacy: 'public',
     url: 'https://example.invalid/api04/max',
     created: '2026-01-02 03:04:05.123456+00',
     updated: '2026-01-02 03:04:05.654321+00',
@@ -368,7 +368,7 @@ const DECISIONS: readonly DecisionSeed[] = [
     ecli: null,
     appNo: null,
     attrsJson: '{"amount":"0.10"}',
-    privacy: 'restricted',
+    privacy: 'public',
     url: 'https://example.invalid/api04/min',
     created: '0044-03-15 12:00:00.000001+00 BC',
     updated: 'infinity',
@@ -407,7 +407,7 @@ const DECISION_VIEW: Readonly<Record<string, Record<string, unknown>>> = {
     ecli: 'ECLI:API04:SHARED',
     applicationNo: 'APP-1',
     attrs: MAX_ATTRS,
-    privacyClass: 'restricted',
+    privacyClass: 'public',
     sourceUrl: 'https://example.invalid/api04/max',
     sourceObjectKey: null,
     createdAt: '2026-01-02T03:04:05.123456+00 AD',
@@ -534,7 +534,7 @@ const DECISION_VIEW: Readonly<Record<string, Record<string, unknown>>> = {
     ecli: null,
     applicationNo: null,
     attrs: { amount: '0.10' },
-    privacyClass: 'restricted',
+    privacyClass: 'public',
     sourceUrl: 'https://example.invalid/api04/min',
     sourceObjectKey: null,
     createdAt: '0044-03-15T12:00:00.000001+00 BC',
@@ -915,6 +915,23 @@ const seedAll = async (client: pg.Client): Promise<void> => {
       ]
     );
   }
+  // Restricted rows cover a mixed source, a restricted-only source, and a
+  // subject shared with public links. They must never contribute to pagination.
+  await client.query(
+    `insert into justice.decisions
+      (decision_id, issuing_body, source_system, source_ref, attrs, privacy_class, source_url)
+      overriding system value values
+      (10, $1, $2, 'private-ref', '{"private":true}', 'restricted',
+       'https://example.invalid/api04/restricted-mixed'),
+      (11, $1, 'api04_private', 'private-ref', '{}', 'restricted',
+       'https://example.invalid/api04/restricted-only')`,
+    [BODY, SRC]
+  );
+  await client.query(
+    `insert into justice.decision_subject_links
+      (link_id, decision_id, subject_kind, subject_ref, validation_status, evidence)
+      overriding system value values (42, 10, 'company', '00012345', 'candidate', '{"private":true}')`
+  );
   for (const l of LINKS) {
     await client.query(
       `insert into justice.decision_subject_links (link_id, decision_id, subject_kind, subject_ref,
@@ -1271,7 +1288,7 @@ describeApi04('judicial API-04 — actual DDL, explicit throwaway database', () 
 
   it('the fixture holds the intended native values (identity overrides, ordering, constraints)', async () => {
     const order = await setup!.query<{ id: string }>(
-      `select decision_id::text as id from justice.decisions where source_system = $1
+      `select decision_id::text as id from justice.decisions where source_system = $1 and privacy_class = 'public'
         order by decision_id desc`,
       [SRC]
     );
@@ -1428,7 +1445,71 @@ describeApi04('judicial API-04 — actual DDL, explicit throwaway database', () 
 
   describe('stored decisions — REST, HTTP GraphQL and /api/v1/mcp agree on every stored value', () => {
     it(
-      'detail by native id: every field as stored, both privacy classes, all native spellings',
+      'hides restricted decision identities, links and source-only values on every transport',
+      each(async (reader) => {
+        expect((await rest(reader, '/decisions/10')).status).toBe(404);
+        expect(
+          (await rest(reader, `/decisions/lookup?sourceSystem=${SRC}&sourceRef=private-ref`)).status
+        ).toBe(404);
+        expect((await rest(reader, '/decisions/10/subject-links')).body).toMatchObject({
+          data: [],
+        });
+        expect(
+          (await rest(reader, '/decisions/filters/resolve?dim=sourceSystem&q=api04_private')).body
+        ).toMatchObject({ data: [] });
+        const g = await gqlHttp(
+          reader,
+          `{
+          byId: judicialDecision(decisionId:"10") { decisionId }
+          bySource: judicialDecisionBySource(sourceSystem:"${SRC}", sourceRef:"private-ref") { decisionId }
+          decisions: judicialDecisions(filter:{sourceSystem:{eq:"${SRC}"},privacyClass:{eq:"restricted"}}) { edges { cursor } }
+          links: judicialDecisionSubjectLinks(filter:{decisionId:{eq:"10"}}) { edges { cursor } }
+          reverse: judicialDecisionSubjectLinks(filter:{subjectKind:{eq:"company"},subjectRef:{eq:"00012345"}}) { edges { node { decisionId } } }
+          sources: judicialDecisionResolve(dim:"sourceSystem",q:"api04_private") { value }
+        }`
+        );
+        expect(g).toEqual({
+          data: {
+            byId: null,
+            bySource: null,
+            decisions: { edges: [] },
+            links: { edges: [] },
+            sources: [],
+            reverse: { edges: [D.max, D.p53plus1].map((decisionId) => ({ node: { decisionId } })) },
+          },
+        });
+        const byId = await mcpHttp(reader, 'get_judicial_decision', { decisionId: '10' });
+        const bySource = await mcpHttp(reader, 'get_judicial_decision_by_source', {
+          sourceSystem: SRC,
+          sourceRef: 'private-ref',
+        });
+        for (const result of [byId, bySource]) {
+          expect(result.structured).toMatchObject({ ok: true, summary: 'No matching decision.' });
+          expect(result.structured).not.toHaveProperty('item');
+        }
+        for (const [tool, args] of [
+          ['list_judicial_decisions', { sourceSystem: SRC, privacyClass: 'restricted' }],
+          ['list_judicial_decision_subject_links', { decisionId: '10' }],
+          ['resolve_judicial_decision_filters', { dim: 'sourceSystem', q: 'api04_private' }],
+        ] as const) {
+          expect((await mcpHttp(reader, tool, args)).structured).toMatchObject({
+            ok: true,
+            items: [],
+          });
+        }
+        const reverse = await mcpHttp(reader, 'list_judicial_decision_subject_links', {
+          subjectKind: 'company',
+          subjectRef: '00012345',
+        });
+        expect(reverse.structured).toMatchObject({
+          ok: true,
+          items: [{ decisionId: D.max }, { decisionId: D.p53plus1 }],
+        });
+      })
+    );
+
+    it(
+      'detail by native id: every public field as stored, all native spellings',
       each(async (reader) => {
         for (const id of [...SRC_ORDER, D.other]) {
           const view = DECISION_VIEW[id];
@@ -1766,7 +1847,11 @@ describeApi04('judicial API-04 — actual DDL, explicit throwaway database', () 
           reader,
           `/decisions?sourceSystem=${SRC}&privacyClass=restricted`
         );
-        expect(ids(restricted.body['data'] as unknown[], 'decisionId')).toEqual([D.max, D.min]);
+        expect(restricted.body).toMatchObject({
+          ok: true,
+          data: [],
+          meta: { cursor: { next: null } },
+        });
         const emptySystem = await rest(reader, '/decisions?sourceSystem=');
         expect(emptySystem.body).toMatchObject({ ok: true, data: [] });
         const noKind = await rest(

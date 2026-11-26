@@ -25,12 +25,7 @@ export interface PublishCurrentPlatformSendUpdateInput {
 }
 
 export interface PublishCurrentPlatformSendUpdateResult {
-  status:
-    | 'no_thread'
-    | 'skipped_phase'
-    | 'skipped_missing_reply'
-    | 'skipped_missing_review'
-    | 'published';
+  status: 'no_thread' | 'skipped_phase' | 'skipped_missing_review' | 'published';
   eventType?: 'thread_started' | 'thread_failed' | 'reply_received' | 'reply_reviewed';
   thread?: ThreadRecord;
   publishResult?: PublicDebateEntityUpdatePublishResult;

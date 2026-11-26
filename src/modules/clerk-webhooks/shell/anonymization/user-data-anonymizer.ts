@@ -289,6 +289,7 @@ const sanitizeCorrespondenceEntryForDeletedUser = (
     return sanitized;
   }
 
+  delete sanitized['approvedPublicExcerpt'];
   return {
     ...sanitized,
     fromAddress: REDACTED_EMAIL_ADDRESS,
@@ -435,6 +436,16 @@ const updateOutboxRows = async (
   input: { userId: string; anonymizedUserId: string; now: Date }
 ): Promise<number> => {
   for (const row of rows) {
+    const metadata = sanitizeMetadataForDeletedUser(row.metadata, {
+      userId: input.userId,
+      anonymizedUserId: input.anonymizedUserId,
+      redactEmailFields: true,
+    });
+    delete metadata['replyTextPreview'];
+    delete metadata['reviewNotes'];
+    delete metadata['replyPublicationVersion'];
+    if (metadata['eventType'] === 'reply_received' || metadata['eventType'] === 'reply_reviewed')
+      delete metadata['subject'];
     await trx
       .updateTable('notificationsoutbox')
       .set({
@@ -460,11 +471,7 @@ const updateOutboxRows = async (
             ELSE last_error
           END
         `,
-        metadata: sanitizeMetadataForDeletedUser(row.metadata, {
-          userId: input.userId,
-          anonymizedUserId: input.anonymizedUserId,
-          redactEmailFields: true,
-        }),
+        metadata,
       } as never)
       .where('id', '=', row.id)
       .execute();
@@ -919,11 +926,28 @@ const anonymizeDeletedUserInTransaction = async (
     .where('user_id', 'in', matchingUserIds)
     .executeTakeFirst();
 
-  const outboxRowsUpdated = await updateOutboxRows(trx, outboxRows, {
+  const ownedOutboxRowsUpdated = await updateOutboxRows(trx, outboxRows, {
     userId: input.userId,
     anonymizedUserId,
     now,
   });
+
+  // A thread owner's correspondence can also be copied to other subscribers'
+  // outboxes. Retain their delivery history while removing the source content.
+  const copiedReplies = await sql`
+    update notificationsoutbox o set
+      rendered_subject = null, rendered_html = null, rendered_text = null, content_hash = null,
+      metadata = o.metadata - 'replyTextPreview' - 'reviewNotes' - 'subject' - 'replyPublicationVersion',
+      status = case when o.status in ('pending', 'composing', 'sending', 'failed_transient')
+                    then 'skipped_no_email' else o.status end
+    where o.notification_type = 'funky:outbox:entity_update'
+      and o.user_id not in (${sql.join(matchingUserIds)})
+      and o.metadata->>'eventType' in ('reply_received', 'reply_reviewed')
+      and exists (select 1 from institutionemailthreads t
+                  where t.id::text = o.metadata->>'threadId'
+                    and t.record->>'ownerUserId' in (${sql.join(matchingUserIds)}))
+      and (o.rendered_html is not null or o.rendered_text is not null or o.metadata ?| array['replyTextPreview','subject','reviewNotes','replyPublicationVersion'])
+  `.execute(trx);
 
   const userInteractionCounts = await updateUserInteractions(trx, {
     userId: input.userId,
@@ -1045,7 +1069,7 @@ const anonymizeDeletedUserInTransaction = async (
     shortLinksDeleted: Number(shortLinksDeletedResult.numAffectedRows ?? 0n),
     shortLinksUpdated: Number(shortLinksUpdatedResult.numAffectedRows ?? 0n),
     notificationsUpdated: toMutationCount(notificationsUpdatedResult),
-    outboxRowsUpdated,
+    outboxRowsUpdated: ownedOutboxRowsUpdated + toMutationCount(copiedReplies),
     userInteractionsUpdated: userInteractionCounts.updated,
     userInteractionConflictsDeleted: userInteractionCounts.conflictsDeleted,
     campaignRunPlansDeleted: Number(campaignRunPlansDeletedResult.numAffectedRows ?? 0n),

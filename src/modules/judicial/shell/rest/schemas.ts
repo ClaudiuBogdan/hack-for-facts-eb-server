@@ -310,7 +310,7 @@ export const DecisionSubjectLinkSchema = Type.Object({
   method: NS(),
   confidenceScore: NS(),
   validationStatus: S(),
-  /** The stored JSON value, deliberately open (served as stored; API-04 override). */
+  /** The stored JSON value, deliberately open (returned for links of public decisions). */
   evidence: Type.Unknown(),
   resolverVersion: NS(),
   createdAt: S(),

@@ -53,6 +53,9 @@ export const createCorrespondenceEntry = (
   htmlBody: overrides.htmlBody ?? '<p>Body</p>',
   headers: overrides.headers ?? {},
   attachments: overrides.attachments ?? [],
+  ...(overrides.approvedPublicExcerpt !== undefined && {
+    approvedPublicExcerpt: overrides.approvedPublicExcerpt,
+  }),
   occurredAt: overrides.occurredAt ?? now().toISOString(),
   metadata: overrides.metadata ?? {},
 });

@@ -580,7 +580,23 @@ export const createPublicDebateNotificationHarness = (
   });
   const { notificationsRepo, extendedNotificationsRepo, audienceSummaryReader } =
     createSharedNotificationsRepo();
-  const deliveryRepo = makeFakeDeliveryRepo();
+  const deliveryRepo = makeFakeDeliveryRepo({
+    approvedReplyExcerpts: (input.threads ?? []).flatMap((thread) =>
+      thread.record.correspondence.flatMap((entry) =>
+        entry.approvedPublicExcerpt === undefined
+          ? []
+          : [
+              {
+                entityCui: thread.entityCui,
+                threadKey: thread.threadKey,
+                threadId: thread.id,
+                entryId: entry.id,
+                excerpt: entry.approvedPublicExcerpt,
+              },
+            ]
+      )
+    ),
+  });
   const composeJobScheduler = {
     enqueue: vi.fn(async () => ok(undefined)),
   };

@@ -1865,6 +1865,7 @@ export const buildApp = async (options: AppOptions = {}): Promise<FastifyInstanc
 
         adminEventRegistry = makeDefaultAdminEventRegistry({
           institutionCorrespondenceRepo: correspondenceRepoInstance,
+          updatePublisher: publicDebateNotificationOrchestrator.updatePublisher,
         });
       }
 

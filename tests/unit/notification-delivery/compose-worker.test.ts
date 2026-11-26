@@ -314,72 +314,95 @@ describe('compose worker helpers', () => {
     expect(renderedCtaUrl).toBe('https://transparenta.eu/primarie/87654321');
   });
 
-  it('composes public debate entity update emails from outbox metadata', async () => {
-    const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
-    let renderedTemplateType: string | undefined;
-    let renderedEntityName: string | undefined;
-    const deliveryRepo = makeFakeDeliveryRepo({
-      deliveries: [
-        createTestDeliveryRecord({
-          id: 'outbox-public-debate-1',
-          notificationType: 'funky:outbox:entity_update',
-          referenceId: 'notif-1',
-          scopeKey: 'funky:delivery:reply_thread-1_reply-1',
-          deliveryKey: 'user-1:notif-1:funky:delivery:reply_thread-1_reply-1',
-          metadata: {
-            campaignKey: 'funky',
-            eventType: 'reply_received',
-            entityCui: '12345678',
-            entityName: 'Municipiul Test',
-            threadId: 'thread-1',
-            threadKey: 'thread-key-1',
-            phase: 'reply_received_unreviewed',
-            institutionEmail: 'contact@primarie.ro',
-            subject: 'Solicitare organizare dezbatere publica',
-            occurredAt: '2026-03-31T10:00:00.000Z',
-            replyTextPreview: 'Va comunicam ca solicitarea a fost primita.',
-          },
-        }),
-      ],
-    });
+  it.each([true, false])(
+    'composes an entity reply only while its approval exists (approved=%s)',
+    async (approved) => {
+      const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
+      let renderedTemplateType: string | undefined;
+      let renderedEntityName: string | undefined;
+      const deliveryRepo = makeFakeDeliveryRepo({
+        approvedReplyExcerpts: approved
+          ? [
+              {
+                threadId: 'thread-1',
+                threadKey: 'thread-key-1',
+                entityCui: '12345678',
+                entryId: 'reply-1',
+                excerpt: 'Va comunicam ca solicitarea a fost primita.',
+              },
+            ]
+          : [],
+        deliveries: [
+          createTestDeliveryRecord({
+            id: 'outbox-public-debate-1',
+            notificationType: 'funky:outbox:entity_update',
+            referenceId: 'notif-1',
+            scopeKey: 'funky:delivery:review_thread-1_reply-1',
+            deliveryKey: 'user-1:notif-1:funky:delivery:review_thread-1_reply-1',
+            metadata: {
+              campaignKey: 'funky',
+              eventType: 'reply_reviewed',
+              basedOnEntryId: 'reply-1',
+              replyEntryId: 'reply-1',
+              replyPublicationVersion: 1,
+              entityCui: '12345678',
+              entityName: 'Municipiul Test',
+              threadId: 'thread-1',
+              threadKey: 'thread-key-1',
+              phase: 'resolved_positive',
+              institutionEmail: 'contact@primarie.ro',
+              subject: 'Solicitare organizare dezbatere publica',
+              occurredAt: '2026-03-31T10:00:00.000Z',
+              replyTextPreview: 'Va comunicam ca solicitarea a fost primita.',
+            },
+          }),
+        ],
+      });
 
-    const result = await composeExistingOutbox(
-      {
-        sendQueue: makeSendQueue(jobs),
-        deliveryRepo,
-        notificationsRepo: makeFakeExtendedNotificationsRepo(),
-        tokenSigner: makeFakeTokenSigner(),
-        dataFetcher: makeDataFetcher(),
-        emailRenderer: makeEmailRenderer({
-          onRender(props) {
-            renderedTemplateType = props.templateType;
-            renderedEntityName = props.entityName;
-          },
-        }),
-        platformBaseUrl: 'https://transparenta.eu',
-        apiBaseUrl: 'https://api.transparenta.eu',
-        log: testLogger,
-      },
-      {
-        runId: 'run-public-debate-1',
-        kind: 'outbox',
-        outboxId: 'outbox-public-debate-1',
+      const result = await composeExistingOutbox(
+        {
+          sendQueue: makeSendQueue(jobs),
+          deliveryRepo,
+          notificationsRepo: makeFakeExtendedNotificationsRepo(),
+          tokenSigner: makeFakeTokenSigner(),
+          dataFetcher: makeDataFetcher(),
+          emailRenderer: makeEmailRenderer({
+            onRender(props) {
+              renderedTemplateType = props.templateType;
+              renderedEntityName = props.entityName;
+            },
+          }),
+          platformBaseUrl: 'https://transparenta.eu',
+          apiBaseUrl: 'https://api.transparenta.eu',
+          log: testLogger,
+        },
+        {
+          runId: 'run-public-debate-1',
+          kind: 'outbox',
+          outboxId: 'outbox-public-debate-1',
+        }
+      );
+
+      if (!approved) {
+        expect(result.status).toBe('failed_permanent');
+        expect(renderedTemplateType).toBeUndefined();
+        expect(jobs).toHaveLength(0);
+        return;
       }
-    );
+      expect(result.status).toBe('composed');
+      expect(renderedTemplateType).toBe('public_debate_entity_update');
+      expect(renderedEntityName).toBe('Municipiul Test');
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]?.data).toEqual({ outboxId: 'outbox-public-debate-1' });
 
-    expect(result.status).toBe('composed');
-    expect(renderedTemplateType).toBe('public_debate_entity_update');
-    expect(renderedEntityName).toBe('Municipiul Test');
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.data).toEqual({ outboxId: 'outbox-public-debate-1' });
-
-    const outbox = await deliveryRepo.findById('outbox-public-debate-1');
-    expect(outbox.isOk()).toBe(true);
-    if (outbox.isOk()) {
-      expect(outbox.value?.templateName).toBe('public_debate_entity_update');
-      expect(outbox.value?.renderedHtml).toContain('public_debate_entity_update');
+      const outbox = await deliveryRepo.findById('outbox-public-debate-1');
+      expect(outbox.isOk()).toBe(true);
+      if (outbox.isOk()) {
+        expect(outbox.value?.templateName).toBe('public_debate_entity_update');
+        expect(outbox.value?.renderedHtml).toContain('public_debate_entity_update');
+      }
     }
-  });
+  );
 
   it('composes public debate announcement emails from outbox metadata', async () => {
     const jobs: { data: SendJobPayload; opts: Record<string, unknown> | undefined }[] = [];
@@ -1307,11 +1330,11 @@ describe('compose worker helpers', () => {
           deliveryKey: 'user-1:notif-render-error:funky:delivery:reply_thread-1_reply-1',
           metadata: {
             campaignKey: 'funky',
-            eventType: 'reply_received',
+            eventType: 'thread_failed',
             entityCui: '12345678',
             threadId: 'thread-1',
             threadKey: 'thread-key-1',
-            phase: 'reply_received_unreviewed',
+            phase: 'failed',
             institutionEmail: 'contact@primarie.ro',
             subject: 'Solicitare organizare dezbatere publica',
             occurredAt: '2026-03-31T10:00:00.000Z',

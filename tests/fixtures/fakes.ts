@@ -2853,6 +2853,14 @@ export const createTestProgressResetEvent = (
 // =============================================================================
 
 interface FakeDeliveryRepoOptions {
+  approvedReplyExcerpts?: {
+    threadId: string;
+    threadKey: string;
+    entityCui: string;
+    entryId: string;
+    excerpt: string;
+  }[];
+
   /** Initial deliveries to seed the store with */
   deliveries?: DeliveryRecord[];
   /** Enable database error simulation */
@@ -2892,6 +2900,19 @@ export const makeFakeDeliveryRepo = (options: FakeDeliveryRepoOptions = {}): Del
     } as DeliveryError);
 
   return {
+    async hasApprovedReplyExcerpt(input) {
+      if (simulateDbError) return createDbError();
+      return ok(
+        (options.approvedReplyExcerpts ?? []).some(
+          (row) =>
+            row.threadId === input.threadId &&
+            row.threadKey === input.threadKey &&
+            row.entityCui === input.entityCui &&
+            row.entryId === input.entryId &&
+            row.excerpt === input.excerpt
+        )
+      );
+    },
     create: async (input: CreateDeliveryInput): Promise<Result<DeliveryRecord, DeliveryError>> => {
       if (simulateDbError) return createDbError();
 

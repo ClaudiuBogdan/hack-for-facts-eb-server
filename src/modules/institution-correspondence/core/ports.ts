@@ -159,10 +159,9 @@ interface PublicDebateEntityUpdateNotificationBase {
   thread: ThreadRecord;
   occurredAt: Date;
   failureMessage?: string | null;
-  reply?: CorrespondenceEntry;
+  approvedPublicExcerpt?: string;
   basedOnEntryId?: string;
   resolutionCode?: ResolutionCode;
-  reviewNotes?: string | null;
 }
 
 export type PublicDebateEntityUpdateNotification =
@@ -171,7 +170,7 @@ export type PublicDebateEntityUpdateNotification =
       requesterUserId: string | null;
     })
   | (PublicDebateEntityUpdateNotificationBase & {
-      eventType: 'thread_failed' | 'reply_received' | 'reply_reviewed';
+      eventType: 'thread_failed' | 'reply_reviewed';
     });
 
 export type PublicDebateEntityUpdatePublishStatus = 'queued' | 'partial' | 'none' | 'failed';

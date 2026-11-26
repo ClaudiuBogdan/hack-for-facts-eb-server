@@ -3,11 +3,13 @@ import { err, ok } from 'neverthrow';
 
 import { buildBullmqJobId } from '@/infra/queue/job-id.js';
 import {
+  ApprovedPublicExcerptSchema,
   REVIEWABLE_PHASE,
   reviewReply,
   type CorrespondenceEntry,
   type InstitutionCorrespondenceError,
   type InstitutionCorrespondenceRepository,
+  type PublicDebateEntityUpdatePublisher,
   type ThreadRecord,
 } from '@/modules/institution-correspondence/index.js';
 
@@ -46,6 +48,7 @@ export const InstitutionCorrespondenceReplyReviewPendingOutcomeSchema = Type.Obj
       Type.Literal('not_actionable'),
       Type.Literal('other'),
     ]),
+    approvedPublicExcerpt: Type.Optional(ApprovedPublicExcerptSchema),
     reviewNotes: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
   },
   { additionalProperties: false }
@@ -66,6 +69,7 @@ export interface InstitutionCorrespondenceReplyReviewPendingContext {
 
 export interface InstitutionCorrespondenceReplyReviewPendingEventDefinitionDeps {
   repo: InstitutionCorrespondenceRepository;
+  updatePublisher?: PublicDebateEntityUpdatePublisher;
 }
 
 const toAdminEventError = (error: InstitutionCorrespondenceError): AdminEventError => {
@@ -175,7 +179,8 @@ export const makeInstitutionCorrespondenceReplyReviewPendingEventDefinition = (
             input.context.thread.record.latestReview?.basedOnEntryId ?? null,
         },
         instructions: [
-          'Review the inbound institution reply and determine the correct resolutionCode.',
+          'Classify the incoming message. Its sender and contents require verification before publication.',
+          'Only after confirming institutional authorship, set approvedPublicExcerpt to the exact text approved for subscribers. Omit it to keep the reply private.',
           'Use reviewNotes only when additional context is useful for auditability.',
         ],
       };
@@ -183,6 +188,16 @@ export const makeInstitutionCorrespondenceReplyReviewPendingEventDefinition = (
     classifyState(input) {
       if (input.context === null) {
         return 'not_actionable';
+      }
+
+      // An earlier apply may have persisted approval before the queue was
+      // available. Retrying the delivery uses the same per-entry outbox key.
+      if (
+        input.context.reply.approvedPublicExcerpt !== undefined &&
+        (input.outcome === undefined ||
+          input.context.reply.approvedPublicExcerpt === input.outcome.approvedPublicExcerpt)
+      ) {
+        return 'actionable';
       }
 
       const latestReview = input.context.thread.record.latestReview;
@@ -196,7 +211,8 @@ export const makeInstitutionCorrespondenceReplyReviewPendingEventDefinition = (
         const normalizedOutcomeNotes = normalizeOptionalNotes(input.outcome.reviewNotes);
         if (
           latestReview.resolutionCode === input.outcome.resolutionCode &&
-          normalizedLiveNotes === normalizedOutcomeNotes
+          normalizedLiveNotes === normalizedOutcomeNotes &&
+          input.context.reply.approvedPublicExcerpt === input.outcome.approvedPublicExcerpt
         ) {
           return 'already_applied';
         }
@@ -221,20 +237,41 @@ export const makeInstitutionCorrespondenceReplyReviewPendingEventDefinition = (
       return input.exportBundle !== undefined ? 'stale' : 'not_actionable';
     },
     async applyOutcome(input) {
-      const result = await reviewReply(
-        { repo: deps.repo },
-        {
-          threadId: input.payload.threadId,
-          basedOnEntryId: input.payload.basedOnEntryId,
-          resolutionCode: input.outcome.resolutionCode,
-          reviewNotes: input.outcome.reviewNotes ?? null,
-        }
-      );
-
-      if (result.isErr()) {
-        return err(toAdminEventError(result.error));
+      const excerpt = input.outcome.approvedPublicExcerpt;
+      if (excerpt !== undefined && deps.updatePublisher === undefined) {
+        return err(createQueueError('Approved reply publishing is unavailable.', true));
       }
-
+      let thread = input.context.thread;
+      if (excerpt === undefined || input.context.reply.approvedPublicExcerpt !== excerpt) {
+        const result = await reviewReply(
+          { repo: deps.repo },
+          {
+            threadId: input.payload.threadId,
+            basedOnEntryId: input.payload.basedOnEntryId,
+            resolutionCode: input.outcome.resolutionCode,
+            reviewNotes: input.outcome.reviewNotes ?? null,
+            ...(excerpt !== undefined && { approvedPublicExcerpt: excerpt }),
+          }
+        );
+        if (result.isErr()) return err(toAdminEventError(result.error));
+        thread = result.value.thread;
+      }
+      if (excerpt !== undefined && deps.updatePublisher !== undefined) {
+        const latestReview = thread.record.latestReview;
+        const exactReview =
+          latestReview?.basedOnEntryId === input.payload.basedOnEntryId ? latestReview : null;
+        const result = await deps.updatePublisher.publish({
+          eventType: 'reply_reviewed',
+          thread,
+          basedOnEntryId: input.payload.basedOnEntryId,
+          approvedPublicExcerpt: excerpt,
+          occurredAt: new Date(exactReview?.reviewedAt ?? input.context.reply.occurredAt),
+          ...(exactReview !== null && { resolutionCode: exactReview.resolutionCode }),
+        });
+        if (result.isErr()) return err(toAdminEventError(result.error));
+        if (result.value.status === 'partial')
+          return err(createQueueError('Approved reply publication is pending.', true));
+      }
       return ok(undefined);
     },
   };

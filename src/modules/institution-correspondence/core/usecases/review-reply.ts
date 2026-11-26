@@ -1,11 +1,14 @@
+import { Value } from '@sinclair/typebox/value';
 import { err, ok, type Result } from 'neverthrow';
 
 import {
   createConflictError,
+  createValidationError,
   createNotFoundError,
   type InstitutionCorrespondenceError,
 } from '../errors.js';
 import {
+  ApprovedPublicExcerptSchema,
   RESOLUTION_TO_PHASE,
   REVIEWABLE_PHASE,
   type ReviewReplyInput,
@@ -23,6 +26,10 @@ export async function reviewReply(
   deps: ReviewReplyDeps,
   input: ReviewReplyInput
 ): Promise<Result<ReviewReplyOutput, InstitutionCorrespondenceError>> {
+  const excerpt = input.approvedPublicExcerpt;
+  if (excerpt !== undefined && !Value.Check(ApprovedPublicExcerptSchema, excerpt)) {
+    return err(createValidationError('Approved public excerpt must contain 1 to 400 characters.'));
+  }
   const reviewedAt = input.reviewedAt ?? new Date();
   const result = await deps.repo.mutateThread(input.threadId, (thread) => {
     if (thread.phase !== REVIEWABLE_PHASE) {
@@ -58,6 +65,11 @@ export async function reviewReply(
       record: {
         ...thread.record,
         latestReview,
+        ...(excerpt !== undefined && {
+          correspondence: thread.record.correspondence.map((entry) =>
+            entry.id === reply.id ? { ...entry, approvedPublicExcerpt: excerpt } : entry
+          ),
+        }),
       },
     });
   });

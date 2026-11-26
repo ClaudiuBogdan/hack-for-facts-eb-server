@@ -943,8 +943,12 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
     const repo = makeInMemoryCorrespondenceRepo({ threads: [existingThread] });
     const updateStoredEvent = vi.fn().mockResolvedValue(ok(createStoredEvent()));
 
+    const publish = vi.fn(async () => {
+      throw new Error('Unreviewed reply was published');
+    });
     const sideEffect = makeInstitutionCorrespondenceResendSideEffect({
       repo,
+      updatePublisher: { publish },
       officialEmailLookup: {
         async findEntitiesByOfficialEmails() {
           return ok([]);
@@ -1025,6 +1029,7 @@ describe('makeInstitutionCorrespondenceResendSideEffect', () => {
       expect(thread.value?.record.correspondence[1]?.direction).toBe('inbound');
     }
 
+    expect(publish).not.toHaveBeenCalled();
     expect(updateStoredEvent).toHaveBeenCalledWith('stored-2', {
       threadKey: 'thread-key-1',
       metadata: {

@@ -19,8 +19,7 @@
  * `JusticeCaseLegalReferencesTable` declaration and as the single
  * `lr.raw_text as citation` selection in the legal-ref repo.
  *
- * API-04 SCOPED EXCEPTION (human instruction: serve the stored decision data as
- * is, defer the privacy project): the NEW `justice.decision_subject_links`
+ * API-04 PUBLIC DECISION LINKS: the `justice.decision_subject_links`
  * evidence JSON may survive ONLY at its exact decision-link boundaries, each
  * exactly once — the link table declaration (schema.ts), the core link type
  * (types.ts), the repo row type + mapper + single `l.evidence` selection

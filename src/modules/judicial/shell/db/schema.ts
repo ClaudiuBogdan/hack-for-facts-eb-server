@@ -172,8 +172,7 @@ export interface JusticeCaseLineageCandidatesTable {
 }
 
 // ── issuing_bodies / decisions / decision_subject_links (API-04) ──────────────
-// SERVED AS STORED under the scoped human instruction (core/types.ts): both
-// stored privacy classes and the link evidence JSON. Exact columns of
+// The repository gates decisions and their links on the parent privacy class. Exact columns of
 // 20260629T132000__justice_decisions.
 
 export interface JusticeIssuingBodiesTable {

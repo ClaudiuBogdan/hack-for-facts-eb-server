@@ -44,22 +44,9 @@ export interface PublicDebateNotificationOrchestrator {
   subscriptionService: PublicDebateEntitySubscriptionService;
 }
 
-const buildReplyTextPreview = (
-  input: PublicDebateEntityUpdateNotification['reply']
-): string | null => {
-  const textBody = input?.textBody?.trim();
-  if (textBody === undefined || textBody === '') {
-    return null;
-  }
-
-  return textBody.length > 400 ? `${textBody.slice(0, 397)}...` : textBody;
-};
-
 const buildRunIdParts = (input: PublicDebateEntityUpdateNotification): string[] => {
   const runIdParts = [input.eventType, input.thread.id];
-  if (input.reply !== undefined) {
-    runIdParts.push(input.reply.id);
-  } else if (input.basedOnEntryId !== undefined) {
+  if (input.basedOnEntryId !== undefined) {
     runIdParts.push(input.basedOnEntryId);
   }
 
@@ -119,11 +106,11 @@ const publishEntityUpdate = async (
     institutionEmail: input.thread.record.institutionEmail,
     subject: input.thread.record.subject,
     occurredAt: input.occurredAt.toISOString(),
-    ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
-    ...(input.reply !== undefined ? { replyTextPreview: buildReplyTextPreview(input.reply) } : {}),
+    ...(input.approvedPublicExcerpt !== undefined
+      ? { approvedPublicExcerpt: input.approvedPublicExcerpt }
+      : {}),
     ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
     ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
-    ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
   };
 
   const enqueueInput =
@@ -309,12 +296,20 @@ const combinePublishResults = (
   };
 };
 
-export const makePublicDebateNotificationOrchestrator = (
-  deps: MakePublicDebateNotificationOrchestratorDeps
-): PublicDebateNotificationOrchestrator => {
+export const makePublicDebateEntityUpdatePublisher = (
+  deps: Pick<
+    MakePublicDebateNotificationOrchestratorDeps,
+    | 'entityRepo'
+    | 'extendedNotificationsRepo'
+    | 'deliveryRepo'
+    | 'composeJobScheduler'
+    | 'campaignAuditCcRecipients'
+    | 'logger'
+  >
+): PublicDebateEntityUpdatePublisher => {
   const logger = deps.logger.child({ component: 'PublicDebateNotificationOrchestrator' });
 
-  const updatePublisher: PublicDebateEntityUpdatePublisher = {
+  return {
     async publish(input) {
       const entityName = await loadEntityName(deps.entityRepo, input, logger);
       const entityUpdateResult = await publishEntityUpdate(
@@ -352,6 +347,13 @@ export const makePublicDebateNotificationOrchestrator = (
       return ok(combinePublishResults(entityUpdateResult.value, adminFailureResult.value));
     },
   };
+};
+
+export const makePublicDebateNotificationOrchestrator = (
+  deps: MakePublicDebateNotificationOrchestratorDeps
+): PublicDebateNotificationOrchestrator => {
+  const logger = deps.logger.child({ component: 'PublicDebateNotificationOrchestrator' });
+  const updatePublisher = makePublicDebateEntityUpdatePublisher(deps);
 
   const subscriptionService: PublicDebateEntitySubscriptionService = {
     async ensureSubscribed(userId, entityCui) {

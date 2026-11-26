@@ -17,6 +17,78 @@ import {
 const testLogger = pinoLogger({ level: 'silent' });
 
 describe('processSendJob', () => {
+  it.each([
+    ['historical unreviewed', { eventType: 'reply_received' }],
+    ['historical reviewed', { eventType: 'reply_reviewed' }],
+    [
+      'changed excerpt',
+      {
+        eventType: 'reply_reviewed',
+        replyPublicationVersion: 1,
+        replyTextPreview: 'Unapproved replacement',
+      },
+    ],
+    [
+      'different entry',
+      {
+        eventType: 'reply_reviewed',
+        replyPublicationVersion: 1,
+        basedOnEntryId: 'another',
+        replyEntryId: 'another',
+      },
+    ],
+  ])('suppresses previously rendered reply mail for %s', async (_name, overrides) => {
+    const deliveryRepo = makeFakeDeliveryRepo({
+      approvedReplyExcerpts: [
+        {
+          threadId: 'thread-1',
+          threadKey: 'key',
+          entityCui: '123',
+          entryId: 'entry-1',
+          excerpt: 'Approved text',
+        },
+      ],
+      deliveries: [
+        createTestDeliveryRecord({
+          id: 'queued-reply',
+          notificationType: 'funky:outbox:entity_update',
+          toEmail: 'user@example.com',
+          renderedSubject: 'Reply',
+          renderedHtml: '<p>Old body</p>',
+          renderedText: 'Old body',
+          metadata: {
+            threadId: 'thread-1',
+            threadKey: 'key',
+            entityCui: '123',
+            basedOnEntryId: 'entry-1',
+            replyEntryId: 'entry-1',
+            replyTextPreview: 'Approved text',
+            ...overrides,
+          },
+        }),
+      ],
+    });
+    const send = vi.fn(async () => ok({ emailId: 'mock' }));
+    const result = await processSendJob(
+      {
+        deliveryRepo,
+        notificationsRepo: makeFakeExtendedNotificationsRepo(),
+        userEmailFetcher: {
+          getEmail: async () => ok(null),
+          getEmailsByUserIds: async () => ok(new Map()),
+        },
+        emailSender: { send },
+        tokenSigner: makeFakeTokenSigner(),
+        apiBaseUrl: 'https://example.invalid',
+        environment: 'test',
+        log: testLogger,
+      },
+      { outboxId: 'queued-reply' }
+    );
+    expect(result.status).toBe('failed_permanent');
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('holds an old delivery retry before calling Resend', async () => {
     const deliveryRepo = makeFakeDeliveryRepo({
       deliveries: [
