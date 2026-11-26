@@ -810,16 +810,27 @@ describe('the IFRS-form series on the transports', () => {
       ],
     });
     expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: true });
-    // Through an alias and a fragment too; formEvidence alone is enough.
-    await gql(
+    // Through an alias and a fragment too; formEvidence alone is enough. The
+    // request must itself succeed and reach the profile read.
+    const before = getProfileData.mock.calls.length;
+    const aliased = await gql(
       app,
       `query { company(cui: "${CUI}") { years: financials { ...F } } } fragment F on CompanyFinancialYear { formEvidence }`
     );
-    expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: true });
+    expect(aliased.errors).toBeUndefined();
+    expect(aliased.data?.['company']).toEqual({
+      years: [{ formEvidence: 'anaf_statement_layout' }, { formEvidence: null }],
+    });
+    expect(getProfileData.mock.calls.length).toBeGreaterThan(before);
+    expect(getProfileData.mock.calls.slice(before).map((call) => call[2])).toEqual(
+      getProfileData.mock.calls.slice(before).map(() => ({ formMarks: true }))
+    );
     // Not selected: the profile read is not asked for the marks at all.
     for (const selection of ['cui', 'cui financials { year turnover }']) {
+      const calls = getProfileData.mock.calls.length;
       const plain = await gql(app, `query { company(cui: "${CUI}") { ${selection} } }`);
       expect(plain.errors).toBeUndefined();
+      expect(getProfileData.mock.calls.length).toBeGreaterThan(calls);
       expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: false });
     }
   });

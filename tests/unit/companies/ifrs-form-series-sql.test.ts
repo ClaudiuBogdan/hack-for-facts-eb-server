@@ -36,18 +36,17 @@ interface Statement {
 type Answer = readonly unknown[] | Error;
 
 class ScriptedDriver extends DummyDriver {
-  constructor(private readonly answer: (sql: string) => Answer) {
+  constructor(private readonly answer: (sql: string) => Answer | Promise<Answer>) {
     super();
   }
 
   override acquireConnection(): Promise<DatabaseConnection> {
     const answer = this.answer;
     return Promise.resolve({
-      executeQuery: (query) => {
-        const result = answer(query.sql);
-        return result instanceof Error
-          ? Promise.reject(result)
-          : Promise.resolve({ rows: [...result] as never[] });
+      executeQuery: async (query) => {
+        const result = await answer(query.sql);
+        if (result instanceof Error) throw result;
+        return { rows: [...result] as never[] };
       },
       streamQuery: async function* () {
         // never streamed by the companies repo
@@ -58,7 +57,7 @@ class ScriptedDriver extends DummyDriver {
 
 /** Successful statements only: a rejected one is not in the log. */
 const scriptedDb = (
-  answer: (sql: string) => Answer
+  answer: (sql: string) => Answer | Promise<Answer>
 ): { db: Kysely<ProdDatabase>; statements: Statement[] } => {
   const statements: Statement[] = [];
   const db = new Kysely<ProdDatabase>({
@@ -81,6 +80,23 @@ const scriptedDb = (
 };
 
 const pgError = (code: string): Error => Object.assign(new Error(`pg ${code}`), { code });
+
+/** A statement held back until `release` is called. */
+const gate = (): { readonly held: Promise<void>; readonly release: () => void } => {
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    held,
+    release: () => {
+      release();
+    },
+  };
+};
+
+/** Let every settled promise run its continuations. */
+const settled = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 const CUI = '1590082';
 const IFRS_VIEW = '"companies_v2"."ifrs_form_financials" as "v"';
@@ -472,6 +488,62 @@ describe('a runtime that cannot read the views answers unknown, never none', () 
     }
   });
 
+  it('a probe that fails while a read records a loss leaves no stale answer behind', async () => {
+    const QUALIFICATION = '"companies_v2"."financial_qualification_active"';
+    const T0 = 1_000_000;
+    let viewsMissing = true;
+    let probeFails = false;
+    let probeGate: Promise<void> | null = null;
+    let typedGate: Promise<void> | null = null;
+    const { db } = scriptedDb(async (sql) => {
+      const onViews = sql.includes(IFRS_VIEW) || sql.includes(FORM_VIEW);
+      if (sql.includes('limit')) {
+        if (probeGate !== null) await probeGate;
+        if (onViews && probeFails) return pgError('57014');
+        return onViews && viewsMissing ? pgError('42P01') : [];
+      }
+      if (typedGate !== null && sql.includes(TYPED_READ) && sql.includes(QUALIFICATION)) {
+        await typedGate;
+        return pgError('42501');
+      }
+      return views([ifrsRow()], [], [typedRow()])(sql);
+    });
+    const repo = makeCompaniesRepo(db);
+    const now = vi.spyOn(Date, 'now');
+    try {
+      // The views are missing at first: known as unreadable.
+      now.mockReturnValue(T0);
+      expect((await repo.getIfrsFormSeries(CUI))._unsafeUnwrap()).toBeNull();
+      // A typed read starts and waits on its statement.
+      const typed = gate();
+      typedGate = typed.held;
+      const olderRead = repo.getFinancials(CUI);
+      await settled();
+      // The retry window ends; the views are back; a new probe starts and waits.
+      now.mockReturnValue(T0 + 11 * 60 * 1000);
+      viewsMissing = false;
+      probeFails = true;
+      const probe = gate();
+      probeGate = probe.held;
+      const duringProbe = repo.getIfrsFormSeries(CUI);
+      await settled();
+      // The older read loses the qualification view and records it.
+      typed.release();
+      expect((await olderRead).isOk()).toBe(true);
+      // The probe then fails with a real error: that read is an error.
+      probe.release();
+      expect((await duringProbe).isErr()).toBe(true);
+      // Nothing built from the old flags is left: the next read probes again
+      // and finds the views.
+      probeFails = false;
+      probeGate = null;
+      typedGate = null;
+      expect((await repo.getIfrsFormSeries(CUI))._unsafeUnwrap()?.years).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('a real database error stays an error, never an empty or unknown answer', async () => {
     for (const code of ['57014', '08006']) {
       for (const failing of [IFRS_VIEW, FORM_VIEW]) {
@@ -505,13 +577,22 @@ describe('the company profile marks its own typed years', () => {
     (await makeCompaniesRepo(db).getProfileData(CUI, UNAVAILABLE_SCOPE, WITH_MARKS))._unsafeUnwrap()
       ?.financials ?? [];
 
-  it('a profile that does not ask for the marks issues no statement for them', async () => {
+  it('a profile that does not ask for the marks issues no read of them, only the shared probe', async () => {
     const { db, statements } = scriptedDb(profile(() => [markRow()]));
     const repo = makeCompaniesRepo(db);
     const plain = (await repo.getProfileData(CUI, UNAVAILABLE_SCOPE))._unsafeUnwrap();
     expect(plain?.financials.map((y) => y.reportingForm)).toEqual([null, null]);
     expect(served(statements, FORM_VIEW)).toHaveLength(0);
     expect(served(statements, IFRS_VIEW)).toHaveLength(0);
+    // The capability probe is shared with the typed statements read: on a cold
+    // repo it touches each view once (`limit 1`, the probe CUI), and never again
+    // while the capabilities are known.
+    const onViews = (): Statement[] =>
+      statements.filter((x) => x.sql.includes(FORM_VIEW) || x.sql.includes(IFRS_VIEW));
+    expect(onViews()).toHaveLength(2);
+    expect(onViews().every((x) => x.sql.includes('limit'))).toBe(true);
+    await repo.getProfileData(CUI, UNAVAILABLE_SCOPE);
+    expect(onViews()).toHaveLength(2);
   });
 
   it('one extra one-company statement; the year of the same publisher and layout is marked', async () => {

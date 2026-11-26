@@ -652,18 +652,18 @@ export const makeCompaniesRepo = (
    * A read found capabilities unreadable after the probe. They are marked on
    * top of what the cache holds NOW, not of the snapshot the read started
    * with, so two fallbacks of one request cannot undo each other; `seen` is
-   * used only when no entry is left. Re-probed after CAPABILITY_RETRY_MS like
-   * every incomplete answer.
+   * used only when no entry is left. When the entry is a probe still in
+   * flight and that probe fails, nothing is kept: its error is not replaced
+   * by an answer built from older flags, and the next caller probes again.
+   * Re-probed after CAPABILITY_RETRY_MS like every incomplete answer.
    */
   const markUnreadable = (lost: Partial<ServingCapabilities>, seen: ServingCapabilities): void => {
     const current = capabilityCache?.promise ?? Promise.resolve(seen);
-    capabilityCache = {
-      at: Date.now(),
-      promise: current.then(
-        (known) => ({ ...known, ...lost }),
-        () => ({ ...seen, ...lost })
-      ),
-    };
+    const promise = current.then((known) => ({ ...known, ...lost }));
+    capabilityCache = { at: Date.now(), promise };
+    promise.catch(() => {
+      if (capabilityCache?.promise === promise) capabilityCache = null;
+    });
   };
 
   /**

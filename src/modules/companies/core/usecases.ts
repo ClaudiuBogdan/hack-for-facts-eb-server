@@ -1034,8 +1034,10 @@ const ifrsFileYearsOf = (
 
 /**
  * A profile never compares across a change of form: the two typed years are
- * marked differently (IFRS on one side only), or IFRS-file years lie between
- * them. Unknown forms (nothing marked, neither list readable) change nothing.
+ * marked differently (IFRS on one side only), or both are unmarked and
+ * IFRS-file years lie between them. Two IFRS-marked years are on the form of
+ * any IFRS-file year between them, so nothing changed there. Unknown forms
+ * (nothing marked, neither list readable) change nothing.
  */
 const formChanged = (
   latest: CompanyFinancialYear,
@@ -1043,7 +1045,8 @@ const formChanged = (
   ifrsFileYears: readonly number[]
 ): boolean =>
   latest.reportingForm !== prior.reportingForm ||
-  ifrsFileYears.some((year) => year > prior.year && year < latest.year);
+  (latest.reportingForm === null &&
+    ifrsFileYears.some((year) => year > prior.year && year < latest.year));
 
 const computeTrajectory = (
   years: readonly CompanyFinancialYear[],

@@ -515,6 +515,24 @@ describe('makeCompanyFinancials IFRS-form series (PRIV-ZVPV)', () => {
     });
   });
 
+  it('two IFRS-marked years stay comparable with IFRS-file years between them', async () => {
+    // The years between are on the same form as both ends: no change of form.
+    const typed = [finYear(2020, '1100.00', '12'), finYear(2014, '1000.00', '10')];
+    const out = await financials(typed, {
+      years: [ifrsYear(2016), ifrsYear(2015)],
+      marks: [mark(2020), mark(2014)],
+    });
+    expect(out?.years.map((y) => y.reportingForm)).toEqual(['ifrs', 'ifrs']);
+    expect(out?.trajectory).toMatchObject({
+      fromYear: 2014,
+      toYear: 2020,
+      turnoverDelta: '100.00',
+      turnoverDeltaReason: null,
+      employeesDelta: '2',
+      employeesDeltaReason: null,
+    });
+  });
+
   it('the long-format ledger also witnesses an IFRS-file year between the compared years', async () => {
     const typed = [finYear(2017, '1100.00', '12'), finYear(2011, '1000.00', '10')];
     const ledger = (year: number, filerClass: string | null): CompanyLongFormStatement => ({

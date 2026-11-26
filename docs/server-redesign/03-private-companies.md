@@ -633,10 +633,13 @@ output: { ok, kind:'resolution', query, matches: [{ value, label, cui?, confiden
     same list on this tool, serve the Ministry of Finance IFRS-file years (filer class `ir`,
     FY2012–2018) from the view `companies_v2.ifrs_form_financials`. Each typed year carries
     `reportingForm` / `formEvidence` from `companies_v2.statement_reporting_form`; null means
-    unmarked, never "the ordinary form". Each view is its own one-company statement behind one
-    capability probe and is never folded into the typed statements read; `company(cui)` reads
-    the marks only when `financials { reportingForm | formEvidence }` is selected (the MCP
-    snapshot always does), so a profile without them gains no statement. A figure is null for a
+    not marked, or a marker this runtime cannot read: never "the ordinary form". Each view is its
+    own one-company statement and is never folded into the typed statements read; `company(cui)`
+    reads the marks only when `financials { reportingForm | formEvidence }` is selected (the MCP
+    snapshot always does), so a profile without them gains no read. Both views sit behind one
+    capability, probed together with the typed statements' capabilities (`limit 1` on the probe
+    CUI, once while the answer is complete, again after the retry window otherwise), so a real
+    error of that probe fails the read that started it. A figure is null for a
     blank source cell and for a layout without exactly one verified rule. The figures are source
     observations outside the admission policy: they never enter `years`, `latest`, `trajectory`,
     a summary or `hasFinancials`. A trajectory answers `reporting_form_changed` on all three
