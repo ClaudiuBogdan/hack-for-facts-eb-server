@@ -51,6 +51,7 @@ describe('User data anonymizer', () => {
     const anonymizedUserId = buildAnonymizedUserId(userId);
     const notificationId = randomUUID();
     const outboxId = randomUUID();
+    const subscriberOutboxId = randomUUID();
     const mapId = `map-${suffix}`;
     const datasetId = randomUUID();
     const threadId = randomUUID();
@@ -126,6 +127,25 @@ describe('User data anonymizer', () => {
           userId,
           email: `user-${suffix}@example.com`,
           sourceClientId: 'client-1',
+        },
+      } as never)
+      .execute();
+
+    await userDb
+      .insertInto('notificationsoutbox')
+      .values({
+        id: subscriberOutboxId,
+        user_id: otherUserId,
+        notification_type: 'funky:outbox:entity_update',
+        scope_key: `reply:${suffix}`,
+        delivery_key: `reply:${suffix}`,
+        status: 'pending',
+        rendered_html: '<p>Approved public excerpt</p>',
+        metadata: {
+          eventType: 'reply_reviewed',
+          threadId,
+          replyTextPreview: 'Approved public excerpt',
+          replyPublicationVersion: 1,
         },
       } as never)
       .execute();
@@ -240,6 +260,7 @@ describe('User data anonymizer', () => {
                 bccAddresses: [],
                 subject: `Subject ${userId}`,
                 textBody: `Body ${userId}`,
+                approvedPublicExcerpt: 'Approved public excerpt',
                 htmlBody: `<p>${userId}</p>`,
                 headers: { 'x-user': userId },
                 attachments: [],
@@ -885,11 +906,23 @@ describe('User data anonymizer', () => {
     expect(JSON.stringify(interaction.record)).not.toContain(userId);
     expect(interaction.audit_events).toEqual([]);
 
+    const subscriberCopy = await userDb
+      .selectFrom('notificationsoutbox')
+      .select(['metadata', 'user_id', 'status', 'rendered_html'])
+      .where('id', '=', subscriberOutboxId)
+      .executeTakeFirstOrThrow();
+    expect(subscriberCopy).toMatchObject({
+      user_id: otherUserId,
+      status: 'skipped_no_email',
+      rendered_html: null,
+    });
+    expect(subscriberCopy.metadata).not.toHaveProperty('replyTextPreview');
     const thread = await userDb
       .selectFrom('institutionemailthreads')
       .selectAll()
       .where('id', '=', threadId)
       .executeTakeFirstOrThrow();
+    expect(JSON.stringify(thread.record)).not.toContain('Approved public excerpt');
     expect(thread.record).toMatchObject({
       ownerUserId: anonymizedUserId,
       requesterOrganizationName: null,

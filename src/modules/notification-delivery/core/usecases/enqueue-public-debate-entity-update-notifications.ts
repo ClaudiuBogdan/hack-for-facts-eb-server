@@ -2,6 +2,11 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { PUBLIC_DEBATE_CAMPAIGN_KEY } from '@/common/campaign-keys.js';
 
+import { createValidationError, type DeliveryError } from '../errors.js';
+import {
+  checkPublicDebateReplyPublication,
+  UNAPPROVED_REPLY,
+} from './check-public-debate-reply-publication.js';
 import {
   enqueueCreatedOrReusedOutbox,
   type ReusedOutboxComposeStrategy,
@@ -11,7 +16,6 @@ import {
   buildPublicDebateEntityUpdateScopeKey,
 } from './public-debate-entity-update-keys.js';
 
-import type { DeliveryError } from '../errors.js';
 import type {
   ComposeJobScheduler,
   DeliveryRepository,
@@ -40,9 +44,8 @@ interface PublicDebateEntityUpdateNotificationInputBase {
   occurredAt: string;
   replyEntryId?: string;
   basedOnEntryId?: string;
-  replyTextPreview?: string | null;
+  approvedPublicExcerpt?: string;
   resolutionCode?: string | null;
-  reviewNotes?: string | null;
 }
 
 type ThreadStartedPublicDebateEntityUpdateNotificationInput =
@@ -114,11 +117,13 @@ const buildMetadata = (
   institutionEmail: input.institutionEmail,
   subject: input.subject,
   occurredAt: input.occurredAt,
-  ...(input.replyEntryId !== undefined ? { replyEntryId: input.replyEntryId } : {}),
+  ...(input.basedOnEntryId !== undefined ? { replyEntryId: input.basedOnEntryId } : {}),
   ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
-  ...(input.replyTextPreview !== undefined ? { replyTextPreview: input.replyTextPreview } : {}),
+  ...(input.approvedPublicExcerpt !== undefined && {
+    replyPublicationVersion: 1,
+    replyTextPreview: input.approvedPublicExcerpt,
+  }),
   ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
-  ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
   ...(input.eventType === 'thread_started' && recipientRole !== undefined
     ? { [THREAD_STARTED_RECIPIENT_ROLE_METADATA_KEY]: recipientRole }
     : {}),
@@ -137,6 +142,12 @@ export const enqueuePublicDebateEntityUpdateNotifications = async (
     ...(input.replyEntryId !== undefined ? { replyEntryId: input.replyEntryId } : {}),
     ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
   });
+  const publication = await checkPublicDebateReplyPublication(
+    deps.deliveryRepo,
+    buildMetadata(input)
+  );
+  if (publication.isErr()) return err(publication.error);
+  if (!publication.value) return err(createValidationError(UNAPPROVED_REPLY));
   const notificationsResult = await deps.notificationsRepo.findActiveByTypeAndEntity(
     'funky:notification:entity_updates',
     input.entityCui

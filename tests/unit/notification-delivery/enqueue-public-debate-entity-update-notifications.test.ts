@@ -291,7 +291,17 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
         }),
       ],
     });
-    const deliveryRepo = makeFakeDeliveryRepo();
+    const deliveryRepo = makeFakeDeliveryRepo({
+      approvedReplyExcerpts: [
+        {
+          threadId: 'thread-1',
+          threadKey: 'thread-key-1',
+          entityCui: '12345678',
+          entryId: 'reply-1',
+          excerpt: 'Va raspundem in termenul legal.',
+        },
+      ],
+    });
 
     const result = await enqueuePublicDebateEntityUpdateNotifications(
       {
@@ -303,16 +313,16 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
       },
       {
         runId: 'run-1',
-        eventType: 'reply_received',
+        eventType: 'reply_reviewed',
         entityCui: '12345678',
         threadId: 'thread-1',
         threadKey: 'thread-key-1',
-        phase: 'reply_received_unreviewed',
+        phase: 'resolved_positive',
         institutionEmail: 'contact@primarie.ro',
         subject: 'Solicitare organizare dezbatere publica',
         occurredAt: '2026-03-31T10:00:00.000Z',
-        replyEntryId: 'reply-1',
-        replyTextPreview: 'Va raspundem in termenul legal.',
+        basedOnEntryId: 'reply-1',
+        approvedPublicExcerpt: 'Va raspundem in termenul legal.',
       }
     );
 
@@ -325,7 +335,7 @@ describe('enqueuePublicDebateEntityUpdateNotifications', () => {
     }
 
     const outbox = await deliveryRepo.findByDeliveryKey(
-      'user-1:notif-1:funky:delivery:reply_thread-1_reply-1'
+      'user-1:notif-1:funky:delivery:review_thread-1_reply-1'
     );
     expect(outbox.isOk()).toBe(true);
     if (outbox.isOk()) {

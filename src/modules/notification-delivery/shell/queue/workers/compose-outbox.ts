@@ -43,6 +43,10 @@ import {
   type SendJobPayload,
 } from '../../../core/types.js';
 import {
+  checkPublicDebateReplyPublication,
+  UNAPPROVED_REPLY,
+} from '../../../core/usecases/check-public-debate-reply-publication.js';
+import {
   FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE,
   parseWeeklyProgressDigestOutboxMetadata,
 } from '../../../core/weekly-progress-digest.js';
@@ -1167,6 +1171,14 @@ export const composeExistingOutbox = async (
         'Public debate update compose failed permanently'
       );
     }
+
+    const publication = await checkPublicDebateReplyPublication(deliveryRepo, outbox.metadata);
+    if (publication.isErr()) {
+      const message = getErrorMessage(publication.error);
+      await releaseComposeClaim(deliveryRepo, outboxId, message, getComposeClaimId(outbox), log);
+      throw new Error(message);
+    }
+    if (!publication.value) return failCurrentOutboxPermanently(UNAPPROVED_REPLY, UNAPPROVED_REPLY);
 
     const renderResult = await emailRenderer.render(templatePropsResult.value);
     if (renderResult.isErr()) {

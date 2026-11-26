@@ -111,6 +111,29 @@ export const makeDeliveryRepo = (config: DeliveryRepoConfig): DeliveryRepository
       );
 
   return {
+    async hasApprovedReplyExcerpt(input) {
+      try {
+        const row = await db
+          .selectFrom('institutionemailthreads')
+          .select('id')
+          .where('id', '=', input.threadId)
+          .where('thread_key', '=', input.threadKey)
+          .where('entity_cui', '=', input.entityCui)
+          .where(
+            sql<boolean>`exists (
+            select 1 from jsonb_array_elements(record->'correspondence') as entry
+            where entry->>'id' = ${input.entryId}
+              and entry->>'direction' = 'inbound'
+              and entry->>'approvedPublicExcerpt' = ${input.excerpt}
+          )`
+          )
+          .executeTakeFirst();
+        return ok(row !== undefined);
+      } catch (error) {
+        log.error({ error, threadId: input.threadId }, 'Failed to check approved reply excerpt');
+        return err(createDatabaseError('Failed to check approved reply excerpt'));
+      }
+    },
     async create(
       input: CreateDeliveryInput
     ): Promise<Result<NotificationOutboxRecord, DeliveryError>> {

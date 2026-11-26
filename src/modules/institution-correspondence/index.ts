@@ -48,6 +48,7 @@ export {
   CorrespondenceAttachmentMetadataSchema,
   CorrespondenceEntrySchema,
   ThreadReviewSchema,
+  ApprovedPublicExcerptSchema,
   AdminResponseEventSchema,
   AdminWorkflowSchema,
   CorrespondenceThreadRecordSchema,
@@ -215,6 +216,7 @@ export {
 export { makePublicDebateTemplateRenderer } from './shell/templates/public-debate-request.js';
 export {
   makePublicDebateNotificationOrchestrator,
+  makePublicDebateEntityUpdatePublisher,
   type MakePublicDebateNotificationOrchestratorDeps,
   type PublicDebateNotificationOrchestrator,
 } from './shell/public-debate-notification-orchestrator.js';

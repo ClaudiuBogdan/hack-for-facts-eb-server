@@ -358,7 +358,8 @@ describe('public debate request notification snapshots', () => {
       id: 'reply-1',
       direction: 'inbound',
       occurredAt: '2026-04-03T08:00:00.000Z',
-      textBody: 'Raspunsul a fost analizat.',
+      textBody: 'Private correspondence.',
+      approvedPublicExcerpt: 'Raspunsul a fost analizat.',
     });
     const harness = createPublicDebateNotificationHarness({
       threads: [
@@ -418,7 +419,7 @@ describe('public debate request notification snapshots', () => {
             eventType: 'reply_reviewed',
             basedOnEntryId: 'reply-1',
             resolutionCode: 'debate_announced',
-            reviewNotes: 'Dezbaterea a fost programata.',
+            replyTextPreview: 'Raspunsul a fost analizat.',
           })
         );
       }
@@ -483,45 +484,49 @@ describe('public debate request notification snapshots', () => {
     expect(harness.composeJobScheduler.enqueue).not.toHaveBeenCalled();
   });
 
-  it('skips snapshot publishing when the latest platform thread is still sending', async () => {
-    const harness = createPublicDebateNotificationHarness({
-      threads: [
-        createThreadRecord({
-          id: 'thread-sending',
-          entityCui: '12345678',
-          phase: 'sending',
-          record: createThreadAggregateRecord({
-            campaign: PUBLIC_DEBATE_REQUEST_TYPE,
-            campaignKey: 'funky',
-            submissionPath: 'platform_send',
-            subject: 'Cerere dezbatere buget local - Oras Test',
-            institutionEmail: 'contact@primarie.ro',
+  it.each(['sending', 'reply_received_unreviewed'] as const)(
+    'skips late subscriber publication for phase %s',
+    async (phase) => {
+      const harness = createPublicDebateNotificationHarness({
+        threads: [
+          createThreadRecord({
+            id: 'thread-sending',
+            entityCui: '12345678',
+            phase,
+            record: createThreadAggregateRecord({
+              correspondence: [createCorrespondenceEntry({ textBody: 'Unreviewed private text' })],
+              campaign: PUBLIC_DEBATE_REQUEST_TYPE,
+              campaignKey: 'funky',
+              submissionPath: 'platform_send',
+              subject: 'Cerere dezbatere buget local - Oras Test',
+              institutionEmail: 'contact@primarie.ro',
+            }),
           }),
-        }),
-      ],
-    });
+        ],
+      });
 
-    const result = await harness.requestPlatformSend({
-      ownerUserId: 'user-1',
-      entityCui: '12345678',
-      institutionEmail: 'contact@primarie.ro',
-    });
+      const result = await harness.requestPlatformSend({
+        ownerUserId: 'user-1',
+        entityCui: '12345678',
+        institutionEmail: 'contact@primarie.ro',
+      });
 
-    expect(result.isOk()).toBe(true);
-    expect(harness.send).not.toHaveBeenCalled();
-    expect(harness.snapshotResults).toHaveLength(1);
+      expect(result.isOk()).toBe(true);
+      expect(harness.send).not.toHaveBeenCalled();
+      expect(harness.snapshotResults).toHaveLength(1);
 
-    const snapshot = harness.snapshotResults[0];
-    expect(snapshot).toBeDefined();
-    if (snapshot === undefined) {
-      throw new Error('Expected snapshot result to be present');
+      const snapshot = harness.snapshotResults[0];
+      expect(snapshot).toBeDefined();
+      if (snapshot === undefined) {
+        throw new Error('Expected snapshot result to be present');
+      }
+      expect(snapshot.isOk()).toBe(true);
+      if (snapshot.isOk()) {
+        expect(snapshot.value.status).toBe('skipped_phase');
+        expect(snapshot.value.eventType).toBeUndefined();
+        expect(snapshot.value.publishResult).toBeUndefined();
+      }
+      expect(harness.composeJobScheduler.enqueue).not.toHaveBeenCalled();
     }
-    expect(snapshot.isOk()).toBe(true);
-    if (snapshot.isOk()) {
-      expect(snapshot.value.status).toBe('skipped_phase');
-      expect(snapshot.value.eventType).toBeUndefined();
-      expect(snapshot.value.publishResult).toBeUndefined();
-    }
-    expect(harness.composeJobScheduler.enqueue).not.toHaveBeenCalled();
-  });
+  );
 });

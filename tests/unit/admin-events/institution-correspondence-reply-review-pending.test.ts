@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { ok, err } from 'neverthrow';
+import { describe, expect, it, vi } from 'vitest';
 
 import { makeInstitutionCorrespondenceReplyReviewPendingEventDefinition } from '@/modules/admin-events/index.js';
 
@@ -10,6 +11,65 @@ import {
 } from '../institution-correspondence/fake-repo.js';
 
 describe('institution_correspondence.reply_review_pending event definition', () => {
+  it('publishes only an expressly approved entry and recovers after the review committed', async () => {
+    const entry = createCorrespondenceEntry({ id: 'reply', textBody: 'Private original' });
+    const payload = { threadId: 'thread', basedOnEntryId: entry.id };
+    const outcome = {
+      resolutionCode: 'debate_announced' as const,
+      reviewNotes: 'Internal note',
+      approvedPublicExcerpt: 'Approved public text',
+    };
+    const repo = makeInMemoryCorrespondenceRepo({
+      threads: [
+        createThreadRecord({
+          id: 'thread',
+          phase: 'reply_received_unreviewed',
+          record: createThreadAggregateRecord({
+            submissionPath: 'self_send_cc',
+            correspondence: [entry],
+          }),
+        }),
+      ],
+    });
+    const published = {
+      status: 'queued' as const,
+      notificationIds: [],
+      createdOutboxIds: [],
+      reusedOutboxIds: [],
+      queuedOutboxIds: [],
+      enqueueFailedOutboxIds: [],
+    };
+    const publish = vi.fn(async () => ok(published));
+    const definition = makeInstitutionCorrespondenceReplyReviewPendingEventDefinition({
+      repo,
+      updatePublisher: {
+        publish: async (notification) => {
+          if (publish.mock.calls.length === 0) {
+            await publish();
+            return err({
+              type: 'CorrespondenceDatabaseError',
+              message: 'Queue unavailable',
+              retryable: true,
+            });
+          }
+          expect(notification.approvedPublicExcerpt).toBe(outcome.approvedPublicExcerpt);
+          expect(notification.basedOnEntryId).toBe(entry.id);
+          expect(notification).not.toHaveProperty('reviewNotes');
+          return publish();
+        },
+      },
+    });
+    const context = (await definition.loadContext(payload))._unsafeUnwrap()!;
+    expect((await definition.applyOutcome({ payload, context, outcome })).isErr()).toBe(true);
+    const reviewed = (await definition.loadContext(payload))._unsafeUnwrap()!;
+    expect(reviewed.reply.approvedPublicExcerpt).toBe(outcome.approvedPublicExcerpt);
+    expect(reviewed.reply.textBody).toBe('Private original');
+    expect(definition.classifyState({ payload, context: reviewed })).toBe('actionable');
+    expect((await definition.applyOutcome({ payload, context: reviewed, outcome })).isOk()).toBe(
+      true
+    );
+  });
+
   it('loads context and applies a reply review outcome', async () => {
     const reply = createCorrespondenceEntry({
       id: 'reply-1',

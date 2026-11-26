@@ -136,6 +136,7 @@ describe('publishCurrentPlatformSendUpdate', () => {
   it('publishes reply_reviewed for reviewed platform threads using the latest review', async () => {
     const reply = createCorrespondenceEntry({
       id: 'reply-1',
+      approvedPublicExcerpt: 'Public statement.',
       direction: 'inbound',
       occurredAt: '2026-04-03T08:00:00.000Z',
     });
@@ -194,10 +195,9 @@ describe('publishCurrentPlatformSendUpdate', () => {
           entityCui: '12345678',
           phase: 'resolved_positive',
         }),
-        reply,
+        approvedPublicExcerpt: 'Public statement.',
         basedOnEntryId: 'reply-1',
         resolutionCode: 'debate_announced',
-        reviewNotes: 'Debate scheduled',
       })
     );
   });

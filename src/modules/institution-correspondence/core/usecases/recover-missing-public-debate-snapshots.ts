@@ -118,7 +118,6 @@ export const recoverMissingPublicDebateSnapshots = async (
     const scopeKey = buildPublicDebateEntityUpdateScopeKey({
       eventType: notification.eventType,
       threadId: notification.thread.id,
-      ...(notification.reply !== undefined ? { replyEntryId: notification.reply.id } : {}),
       ...(notification.basedOnEntryId !== undefined
         ? { basedOnEntryId: notification.basedOnEntryId }
         : {}),

@@ -3,7 +3,15 @@ import path from 'node:path';
 import { createConfig, parseEnv, type AppConfig } from '@/infra/config/index.js';
 import { initDatabases, type DatabaseClients } from '@/infra/database/client.js';
 import { createLogger } from '@/infra/logger/index.js';
-import { makeInstitutionCorrespondenceRepo } from '@/modules/institution-correspondence/index.js';
+import { makeEntityRepo } from '@/modules/entity/index.js';
+import {
+  makeInstitutionCorrespondenceRepo,
+  makePublicDebateEntityUpdatePublisher,
+} from '@/modules/institution-correspondence/index.js';
+import {
+  makeDeliveryRepo,
+  makeExtendedNotificationsRepo,
+} from '@/modules/notification-delivery/index.js';
 
 import { makeLocalAdminEventBundleStore } from './filesystem/bundle-store.js';
 import { startAdminEventRuntime } from './queue/runtime.js';
@@ -53,6 +61,16 @@ export const createAdminEventScriptContext = async (): Promise<AdminEventScriptC
 
   const registry = makeDefaultAdminEventRegistry({
     institutionCorrespondenceRepo: correspondenceRepo,
+    ...(adminEventRuntime.composeJobScheduler !== undefined && {
+      updatePublisher: makePublicDebateEntityUpdatePublisher({
+        entityRepo: makeEntityRepo(databases.budgetDb),
+        extendedNotificationsRepo: makeExtendedNotificationsRepo({ db: databases.userDb, logger }),
+        deliveryRepo: makeDeliveryRepo({ db: databases.userDb, logger }),
+        composeJobScheduler: adminEventRuntime.composeJobScheduler,
+        campaignAuditCcRecipients: [],
+        logger,
+      }),
+    }),
   });
   const bundleStore = makeLocalAdminEventBundleStore();
   const defaultExportDir = path.resolve('.local/admin-events');

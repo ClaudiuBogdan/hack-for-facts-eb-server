@@ -91,10 +91,8 @@ describe('recoverMissingPublicDebateSnapshots', () => {
             institutionEmail: input.thread.record.institutionEmail,
             subject: input.thread.record.subject,
             occurredAt: input.occurredAt.toISOString(),
-            ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
             ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
             ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
-            ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
           };
           const enqueueInput =
             input.eventType === 'thread_started'
@@ -318,10 +316,8 @@ describe('recoverMissingPublicDebateSnapshots', () => {
         institutionEmail: input.thread.record.institutionEmail,
         subject: input.thread.record.subject,
         occurredAt: input.occurredAt.toISOString(),
-        ...(input.reply !== undefined ? { replyEntryId: input.reply.id } : {}),
         ...(input.basedOnEntryId !== undefined ? { basedOnEntryId: input.basedOnEntryId } : {}),
         ...(input.resolutionCode !== undefined ? { resolutionCode: input.resolutionCode } : {}),
-        ...(input.reviewNotes !== undefined ? { reviewNotes: input.reviewNotes } : {}),
       };
       const enqueueInput =
         input.eventType === 'thread_started'
@@ -405,7 +401,7 @@ describe('recoverMissingPublicDebateSnapshots', () => {
         createThreadRecord({
           id: 'thread-sending',
           entityCui: '12345678',
-          phase: 'sending',
+          phase: 'reply_received_unreviewed',
           record: createThreadAggregateRecord({
             campaign: PUBLIC_DEBATE_REQUEST_TYPE,
             campaignKey: 'funky',
@@ -415,7 +411,7 @@ describe('recoverMissingPublicDebateSnapshots', () => {
         createThreadRecord({
           id: 'thread-closed',
           entityCui: '87654321',
-          phase: 'closed_no_response',
+          phase: 'resolved_positive',
           record: createThreadAggregateRecord({
             campaign: PUBLIC_DEBATE_REQUEST_TYPE,
             campaignKey: 'funky',
