@@ -365,7 +365,8 @@ export interface CompanyFinancialYear {
 /**
  * Why a trajectory delta is null: fewer_than_two_statements,
  * reporting_form_changed (the two years are on different forms, or IFRS-file
- * years lie between them: checked first, for all three deltas), not_assessed
+ * years, known from the IFRS-form list or the long-format ledger's class `ir`
+ * statements, lie between them: checked first, for all three deltas), not_assessed
  * (either year), policy_incompatible (different policy digest, evaluator or
  * release), latest_not_reported / prior_not_reported (that year's metric is
  * not `reported`), not_exact (a value that is not a plain number).
@@ -417,11 +418,12 @@ export interface CompanyLongFormStatement {
  * FY2012-2018), read from `companies_v2.ifrs_form_financials` (PRIV-ZVPV).
  * SOURCE OBSERVATIONS with a verified mapping, OUTSIDE the analytics admission
  * policy: never qualified, never part of the typed history, its latest year,
- * its trajectory, a summary or `hasFinancials`. A blank source cell is null
- * and an explicit zero is '0'; nothing is coalesced. `turnover` is the
+ * its trajectory, a summary or `hasFinancials`. A figure is null for a blank
+ * source cell and for a layout without exactly one verified rule for the
+ * metric; an explicit zero is '0'; nothing is coalesced. `turnover` is the
  * reporting form's net turnover, not the sales line of an IFRS income
- * statement. `netResult` is profit minus loss only when the source carries
- * both. `employees` is a headcount, never money.
+ * statement. `netResult` is profit minus loss only when both are served.
+ * `employees` is a headcount, never money.
  */
 export interface CompanyIfrsFormYear {
   readonly year: number;

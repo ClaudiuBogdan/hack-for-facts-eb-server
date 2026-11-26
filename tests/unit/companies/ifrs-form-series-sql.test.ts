@@ -403,6 +403,75 @@ describe('a runtime that cannot read the views answers unknown, never none', () 
     expect(longForm[0]?.sql).toContain(RESOURCES);
   });
 
+  it('a typed read that loses another capability does not make the views unknown', async () => {
+    // The qualification view passes its probe, then loses its grant: the typed
+    // read falls back to the statements alone. The IFRS-form views were not part
+    // of that statement and stay readable.
+    const QUALIFICATION = '"companies_v2"."financial_qualification_active"';
+    const { db } = scriptedDb((sql) =>
+      sql.includes(QUALIFICATION) && !sql.includes('limit')
+        ? pgError('42501')
+        : views([ifrsRow()], [markRow()], [typedRow()])(sql)
+    );
+    const repo = makeCompaniesRepo(db);
+    const [year] = (await repo.getFinancials(CUI))._unsafeUnwrap();
+    expect(year?.qualification.reason).toBe('qualification_unavailable');
+    expect((await repo.getIfrsFormSeries(CUI))._unsafeUnwrap()?.years).toHaveLength(1);
+  });
+
+  it('a real error on one view is never masked by a capability error on the other', async () => {
+    for (const [denied, failing] of [
+      [IFRS_VIEW, FORM_VIEW],
+      [FORM_VIEW, IFRS_VIEW],
+    ] as const) {
+      // At the read: one view denied, the other timing out.
+      const atRead = scriptedDb((sql) => {
+        if (sql.includes('limit')) return [];
+        if (sql.includes(denied)) return pgError('42501');
+        return sql.includes(failing) ? pgError('57014') : [];
+      });
+      expect((await makeCompaniesRepo(atRead.db).getIfrsFormSeries(CUI)).isErr()).toBe(true);
+      // At the probe: the read fails, and nothing is cached as unreadable.
+      let broken = true;
+      const atProbe = scriptedDb((sql) => {
+        if (!broken) return views([ifrsRow()], [])(sql);
+        if (sql.includes(denied)) return pgError('42501');
+        return sql.includes(failing) ? pgError('57014') : [];
+      });
+      const repo = makeCompaniesRepo(atProbe.db);
+      expect((await repo.getIfrsFormSeries(CUI)).isErr()).toBe(true);
+      broken = false;
+      expect((await repo.getIfrsFormSeries(CUI))._unsafeUnwrap()?.years).toHaveLength(1);
+    }
+  });
+
+  it('concurrent reads after the retry window share one probe', async () => {
+    let probes = 0;
+    const { db } = scriptedDb((sql) => {
+      if (sql.includes('limit')) probes += 1;
+      // The views stay missing, so the capability set is never complete.
+      return sql.includes(IFRS_VIEW) || sql.includes(FORM_VIEW)
+        ? pgError('42P01')
+        : views([], [], [typedRow()])(sql);
+    });
+    const repo = makeCompaniesRepo(db);
+    const now = vi.spyOn(Date, 'now');
+    try {
+      now.mockReturnValue(1_000_000);
+      await repo.getIfrsFormSeries(CUI);
+      expect(probes).toBe(5);
+      now.mockReturnValue(1_000_000 + 11 * 60 * 1000);
+      await Promise.all([
+        repo.getFinancials(CUI),
+        repo.getLongFormOnlyStatements(CUI),
+        repo.getIfrsFormSeries(CUI),
+      ]);
+      expect(probes).toBe(10);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('a real database error stays an error, never an empty or unknown answer', async () => {
     for (const code of ['57014', '08006']) {
       for (const failing of [IFRS_VIEW, FORM_VIEW]) {
@@ -431,9 +500,19 @@ describe('the company profile marks its own typed years', () => {
       if (sql.includes(FORM_VIEW) && !sql.includes('limit')) return marks(sql);
       return views([], [], [typedRow(), typedRow({ year: 2011, source_system: 'mfp' })])(sql);
     };
+  const WITH_MARKS = { formMarks: true } as const;
   const financialsOf = async (db: Kysely<ProdDatabase>) =>
-    (await makeCompaniesRepo(db).getProfileData(CUI, UNAVAILABLE_SCOPE))._unsafeUnwrap()
+    (await makeCompaniesRepo(db).getProfileData(CUI, UNAVAILABLE_SCOPE, WITH_MARKS))._unsafeUnwrap()
       ?.financials ?? [];
+
+  it('a profile that does not ask for the marks issues no statement for them', async () => {
+    const { db, statements } = scriptedDb(profile(() => [markRow()]));
+    const repo = makeCompaniesRepo(db);
+    const plain = (await repo.getProfileData(CUI, UNAVAILABLE_SCOPE))._unsafeUnwrap();
+    expect(plain?.financials.map((y) => y.reportingForm)).toEqual([null, null]);
+    expect(served(statements, FORM_VIEW)).toHaveLength(0);
+    expect(served(statements, IFRS_VIEW)).toHaveLength(0);
+  });
 
   it('one extra one-company statement; the year of the same publisher and layout is marked', async () => {
     const { db, statements } = scriptedDb(profile(() => [markRow()]));
@@ -457,16 +536,47 @@ describe('the company profile marks its own typed years', () => {
       })
     );
     const repo = makeCompaniesRepo(db);
-    const first = (await repo.getProfileData(CUI, UNAVAILABLE_SCOPE))._unsafeUnwrap();
+    const first = (await repo.getProfileData(CUI, UNAVAILABLE_SCOPE, WITH_MARKS))._unsafeUnwrap();
     expect(first?.financials.map((y) => y.reportingForm)).toEqual([null, null]);
     expect(first?.financials).toHaveLength(2);
     // Not read again inside the retry window.
-    await repo.getProfileData(CUI, UNAVAILABLE_SCOPE);
+    await repo.getProfileData(CUI, UNAVAILABLE_SCOPE, WITH_MARKS);
     expect(attempts).toBe(1);
   });
 
-  it('a real database error on the marks fails the profile read', async () => {
+  it('a real database error on the marks fails the profile that asked for them, and no other', async () => {
     const { db } = scriptedDb(profile(() => pgError('57014')));
-    expect((await makeCompaniesRepo(db).getProfileData(CUI, UNAVAILABLE_SCOPE)).isErr()).toBe(true);
+    const repo = makeCompaniesRepo(db);
+    expect((await repo.getProfileData(CUI, UNAVAILABLE_SCOPE, WITH_MARKS)).isErr()).toBe(true);
+    expect((await repo.getProfileData(CUI, UNAVAILABLE_SCOPE)).isOk()).toBe(true);
+  });
+
+  it('two capabilities lost in one profile read are both remembered', async () => {
+    const QUALIFICATION = '"companies_v2"."financial_qualification_active"';
+    let markAttempts = 0;
+    let qualifiedAttempts = 0;
+    const { db } = scriptedDb((sql) => {
+      if (sql.includes('"core"."organizations"') && !sql.includes('"parent"')) {
+        return [{ org_id: '1', cui: CUI, name: 'OMV PETROM SA' }];
+      }
+      if (sql.includes('limit')) return [];
+      if (sql.includes(FORM_VIEW)) {
+        markAttempts += 1;
+        return pgError('42501');
+      }
+      if (sql.includes(TYPED_READ) && sql.includes(QUALIFICATION)) {
+        qualifiedAttempts += 1;
+        return pgError('42501');
+      }
+      return sql.includes(TYPED_READ) ? [typedRow()] : [];
+    });
+    const repo = makeCompaniesRepo(db);
+    for (let request = 0; request < 3; request += 1) {
+      const data = (await repo.getProfileData(CUI, UNAVAILABLE_SCOPE, WITH_MARKS))._unsafeUnwrap();
+      expect(data?.financials).toHaveLength(1);
+    }
+    // Neither fallback restores what the other one learned.
+    expect(markAttempts).toBe(1);
+    expect(qualifiedAttempts).toBe(1);
   });
 });

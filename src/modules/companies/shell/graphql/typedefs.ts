@@ -513,7 +513,7 @@ const objectsAndQuery = /* GraphQL */ `
     flags: [CompanyFinancialQualityFlag!]!
   }
 
-  "Latest vs prior statement year. A delta uses only REPORTED values of that metric in both years under the same policy digest, evaluator and release (the net from the evaluator's netResult); one held metric removes only its own delta. Money deltas are exact at the inputs' own scale (two places minimum). Each null delta names its reason: reporting_form_changed (the two years are on different reporting forms, or Ministry IFRS-file years lie between them: checked first, all three deltas), not_assessed, policy_incompatible, latest_not_reported, prior_not_reported, not_exact."
+  "Latest vs prior statement year. A delta uses only REPORTED values of that metric in both years under the same policy digest, evaluator and release (the net from the evaluator's netResult); one held metric removes only its own delta. Money deltas are exact at the inputs' own scale (two places minimum). Each null delta names its reason: reporting_form_changed (the two years are on different reporting forms, or Ministry IFRS-file years, known from ifrsFormYears or longFormOnly (filerClass ir), lie between them: checked first, all three deltas), not_assessed, policy_incompatible, latest_not_reported, prior_not_reported, not_exact."
   type CompanyFinancialTrajectory {
     fromYear: Int
     toYear: Int
@@ -554,15 +554,15 @@ const objectsAndQuery = /* GraphQL */ `
     reportingForm: CompanyReportingForm!
     "How the form is known: mfp_filer_class_ir (the Ministry published the statement in its IFRS file)."
     formEvidence: String!
-    "The reporting form's net turnover as filed, exact: not the sales line of an IFRS income statement. Null = a blank source cell, never 0."
+    "The reporting form's net turnover as filed, exact: not the sales line of an IFRS income statement. Null = no figure (a blank source cell, or a layout without exactly one verified rule for the metric), never 0."
     turnover: Money
-    "As filed, exact. Null = a blank source cell; an explicit zero is 0."
+    "As filed, exact. Null = no figure (a blank source cell, or a layout without exactly one verified rule for the metric); an explicit zero is 0."
     netProfit: Money
-    "As filed, exact. Null = a blank source cell; an explicit zero is 0."
+    "As filed, exact. Null = no figure (a blank source cell, or a layout without exactly one verified rule for the metric); an explicit zero is 0."
     netLoss: Money
-    "Net profit minus net loss, only when the source carries both; null otherwise, never a one-sided figure."
+    "Net profit minus net loss, only when both are served; null otherwise, never a one-sided figure."
     netResult: Money
-    "Average number of employees: a headcount as a decimal string, never money."
+    "Average number of employees: a headcount as a decimal string, never money. Null = no figure (a blank source cell, or a layout without exactly one verified rule for the metric)."
     employees: BigInt
     "The Ministry's data.gov.ro file the line was read from; null when not recorded or not readable."
     sourceUrl: String

@@ -204,8 +204,9 @@ describe('makeCompanyProfile', () => {
     const d = deps({ repo: { getProfileData } });
     const res = await makeCompanyProfile(d, 'RO 2816464');
     expect(res.isOk()).toBe(true);
-    // One pinned registry scope rides along to the repo.
-    expect(getProfileData).toHaveBeenCalledWith('2816464', PUBLISHED_SCOPE);
+    // One pinned registry scope rides along to the repo; the snapshot serves
+    // its latest year with its form, so it asks for the marks.
+    expect(getProfileData).toHaveBeenCalledWith('2816464', PUBLISHED_SCOPE, { formMarks: true });
   });
 
   it('rejects a non-normalizable CUI with InvalidInput (no repo round-trip)', async () => {
@@ -498,6 +499,50 @@ describe('makeCompanyFinancials IFRS-form series (PRIV-ZVPV)', () => {
     // IFRS-file years outside the compared pair change nothing.
     const outside = [ifrsYear(2019), ifrsYear(2018), ifrsYear(2010)];
     expect((await financials(typed, { years: outside, marks: [] }))?.trajectory).toMatchObject({
+      turnoverDelta: '100.00',
+      turnoverDeltaReason: null,
+    });
+    // An unreadable list is not a list of years: the same pair is compared as before.
+    const unreadable = await financials(typed, null);
+    expect(unreadable?.ifrsFormYears).toBeNull();
+    expect(unreadable?.trajectory).toMatchObject({
+      fromYear: 2011,
+      toYear: 2017,
+      turnoverDelta: '100.00',
+      turnoverDeltaReason: null,
+      employeesDelta: '2',
+      employeesDeltaReason: null,
+    });
+  });
+
+  it('the long-format ledger also witnesses an IFRS-file year between the compared years', async () => {
+    const typed = [finYear(2017, '1100.00', '12'), finYear(2011, '1000.00', '10')];
+    const ledger = (year: number, filerClass: string | null): CompanyLongFormStatement => ({
+      year,
+      sourceSystem: 'mfp',
+      filerClass,
+      sourceSnapshotId: `mfp:situatii_financiare_${String(year)}:${String(year)}:r1`,
+      resourceUrl: null,
+    });
+    const refused = { fromYear: 2011, toYear: 2017, ...REFUSED };
+    // The views are not readable, the ledger is: its class `ir` year is enough.
+    expect((await financials(typed, null, [ledger(2015, 'ir')]))?.trajectory).toEqual(refused);
+    // Readable views that omit a year the ledger lists: still a jump over it.
+    expect(
+      (await financials(typed, { years: [], marks: [] }, [ledger(2014, 'ir')]))?.trajectory
+    ).toEqual(refused);
+    // Only the IFRS file's class counts, and only strictly between the two years.
+    for (const statements of [
+      [ledger(2015, 'bl'), ledger(2014, null)],
+      [ledger(2018, 'ir'), ledger(2011, 'ir'), ledger(2017, 'ir'), ledger(2010, 'ir')],
+    ]) {
+      expect((await financials(typed, null, statements))?.trajectory).toMatchObject({
+        turnoverDelta: '100.00',
+        turnoverDeltaReason: null,
+      });
+    }
+    // Neither list readable: nothing is known, the pair is compared as before.
+    expect((await financials(typed, null, null))?.trajectory).toMatchObject({
       turnoverDelta: '100.00',
       turnoverDeltaReason: null,
     });

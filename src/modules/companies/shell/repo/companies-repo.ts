@@ -336,6 +336,22 @@ const isCapabilityError = (error: unknown): boolean => {
   return typeof code === 'string' && CAPABILITY_SQLSTATES.has(code);
 };
 
+/**
+ * Two reads in parallel, and the failure that matters: a real database error
+ * is the one reported, even when the other read failed first with a
+ * capability SQLSTATE. `Promise.all` would report whichever settled first and
+ * let a capability error hide a timeout.
+ */
+const settleBoth = async <A, B>(first: Promise<A>, second: Promise<B>): Promise<[A, B]> => {
+  const [a, b] = await Promise.allSettled([first, second]);
+  if (a.status === 'fulfilled' && b.status === 'fulfilled') return [a.value, b.value];
+  const reasons = [a, b].flatMap((result): unknown[] =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  const reason = reasons.find((candidate) => !isCapabilityError(candidate)) ?? reasons[0];
+  throw reason instanceof Error ? reason : new Error('a financial read failed');
+};
+
 interface ListConditions {
   readonly conds: RawBuilder<unknown>[];
   /** The same-identifier predicate (alias `i`) for the CAEN facet; null without one. */
@@ -600,12 +616,12 @@ export const makeCompaniesRepo = (
       ),
       // Both IFRS-form reads as served, without the optional file URL.
       probeCapability(() =>
-        Promise.all([
+        settleBoth(
           ifrsFormYears({ ...NO_CAPABILITIES, ifrsForm: true }, PROBE_CUI)
             .limit(1)
             .execute(),
-          reportingFormMarks(PROBE_CUI).limit(1).execute(),
-        ])
+          reportingFormMarks(PROBE_CUI).limit(1).execute()
+        )
       ),
     ]);
     return { qualification, resources, selection, ifrsForm };
@@ -615,6 +631,9 @@ export const makeCompaniesRepo = (
     if (capabilityCache !== null) {
       const cached = capabilityCache;
       const known = await cached.promise;
+      // Replaced while this caller waited (another caller's re-probe after the
+      // retry window, or a downgrade): read that entry, never probe beside it.
+      if (capabilityCache !== cached) return servingCapabilities();
       if (
         (known.qualification && known.resources && known.selection && known.ifrsForm) ||
         Date.now() - cached.at < CAPABILITY_RETRY_MS
@@ -628,6 +647,23 @@ export const makeCompaniesRepo = (
       if (capabilityCache?.promise === promise) capabilityCache = null;
     });
     return promise;
+  };
+  /**
+   * A read found capabilities unreadable after the probe. They are marked on
+   * top of what the cache holds NOW, not of the snapshot the read started
+   * with, so two fallbacks of one request cannot undo each other; `seen` is
+   * used only when no entry is left. Re-probed after CAPABILITY_RETRY_MS like
+   * every incomplete answer.
+   */
+  const markUnreadable = (lost: Partial<ServingCapabilities>, seen: ServingCapabilities): void => {
+    const current = capabilityCache?.promise ?? Promise.resolve(seen);
+    capabilityCache = {
+      at: Date.now(),
+      promise: current.then(
+        (known) => ({ ...known, ...lost }),
+        () => ({ ...seen, ...lost })
+      ),
+    };
   };
 
   /**
@@ -740,12 +776,9 @@ export const makeCompaniesRepo = (
       ) {
         throw error;
       }
-      // Re-probed after CAPABILITY_RETRY_MS like every incomplete answer. The
-      // IFRS-form views are not part of this statement: what the probe saw stays.
-      capabilityCache = {
-        at: Date.now(),
-        promise: Promise.resolve({ ...NO_CAPABILITIES, ifrsForm: capabilities.ifrsForm }),
-      };
+      // The IFRS-form views are not part of this statement: what is known of
+      // them stays.
+      markUnreadable({ qualification: false, resources: false, selection: false }, capabilities);
       return { rows: await run(NO_CAPABILITIES), qualificationReadable: false };
     }
   };
@@ -840,14 +873,11 @@ export const makeCompaniesRepo = (
       const withoutUrls: ServingCapabilities = { ...capabilities, resources: false };
       try {
         const rows = await longFormStatements(withoutUrls, cui).execute();
-        capabilityCache = { at: Date.now(), promise: Promise.resolve(withoutUrls) };
+        markUnreadable({ resources: false }, capabilities);
         return ok(rows.map(mapLongFormStatement));
       } catch (error) {
         if (!isCapabilityError(error)) throw error;
-        capabilityCache = {
-          at: Date.now(),
-          promise: Promise.resolve({ ...withoutUrls, selection: false }),
-        };
+        markUnreadable({ resources: false, selection: false }, capabilities);
         return ok(null);
       }
     } catch (error) {
@@ -965,10 +995,10 @@ export const makeCompaniesRepo = (
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
     const read = async (capabilities: ServingCapabilities): Promise<CompanyIfrsFormSeries> => {
-      const [years, marks] = await Promise.all([
+      const [years, marks] = await settleBoth(
         ifrsFormYears(capabilities, cui).execute(),
-        reportingFormMarks(cui).execute(),
-      ]);
+        reportingFormMarks(cui).execute()
+      );
       return { years: years.flatMap(mapIfrsFormYear), marks: marks.flatMap(mapReportingFormMark) };
     };
     try {
@@ -978,9 +1008,7 @@ export const makeCompaniesRepo = (
       for (const attempt of capabilities.resources ? [capabilities, withoutUrls] : [capabilities]) {
         try {
           const series = await read(attempt);
-          if (attempt !== capabilities) {
-            capabilityCache = { at: Date.now(), promise: Promise.resolve(attempt) };
-          }
+          if (attempt !== capabilities) markUnreadable({ resources: false }, capabilities);
           return ok(series);
         } catch (error) {
           if (!isCapabilityError(error)) throw error;
@@ -988,10 +1016,7 @@ export const makeCompaniesRepo = (
       }
       // The read without the URL join failed too, so the resource join was
       // not the cause: only the views are marked unreadable.
-      capabilityCache = {
-        at: Date.now(),
-        promise: Promise.resolve({ ...capabilities, ifrsForm: false }),
-      };
+      markUnreadable({ ifrsForm: false }, capabilities);
       return ok(null);
     } catch (error) {
       return err(databaseError('getIfrsFormSeries failed', error));
@@ -999,9 +1024,11 @@ export const makeCompaniesRepo = (
   };
 
   /**
-   * The form marks of a profile's own typed years: optional. No mark (every
-   * year unmarked) when the views are not readable, also when that is found
-   * out by this read; they are re-probed later. Any other error is real.
+   * The form marks of a profile's own typed years, read only for a profile
+   * that asks for them (`formMarks`): a profile that serves no form never
+   * waits on this statement. No mark (every year unmarked) when the views are
+   * not readable, also when that is found out by this read; they are re-probed
+   * later. Any other error is real.
    */
   const readFormMarks = async (cui: string): Promise<readonly CompanyReportingFormMark[]> => {
     const capabilities = await servingCapabilities();
@@ -1010,10 +1037,7 @@ export const makeCompaniesRepo = (
       return (await reportingFormMarks(cui).execute()).flatMap(mapReportingFormMark);
     } catch (error) {
       if (!isCapabilityError(error)) throw error;
-      capabilityCache = {
-        at: Date.now(),
-        promise: Promise.resolve({ ...capabilities, ifrsForm: false }),
-      };
+      markUnreadable({ ifrsForm: false }, capabilities);
       return [];
     }
   };
@@ -1054,7 +1078,8 @@ export const makeCompaniesRepo = (
   // ── detail (per-CUI fan-out) ────────────────────────────────────────────────
   const getProfileData = async (
     rawCui: string,
-    scope: CompanyRegistryEnvelope
+    scope: CompanyRegistryEnvelope,
+    options: { readonly formMarks?: boolean } = {}
   ): Promise<Result<CompanyProfileData | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
@@ -1088,8 +1113,9 @@ export const makeCompaniesRepo = (
             .orderBy('fin.year', 'desc')
             .execute()
         ),
-        // Its own one-company statement, beside the statements read.
-        readFormMarks(cui),
+        // Its own one-company statement, beside the statements read, and only
+        // for a profile that serves the form of its years.
+        options.formMarks === true ? readFormMarks(cui) : [],
         readRegistryEvidence(db, scope, cui, isOnrcQualifiedCui(cui)).then(
           (evidence) => ({ evidence, lost: false as const }),
           (error: unknown) => {

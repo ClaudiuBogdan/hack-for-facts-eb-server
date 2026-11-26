@@ -779,24 +779,27 @@ describe('the IFRS-form series on the transports', () => {
     }
   });
 
-  it('GraphQL: the company profile carries the form of its own typed years', async () => {
-    const repo = stubRepo({
-      getProfileData: vi.fn(async (_cui: string, scope: CompanyRegistryEnvelope) =>
+  it('GraphQL: the company profile reads and carries the form of its typed years only when asked', async () => {
+    const getProfileData = vi.fn(
+      async (_cui: string, scope: CompanyRegistryEnvelope, options?: { formMarks?: boolean }) =>
         ok({
           ...profileUnder(scope),
-          financials: [
-            {
-              ...typedYear(2024, ANAF_IFRS_LAYOUT),
-              reportingForm: 'ifrs' as const,
-              formEvidence: 'anaf_statement_layout',
-            },
-            typedYear(2023, null),
-          ],
+          financials:
+            options?.formMarks === true
+              ? [
+                  {
+                    ...typedYear(2024, ANAF_IFRS_LAYOUT),
+                    reportingForm: 'ifrs' as const,
+                    formEvidence: 'anaf_statement_layout',
+                  },
+                  typedYear(2023, null),
+                ]
+              : [typedYear(2024, ANAF_IFRS_LAYOUT), typedYear(2023, null)],
         })
-      ),
-    });
+    );
+    const app = await buildGraphql(stubRepo({ getProfileData }));
     const body = await gql(
-      await buildGraphql(repo),
+      app,
       `query { company(cui: "${CUI}") { financials { year reportingForm formEvidence } } }`
     );
     expect(body.errors).toBeUndefined();
@@ -806,6 +809,45 @@ describe('the IFRS-form series on the transports', () => {
         { year: 2023, reportingForm: null, formEvidence: null },
       ],
     });
+    expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: true });
+    // Through an alias and a fragment too; formEvidence alone is enough.
+    await gql(
+      app,
+      `query { company(cui: "${CUI}") { years: financials { ...F } } } fragment F on CompanyFinancialYear { formEvidence }`
+    );
+    expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: true });
+    // Not selected: the profile read is not asked for the marks at all.
+    for (const selection of ['cui', 'cui financials { year turnover }']) {
+      const plain = await gql(app, `query { company(cui: "${CUI}") { ${selection} } }`);
+      expect(plain.errors).toBeUndefined();
+      expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: false });
+    }
+  });
+
+  it('MCP snapshot: the latest year carries its form, so the profile read is asked for the marks', async () => {
+    const getProfileData = vi.fn(
+      async (_cui: string, scope: CompanyRegistryEnvelope, _options?: { formMarks?: boolean }) =>
+        ok({
+          ...profileUnder(scope),
+          financials: [
+            {
+              ...typedYear(2024, ANAF_IFRS_LAYOUT),
+              reportingForm: 'ifrs' as const,
+              formEvidence: 'anaf_statement_layout',
+            },
+          ],
+        })
+    );
+    const repo = stubRepo({ getProfileData, getActivityEvidence: vi.fn(async () => ok(EVIDENCE)) });
+    const snapshot = makeCompaniesMcpTools({ ...deps(repo), clientBaseUrl: 'x' }).find(
+      (t) => t.name === 'get_company_snapshot'
+    );
+    const out = (await snapshot?.handler({ cui: CUI })) as {
+      item?: { latestFinancial?: { reportingForm: string | null } | null };
+    };
+    expect(out.item?.latestFinancial?.reportingForm).toBe('ifrs');
+    expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: true });
+    expect(snapshot?.description).toContain('never the ordinary form');
   });
 
   it('the schema says what the figures are and what a missing mark is not', () => {
@@ -814,6 +856,24 @@ describe('the IFRS-form series on the transports', () => {
     );
     expect(companiesTypeDefs).toContain("never 'the ordinary form'");
     expect(companiesTypeDefs).toContain('reporting_form_changed');
+  });
+
+  it('a missing figure is not described as a blank cell only, nor a missing mark as unmarked only', () => {
+    const tools = makeCompaniesMcpTools({ ...deps(stubRepo({})), clientBaseUrl: 'x' });
+    const describe = (name: string): string =>
+      tools.find((t) => t.name === name)?.description ?? '';
+    // The view also serves no figure for a layout without exactly one rule.
+    expect(companiesTypeDefs.match(/without exactly one verified rule/gu)).toHaveLength(4);
+    expect(companiesTypeDefs).not.toMatch(/Null = a blank source cell[;,]/u);
+    expect(describe('get_company_financials')).toContain('without exactly one verified rule');
+    expect(describe('get_company_financials')).not.toContain('null means a blank source cell');
+    // A mark that could not be read looks the same as no mark.
+    expect(describe('get_company_snapshot')).toContain('not marked or not readable here');
+    // The comparison rule names both witnesses of an IFRS-file year.
+    expect(companiesTypeDefs).toMatch(/ifrsFormYears or longFormOnly \(filerClass ir\)/u);
+    expect(describe('get_company_financials')).toContain(
+      'ifrsFormYears or longFormOnly (filerClass ir)'
+    );
   });
 
   it('MCP get_company_financials: the same series and marks, stated in the summary', async () => {

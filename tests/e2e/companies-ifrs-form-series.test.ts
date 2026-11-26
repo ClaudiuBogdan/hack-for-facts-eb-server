@@ -2,7 +2,7 @@
  * PRIV-ZVPV on a throwaway PostgreSQL 18 with the data repo's REAL DDL: the
  * companies_v2 chain the two IFRS-form views stand on, then the views
  * themselves (scrapper migration 20261125T190000), every file pinned by its
- * SHA-256. Synthetic rows only (CUIs 3001-3008); nothing is read from, or
+ * SHA-256. Synthetic rows only (CUIs 3001-3009); nothing is read from, or
  * written to, a shared database.
  *
  * Proven against a real server, through the real repo, usecase and GraphQL:
@@ -104,6 +104,8 @@ const ANAF_IFRS_LAYOUT = '464d1c40cac85eca14212758a48a73c3ba5b272d6fdc76e7943a6a
 const RULE_VERSION = 'anaf-bilant-metric-v1';
 const SHA = 'c3'.repeat(32);
 const CODES = { turnover: 'I13', net_profit: 'I18', net_loss: 'I19', employees: 'I20' } as const;
+/** A retained indicator code that no metric rule of the fixture maps. */
+const UNMAPPED_CODE = 'I99';
 type Metric = keyof typeof CODES;
 
 const snapshotOf = (year: number): string =>
@@ -120,6 +122,12 @@ interface IfrsStatement {
   readonly cells: Partial<Record<Metric, string | null>>;
   readonly indicatorPrivacy?: Partial<Record<Metric, 'personal_moderate' | 'restricted'>>;
   readonly selectionPrivacy?: 'personal_moderate' | 'restricted';
+  /**
+   * One more retained line of the same statement under an indicator code no
+   * metric rule maps: the view does not use it, so it cannot make the view's
+   * row non-public.
+   */
+  readonly unmappedLinePrivacy?: 'personal_moderate' | 'restricted';
   readonly deleted?: boolean;
 }
 
@@ -194,6 +202,10 @@ const STATEMENTS: readonly IfrsStatement[] = [
   },
   // 3008: a public selection with no retained line: nothing witnesses it.
   { cui: '3008', year: 2015, line: 51, cells: {} },
+  // 3009: a public selection whose only retained line is restricted and
+  // unmapped. The view's row is public (it uses no restricted cell), so only
+  // the witness's own privacy predicate keeps the year back.
+  { cui: '3009', year: 2015, line: 52, cells: {}, unmappedLinePrivacy: 'restricted' },
 ];
 
 /** Typed statements: [cui, year, layout, net profit, net loss]. */
@@ -359,6 +371,26 @@ const seed = async (client: pg.Client): Promise<void> => {
         source_url: urlOf(statement.year),
         statement_profile_hash: IFRS_FILE_LAYOUT,
         value_numeric: value,
+        year: statement.year,
+      });
+    }
+    if (statement.unmappedLinePrivacy !== undefined) {
+      await insertRow(client, 'companies_v2.financial_indicators', {
+        currency: 'RON',
+        cui: statement.cui,
+        indicator_code: UNMAPPED_CODE,
+        indicator_name: UNMAPPED_CODE,
+        normalized_indicator_name: UNMAPPED_CODE,
+        privacy_class: statement.unmappedLinePrivacy,
+        raw_row_sha256: SHA,
+        request_key: `${statement.cui}:${String(statement.year)}`,
+        retrieved_at: '2026-08-17T00:00:00Z',
+        source_row_number: statement.line,
+        source_snapshot_id: snapshotOf(statement.year),
+        source_system: 'mfp',
+        source_url: urlOf(statement.year),
+        statement_profile_hash: IFRS_FILE_LAYOUT,
+        value_numeric: '1',
         year: statement.year,
       });
     }
@@ -541,12 +573,16 @@ describe('the IFRS-form series over the real views', () => {
     }
     // 3008: a public selection without a retained public line is not served as a year.
     expect((await seriesOf('3008'))?.years).toEqual([]);
+    // 3009: nor is one whose only retained line is restricted, although the
+    // view's own row is public.
+    expect((await seriesOf('3009'))?.years).toEqual([]);
+    expect(await financialsOf('3009')).toBeNull();
     // The non-public parent also withholds the typed statement it would have marked.
     expect(await financialsOf('3004')).toBeNull();
     // Each of these rows does exist in the view: it is the server's gates that withhold them.
     const inView = await admin?.query<{ cui: string; privacy_class: string }>(
       `select cui, privacy_class from companies_v2.ifrs_form_financials
-        where cui in ('3002','3003','3004','3007','3008') order by cui`
+        where cui in ('3002','3003','3004','3007','3008','3009') order by cui`
     );
     expect(inView?.rows).toEqual([
       { cui: '3002', privacy_class: 'personal_moderate' },
@@ -554,6 +590,7 @@ describe('the IFRS-form series over the real views', () => {
       { cui: '3004', privacy_class: 'public' },
       { cui: '3007', privacy_class: 'personal_moderate' },
       { cui: '3008', privacy_class: 'public' },
+      { cui: '3009', privacy_class: 'public' },
     ]);
   });
 
@@ -618,13 +655,18 @@ describe('the IFRS-form series over the real views', () => {
     });
   });
 
-  it('the company profile marks its own typed years from the same view', async () => {
-    const profile = (await r().getProfileData('3006', UNAVAILABLE_SCOPE))._unsafeUnwrap();
+  it('the company profile marks its own typed years from the same view, when asked', async () => {
+    const profile = (
+      await r().getProfileData('3006', UNAVAILABLE_SCOPE, { formMarks: true })
+    )._unsafeUnwrap();
     expect(profile?.financials.map((y) => [y.year, y.reportingForm])).toEqual([
       [2021, null],
       [2020, 'ifrs'],
       [2019, 'ifrs'],
     ]);
+    // Not asked: the marks are not read, and no year claims a form.
+    const plain = (await r().getProfileData('3006', UNAVAILABLE_SCOPE))._unsafeUnwrap();
+    expect(plain?.financials.map((y) => y.reportingForm)).toEqual([null, null, null]);
   });
 
   it('with the views dropped the series is unknown and the typed statements are still served', async () => {
@@ -646,7 +688,9 @@ describe('the IFRS-form series over the real views', () => {
       expect(f?.longFormOnly).toHaveLength(4);
       // The repo that had probed them: the loss is found by the read, not an error.
       expect((await r().getIfrsFormSeries('3001'))._unsafeUnwrap()).toBeNull();
-      const profile = (await r().getProfileData('3006', UNAVAILABLE_SCOPE))._unsafeUnwrap();
+      const profile = (
+        await r().getProfileData('3006', UNAVAILABLE_SCOPE, { formMarks: true })
+      )._unsafeUnwrap();
       expect(profile?.financials.map((y) => y.reportingForm)).toEqual([null, null, null]);
     } finally {
       await prod.db.transaction().execute((trx) => views.up(trx as unknown as Kysely<unknown>));

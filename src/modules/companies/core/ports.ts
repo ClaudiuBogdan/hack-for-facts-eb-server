@@ -78,7 +78,13 @@ export interface CompaniesRepository extends CompanyRegistryScopePort {
    */
   getProfileData(
     cui: string,
-    scope: CompanyRegistryEnvelope
+    scope: CompanyRegistryEnvelope,
+    /**
+     * `formMarks`: also read the reporting form of the profile's typed years
+     * (one more one-company statement). Without it no year is marked: the form
+     * was not read, which is not "unmarked".
+     */
+    options?: { readonly formMarks?: boolean }
   ): Promise<Result<CompanyProfileData | null, ApiError>>;
   getFinancials(cui: string): Promise<Result<readonly CompanyFinancialYear[], ApiError>>;
   /**

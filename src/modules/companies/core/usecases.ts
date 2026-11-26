@@ -85,6 +85,7 @@ import {
   type CompanyMetricStatus,
   type CompanyGroupBy,
   type CompanyIfrsFormYear,
+  type CompanyLongFormStatement,
   type CompanyListRow,
   type CompanyNameHit,
   type CompanySnapshot,
@@ -527,6 +528,12 @@ export interface CompanyCompositionParts {
    * selection.
    */
   readonly mainFlags?: boolean;
+  /**
+   * The reporting form of the profile's typed years (`reportingForm`,
+   * `formEvidence`): one more one-company statement, read only when a
+   * response serves it.
+   */
+  readonly financialForms?: boolean;
 }
 
 /**
@@ -652,7 +659,9 @@ export const makeCompanyComposition = async (
   const read = async (
     scope: CompanyRegistryEnvelope
   ): Promise<Result<CompanyComposition | null, ApiError>> => {
-    const dataRes = await deps.repo.getProfileData(cui, scope);
+    const dataRes = await deps.repo.getProfileData(cui, scope, {
+      formMarks: parts.financialForms === true,
+    });
     if (dataRes.isErr()) return err(dataRes.error);
     const profile = dataRes.value;
     if (profile === null) return ok(null);
@@ -714,6 +723,8 @@ export const makeCompanyProfile = async (
     activitySelection: true,
     mainActivity: true,
     mainFlags: true,
+    // The snapshot serves its latest year with the form it is marked with.
+    financialForms: true,
   });
   if (composed.isErr()) return err(composed.error);
   const composition = composed.value;
@@ -1003,30 +1014,47 @@ const sameBasis = (a: CompanyFinancialYear, b: CompanyFinancialYear): boolean =>
   a.qualification.evaluatorVersion === b.qualification.evaluatorVersion &&
   a.qualification.releaseId === b.qualification.releaseId;
 
+/** The Ministry of Finance's filer class of its IFRS file, as the selection ledger records it. */
+const IFRS_FILER_CLASS = 'ir';
+
+/**
+ * The years known to be IFRS-file years, which are kept outside the typed
+ * history: those of the IFRS-form list and the long-format ledger's
+ * statements of the IFRS file's class. Either witness is enough, so a list
+ * that is not readable (or omits a year the ledger has) does not hide a year
+ * the other one knows.
+ */
+const ifrsFileYearsOf = (
+  ifrsFormYears: readonly CompanyIfrsFormYear[] | null,
+  longFormOnly: readonly CompanyLongFormStatement[] | null
+): readonly number[] => [
+  ...(ifrsFormYears ?? []).map((y) => y.year),
+  ...(longFormOnly ?? []).filter((s) => s.filerClass === IFRS_FILER_CLASS).map((s) => s.year),
+];
+
 /**
  * A profile never compares across a change of form: the two typed years are
- * marked differently (IFRS on one side only), or IFRS-file years, which are
- * kept outside the typed history, lie between them. Unknown forms (nothing
- * marked, no list) change nothing.
+ * marked differently (IFRS on one side only), or IFRS-file years lie between
+ * them. Unknown forms (nothing marked, neither list readable) change nothing.
  */
 const formChanged = (
   latest: CompanyFinancialYear,
   prior: CompanyFinancialYear,
-  ifrsFormYears: readonly CompanyIfrsFormYear[]
+  ifrsFileYears: readonly number[]
 ): boolean =>
   latest.reportingForm !== prior.reportingForm ||
-  ifrsFormYears.some((y) => y.year > prior.year && y.year < latest.year);
+  ifrsFileYears.some((year) => year > prior.year && year < latest.year);
 
 const computeTrajectory = (
   years: readonly CompanyFinancialYear[],
-  ifrsFormYears: readonly CompanyIfrsFormYear[]
+  ifrsFileYears: readonly number[]
 ): CompanyFinancialTrajectory | null => {
   if (years.length < 2) return null;
   // years arrive DESC; [0] = latest, [1] = prior.
   const latest = years[0];
   const prior = years[1];
   if (latest === undefined || prior === undefined) return null;
-  const changed = formChanged(latest, prior, ifrsFormYears);
+  const changed = formChanged(latest, prior, ifrsFileYears);
 
   const intDiff = (a: string, b: string): string | null =>
     INTEGER_TEXT.test(a) && INTEGER_TEXT.test(b) ? (BigInt(a) - BigInt(b)).toString() : null;
@@ -1114,7 +1142,7 @@ export const makeCompanyFinancials = async (
   return ok({
     years,
     latest: years[0] ?? null,
-    trajectory: computeTrajectory(years, ifrsFormYears ?? []),
+    trajectory: computeTrajectory(years, ifrsFileYearsOf(ifrsFormYears, longFormOnly)),
     longFormOnly,
     ifrsFormYears,
   });

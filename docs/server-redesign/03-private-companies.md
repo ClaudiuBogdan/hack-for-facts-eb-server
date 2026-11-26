@@ -634,11 +634,19 @@ output: { ok, kind:'resolution', query, matches: [{ value, label, cui?, confiden
     FY2012–2018) from the view `companies_v2.ifrs_form_financials`. Each typed year carries
     `reportingForm` / `formEvidence` from `companies_v2.statement_reporting_form`; null means
     unmarked, never "the ordinary form". Each view is its own one-company statement behind one
-    capability probe and is never folded into the typed statements read. The figures are source
+    capability probe and is never folded into the typed statements read; `company(cui)` reads
+    the marks only when `financials { reportingForm | formEvidence }` is selected (the MCP
+    snapshot always does), so a profile without them gains no statement. A figure is null for a
+    blank source cell and for a layout without exactly one verified rule. The figures are source
     observations outside the admission policy: they never enter `years`, `latest`, `trajectory`,
-    a summary or `hasFinancials`, and a trajectory across a change of form answers
-    `reporting_form_changed`. Public rows only, under the long-format list's public-line witness
-    and parent rule; the file URL comes from the repo's own gated join, not the view's column.
+    a summary or `hasFinancials`. A trajectory answers `reporting_form_changed` on all three
+    deltas, before any other reason, in two cases: (1) exactly one of the two typed years is
+    marked; (2) both are unmarked but IFRS-file years lie strictly between them (typed 2017 vs
+    2011 with IFRS-file 2012–2016). An IFRS-file year is known from either witness: a year of
+    `ifrsFormYears`, or a `longFormOnly` statement of filer class `ir`. With neither list
+    readable the pair is compared as before. Public rows only, under the long-format list's
+    public-line witness and parent rule; the file URL comes from the repo's own gated join, not
+    the view's column.
 - **`company_county_profile`** — `input: CompanyFilter + groupBy` → count-ranked
   aggregate with `denominator` + `coverage` (catalog Coverage Gate). **Refuses /
   labels** value-weighted ("biggest by turnover") rankings as not-yet-publishable —
