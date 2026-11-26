@@ -77,11 +77,12 @@ export interface ProdDbConfig {
   readonly ssl?: boolean;
   readonly sslRejectUnauthorized?: boolean;
   /**
-   * `'off'` sends `-c jit=off` when a connection starts (CQA-22); absent, the
-   * pool keeps the server default. For pools of short one-entity reads: the
-   * planner's estimate of the company profile's financial statements read
-   * crossed `jit_above_cost`, and compiling it took about 1.66 s of a 1.68 s
-   * read. A pool whose aggregates may gain from JIT does not ask.
+   * `'off'` runs `set jit = off` on every new connection before it is handed
+   * out (CQA-22); absent, the pool keeps the server default. For pools of
+   * short one-entity reads: the planner's estimate of the company profile's
+   * financial statements read crossed `jit_above_cost`, and compiling it took
+   * about 1.66 s of a 1.68 s read. A pool whose aggregates may gain from JIT
+   * does not ask.
    */
   readonly jit?: 'off';
 }
@@ -112,34 +113,32 @@ const sslOptionFor = (config: ProdDbConfig): pg.PoolConfig['ssl'] => {
 const stripSslmode = (connectionString: string): string =>
   connectionString.replace(/([?&])sslmode=[a-z-]+&?/iu, '$1').replace(/[?&]$/u, '');
 
-const JIT_OFF = '-c jit=off';
-
-const isOptionsParameter = (pair: string): boolean => new URLSearchParams(pair).has('options');
+/** What the hook needs of a new connection: a node-pg client, or a plain fake in the unit test. */
+interface SessionClient {
+  query(text: string): Promise<unknown>;
+}
 
 /**
- * The connection string and startup `options` of a pool (pure, exported for
- * the unit test). A pool that does not ask for `jit: 'off'` keeps its URL byte
- * for byte. For one that does, node-pg would let an `options` parameter of the
- * URL replace the pool's own, so that parameter is taken out of the URL and
- * its value (read as node-pg reads it) is sent after `-c jit=off`: both reach
- * the server, and on the same setting the URL, the deployment's word, wins.
+ * pg-pool's `onConnect` of a pool asked for `jit: 'off'` (exported for the
+ * unit test). pg-pool awaits it before the new client is handed out, and
+ * closes the client when it rejects, so no read runs on a connection that
+ * still compiles. A session setting, not the startup `options`: node-pg lets
+ * an `options` parameter of the connection URL replace the pool's own, and an
+ * explicit `options` switches off its `PGOPTIONS` fallback. The URL is
+ * therefore never rewritten for this. Nothing here issues `reset all` or
+ * `discard all`, which would undo it; `set local jit` in a transaction ends
+ * with that transaction.
  */
-export const prodStartupSettings = (
-  config: Pick<ProdDbConfig, 'connectionString' | 'jit'>
-): { readonly connectionString: string; readonly options?: string } => {
-  const { connectionString } = config;
-  if (config.jit !== 'off') return { connectionString };
-  const queryAt = connectionString.indexOf('?');
-  if (queryAt === -1) return { connectionString, options: JIT_OFF };
-  const base = connectionString.slice(0, queryAt);
-  const query = connectionString.slice(queryAt + 1);
-  const fromUrl = new URLSearchParams(query).getAll('options').at(-1) ?? '';
-  const kept = query.split('&').filter((pair) => !isOptionsParameter(pair));
-  return {
-    connectionString: kept.length === 0 ? base : `${base}?${kept.join('&')}`,
-    options: fromUrl === '' ? JIT_OFF : `${JIT_OFF} ${fromUrl}`,
-  };
+export const turnJitOff = async (client: SessionClient): Promise<void> => {
+  await client.query('set jit = off');
 };
+
+/**
+ * `@types/pg` types `onConnect` as returning void, but pg-pool awaits what the
+ * hook returns, and that wait is the point: the same function, under the
+ * declared type.
+ */
+const JIT_OFF_ON_CONNECT = turnJitOff as NonNullable<pg.PoolConfig['onConnect']>;
 
 export const createProdDb = (config: ProdDbConfig): ProdDb => {
   const max = config.max ?? 15;
@@ -147,9 +146,8 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
   // this bounded floor instead of paying a new TLS tunnel handshake after idle.
   const min = Math.min(config.min ?? 4, max);
   const ssl = sslOptionFor(config);
-  const startup = prodStartupSettings(config);
   const pool = new Pool({
-    connectionString: stripSslmode(startup.connectionString),
+    connectionString: stripSslmode(config.connectionString),
     max,
     min,
     connectionTimeoutMillis: config.connectionTimeoutMillis ?? 10_000,
@@ -159,7 +157,7 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
     // Per-pool type parsers (string-typed int8/date/timestamp[tz]) — never global.
     types: prodTypeParsers,
     ...(ssl !== undefined ? { ssl } : {}),
-    ...(startup.options !== undefined ? { options: startup.options } : {}),
+    ...(config.jit === 'off' ? { onConnect: JIT_OFF_ON_CONNECT } : {}),
   });
 
   // pg-pool removes its idle error listener while a connection is checked out.
@@ -186,6 +184,22 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
 
   return { db, pool };
 };
+
+/**
+ * The shared kernel pool's config (exported for the unit test). It asks for
+ * `jit: 'off'`: its reads are short and per entity, and compiling one cost the
+ * company profile about 1.6 s on every request (CQA-22).
+ */
+export const kernelPoolConfig = (config: {
+  readonly prodDatabaseUrl: string;
+  readonly poolMax?: number;
+  readonly dbSsl?: boolean;
+}): ProdDbConfig => ({
+  connectionString: config.prodDatabaseUrl,
+  jit: 'off',
+  ...(config.poolMax !== undefined && { max: config.poolMax }),
+  ...(config.dbSsl !== undefined && { ssl: config.dbSsl }),
+});
 
 /** The procurement pool's size: its reads are few and bounded (one module). */
 const PROCUREMENT_POOL_MAX = 5;

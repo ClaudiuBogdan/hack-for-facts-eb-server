@@ -2,11 +2,15 @@
  * The prod pool's `jit: 'off'` on a throwaway PostgreSQL 18 (CQA-22). The
  * company profile's financial statements read spent about 1.66 s of 1.68 s in
  * JIT compilation, because the planner's estimate crossed `jit_above_cost`.
- * The shared kernel pool therefore asks for `-c jit=off` when a connection
- * starts. Proven here against a real server: every connection of such a pool
- * reads `jit = off`, a pool that does not ask keeps the server default, the
- * options of the URL are kept next to it, and the procurement module's own
+ * The shared kernel pool therefore runs `set jit = off` on every new
+ * connection, before it is handed out. Proven here against a real server:
+ * every connection of such a pool reads `jit = off`, also when the connection
+ * URL itself asks for jit; a pool that does not ask keeps the server default;
+ * the URL's own options are still honoured; and the procurement module's own
  * pool is left at the server default.
+ *
+ * Without a container runtime the suite SKIPS, or fails when
+ * `TEST_E2E_REQUIRED=1`.
  */
 
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -18,14 +22,15 @@ import { createProdDb, procurementDbFor, type ProdDb } from '@/modules/shared/sh
 import { dockerCliUp } from './disposable-postgres.js';
 
 import type { ProdDatabase } from '@/modules/shared/index.js';
+import type { PoolClient } from 'pg';
 
-let dockerAvailable = false;
+let available = false;
 let container: StartedPostgreSqlContainer | undefined;
 const opened: ProdDb[] = [];
 
 const it = (name: string, test: () => Promise<void>): void => {
   vitestIt(name, async ({ skip }) => {
-    if (!dockerAvailable) skip();
+    if (!available) skip();
     await test();
   });
 };
@@ -45,24 +50,40 @@ const show = async (db: Kysely<ProdDatabase>, setting: string): Promise<string |
   return rows[0]?.value;
 };
 
-beforeAll(async () => {
-  if (!dockerCliUp()) return;
+const startPostgres = async (): Promise<StartedPostgreSqlContainer | undefined> => {
+  if (!dockerCliUp()) return undefined;
   try {
-    container = await new PostgreSqlContainer('postgres:18-alpine')
+    return await new PostgreSqlContainer('postgres:18-alpine')
       .withDatabase('prod_pool_jit')
       .start();
   } catch (error) {
     console.warn(
       `Testcontainers runtime unavailable: ${error instanceof Error ? error.message : String(error)}`
     );
+    return undefined;
+  }
+};
+
+beforeAll(async () => {
+  container = await startPostgres();
+  if (container === undefined) {
+    if (process.env['TEST_E2E_REQUIRED'] === '1') throw new Error('Disposable PostgreSQL required');
+    console.warn('Prod pool jit tests skipped: no container runtime');
     return;
   }
-  dockerAvailable = true;
+  available = true;
 });
 
 afterAll(async () => {
   try {
-    for (const prod of opened) await prod.db.destroy();
+    // The pool itself: Kysely's destroy() is a no-op until its driver has run a query.
+    for (const { pool } of opened) {
+      try {
+        await pool.end();
+      } catch (error) {
+        console.warn(`pool end failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
   } finally {
     await container?.stop();
   }
@@ -72,18 +93,49 @@ describe('prod pool jit', () => {
   it('reads jit = off on every connection of a pool that asks for it', async () => {
     const { pool } = open({ connectionString: uri(), jit: 'off', max: 3 });
     // Three clients held at once: three separate connections, not one reused.
-    const clients = await Promise.all([pool.connect(), pool.connect(), pool.connect()]);
+    const checkouts = await Promise.allSettled([pool.connect(), pool.connect(), pool.connect()]);
+    const clients = checkouts.flatMap((checkout): PoolClient[] =>
+      checkout.status === 'fulfilled' ? [checkout.value] : []
+    );
     try {
+      expect(clients).toHaveLength(3);
       const answers = await Promise.all(
-        clients.map((client) => client.query<{ jit: string }>('show jit'))
+        clients.map((client) =>
+          client.query<{ jit: string; pid: number }>(
+            `select current_setting('jit') as jit, pg_backend_pid() as pid`
+          )
+        )
       );
       expect(answers.map((answer) => answer.rows[0]?.jit)).toEqual(['off', 'off', 'off']);
-      const pids = await Promise.all(
-        clients.map((client) => client.query<{ pid: number }>('select pg_backend_pid() as pid'))
-      );
-      expect(new Set(pids.map((answer) => answer.rows[0]?.pid)).size).toBe(3);
+      expect(new Set(answers.map((answer) => answer.rows[0]?.pid)).size).toBe(3);
     } finally {
       for (const client of clients) client.release();
+    }
+  });
+
+  it('still reads jit = off on a client checked out again after a transaction', async () => {
+    const { pool } = open({ connectionString: uri(), jit: 'off', max: 1 });
+    const state = `select current_setting('jit') as jit, pg_backend_pid() as pid`;
+    const first = await pool.connect();
+    let firstPid: number | undefined;
+    try {
+      await first.query('begin');
+      await first.query('set local jit = on');
+      const inside = await first.query<{ jit: string; pid: number }>(state);
+      expect(inside.rows[0]?.jit).toBe('on');
+      firstPid = inside.rows[0]?.pid;
+      await first.query('commit');
+    } finally {
+      first.release();
+    }
+    // The second checkout of the same connection (max 1): the hook ran once, at connect.
+    const second = await pool.connect();
+    try {
+      const again = await second.query<{ jit: string; pid: number }>(state);
+      expect(firstPid).toBeTypeOf('number');
+      expect(again.rows[0]).toEqual({ jit: 'off', pid: firstPid });
+    } finally {
+      second.release();
     }
   });
 
@@ -92,7 +144,7 @@ describe('prod pool jit', () => {
     expect(await show(db, 'jit')).toBe('on');
   });
 
-  it('keeps the options of the URL next to jit = off', async () => {
+  it("still honours the URL's own options", async () => {
     const { db } = open({
       connectionString: uri('?options=-c%20work_mem%3D5MB'),
       jit: 'off',
@@ -101,9 +153,13 @@ describe('prod pool jit', () => {
     expect(await show(db, 'work_mem')).toBe('5MB');
   });
 
-  it('lets the URL decide when it names jit itself', async () => {
-    const { db } = open({ connectionString: uri('?options=-c%20jit%3Don'), jit: 'off' });
-    expect(await show(db, 'jit')).toBe('on');
+  it('turns jit off even when the URL asks for it', async () => {
+    const asked = open({ connectionString: uri('?options=-c%20jit%3Don'), jit: 'off' });
+    expect(await show(asked.db, 'jit')).toBe('off');
+    // The same URL on a pool that does not ask: the URL's setting does reach the server.
+    const plain = open({ connectionString: uri('?options=-c%20jit%3Don%20-c%20work_mem%3D6MB') });
+    expect(await show(plain.db, 'work_mem')).toBe('6MB');
+    expect(await show(plain.db, 'jit')).toBe('on');
   });
 
   it("leaves the procurement module's own pool at the server default", async () => {

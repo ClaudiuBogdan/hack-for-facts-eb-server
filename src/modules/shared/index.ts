@@ -19,7 +19,7 @@ import { resolveCapabilities } from './shell/clients/capabilities.js';
 import { makeMeiliClient } from './shell/clients/meili-client.js';
 import { makeOpenSearchClient } from './shell/clients/opensearch-client.js';
 import { makeSyntheticClient } from './shell/clients/synthetic-client.js';
-import { createProdDb, procurementDbFor, type ProdDb } from './shell/db/pool.js';
+import { createProdDb, kernelPoolConfig, procurementDbFor, type ProdDb } from './shell/db/pool.js';
 import { makeKernelLoaders, type KernelLoaders } from './shell/graphql/dataloaders.js';
 import { mergeGraphqlSlices, type GraphqlSlice } from './shell/graphql/merge.js';
 import { makeKernelResolvers } from './shell/graphql/resolvers.js';
@@ -158,14 +158,7 @@ export interface Kernel {
 const DEFAULT_MEILI_INDEXES = ['entities'] as const;
 
 export const makeKernel = async (config: KernelConfig): Promise<Kernel> => {
-  const { db, pool } = createProdDb({
-    connectionString: config.prodDatabaseUrl,
-    // The shared pool's reads are short and per entity; compiling one cost the
-    // company profile about 1.6 s on every request (CQA-22).
-    jit: 'off',
-    ...(config.poolMax !== undefined && { max: config.poolMax }),
-    ...(config.dbSsl !== undefined && { ssl: config.dbSsl }),
-  });
+  const { db, pool } = createProdDb(kernelPoolConfig(config));
 
   // The procurement grant's reads (the module and the D6 port) on their own login when configured.
   const procurement = procurementDbFor(db, {
