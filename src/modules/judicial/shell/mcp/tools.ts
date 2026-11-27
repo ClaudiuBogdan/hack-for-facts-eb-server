@@ -203,7 +203,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const resolveFilters: KernelMcpTool = {
     name: 'resolve_judicial_filters',
     description:
-      'Resolve a free-text judicial query to a filter value: court name → institution_code, level label → courtLevel, company name → name_key_id (company/public dictionary ONLY — a person name returns zero rows), category label → code. Use before querying other judicial tools.',
+      'Resolve a free-text judicial query to a filter value: court name → institution_code, level label → courtLevel, category label → code. companyName resolves nothing at present: no party name is published (JUST-9Q9C), so it returns zero rows for every query. Use before querying other judicial tools.',
     inputShape: resolveJudicialFiltersInput,
     async handler(args): Promise<McpToolOutput> {
       // The usecase validates dim / q / limit before any repo access.
@@ -227,7 +227,7 @@ export const makeJudicialMcpTools = (deps: JudicialMcpDeps): readonly KernelMcpT
   const getJudicialCase: KernelMcpTool = {
     name: 'get_judicial_case',
     description:
-      'Get a case by numeric caseId OR natural key (institutionCode + caseNumber): the case (sourceOpenedAt is a source-dependent date, explained by sourceOpenedAtBasis), hearings (NO solution/solution_summary), appeals, name-gated parties (company/public names and keys only; withheld identities contribute only to personPartyCount), legal references, lineage candidates, and asOf: the stored source-modified maximum of the source of that case (null when that source stores none), not dataset freshness.',
+      'Get a case by numeric caseId OR natural key (institutionCode + caseNumber): the case (sourceOpenedAt is a source-dependent date, explained by sourceOpenedAtBasis), hearings (NO solution/solution_summary), appeals, parties by kind and role (no party name, name key or legal form is published at present, JUST-9Q9C; person and unknown parties are counted in personPartyCount), legal references, lineage candidates, and asOf: the stored source-modified maximum of the source of that case (null when that source stores none), not dataset freshness.',
     inputShape: getJudicialCaseInput,
     async handler(args): Promise<McpToolOutput> {
       const caseIdArg = optionalDirectId(args, 'caseId');

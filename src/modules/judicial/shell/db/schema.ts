@@ -60,7 +60,7 @@ export interface JusticeCasesTable {
   category_name: string | null;
   stage: string | null;
   stage_name: string | null;
-  object: string | null; // raw object text — SAFE (procedural subject, not parties)
+  object: string | null; // raw object text; not served or searched at present (JUST-9Q9C)
   source_opened_at: Tstz | null;
   latest_source_modified_at: Tstz | null;
   // latest_snapshot_id, sync_run_id, *_seen_at: internal — not declared.
