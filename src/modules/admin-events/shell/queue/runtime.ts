@@ -1,6 +1,11 @@
 import { makeQueueClient, QUEUE_NAMES } from '@/infra/queue/client.js';
 import { closeRedis } from '@/infra/queue/close-redis.js';
 import { connectQueueRedis, type QueueRedisFactory } from '@/infra/queue/connect-redis.js';
+import {
+  makeComposeJobScheduler,
+  type ComposeJobPayload,
+  type ComposeJobScheduler,
+} from '@/modules/notification-delivery/index.js';
 
 import { makeBullmqAdminEventQueue } from './queue.js';
 
@@ -18,6 +23,7 @@ export interface AdminEventRuntimeConfig {
 
 export interface AdminEventRuntime {
   queue: AdminEventQueuePort;
+  composeJobScheduler?: ComposeJobScheduler;
   stop(): Promise<void>;
 }
 
@@ -57,6 +63,9 @@ export const startAdminEventRuntime: AdminEventRuntimeFactory = async (config) =
 
   return {
     queue,
+    composeJobScheduler: makeComposeJobScheduler({
+      composeQueue: queueClient.getQueue<ComposeJobPayload>(QUEUE_NAMES.COMPOSE),
+    }),
     stop,
   };
 };

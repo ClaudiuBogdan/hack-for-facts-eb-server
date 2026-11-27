@@ -111,6 +111,8 @@ const GQL_GROUP_BY: Readonly<Record<string, CompanyGroupBy>> = {
 };
 /** The CompanyCaenActivity fields only the main part can answer. */
 const MAIN_FLAG_FIELDS = ['isMainCaen', 'matchesAssumedMainCode'] as const;
+/** The typed-year fields answered from the reporting-form marks. */
+const FORM_FIELDS = ['reportingForm', 'formEvidence'] as const;
 const GQL_RESOLVE_DIM: Readonly<Record<string, CompanyResolveDim>> = {
   NAME: 'name',
   REGNUM: 'regnum',
@@ -168,6 +170,7 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
         // The flags alone (through any alias, fragment or directive) need
         // the main part too: they are never answered from another read.
         const activityFields = selectedSubfieldNames(info, 'caenActivities');
+        const financialFields = selectedSubfieldNames(info, 'financials');
         const composition = unwrap(
           await makeCompanyComposition(deps, args.cui, {
             publicMoney: selected.has('publicMoney'),
@@ -177,6 +180,8 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
             mainActivity: selected.has('mainActivity'),
             // The bounded flag list only when a flag is selected.
             mainFlags: MAIN_FLAG_FIELDS.some((field) => activityFields.has(field)),
+            // The form marks only when a typed year's form is selected.
+            financialForms: FORM_FIELDS.some((field) => financialFields.has(field)),
           })
         );
         if (composition === null) return null;
@@ -536,6 +541,7 @@ export const makeCompaniesResolvers = (deps: CompaniesResolverDeps): Record<stri
       UNRESOLVED: 'unresolved',
     },
     CompanyQualificationAssessment: { ASSESSED: 'assessed', NOT_ASSESSED: 'not_assessed' },
+    CompanyReportingForm: { IFRS: 'ifrs' },
     CompanyCaenClassState: {
       CLASS: 'class',
       SHORT_TOKEN: 'short_token',

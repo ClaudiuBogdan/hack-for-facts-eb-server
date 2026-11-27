@@ -80,15 +80,76 @@ without publishing connection errors.
 Development instance `ins_31T65W6uWDSOP50gv9nKtP64LUI` uses endpoint
 `ep_3IxuOd01ZPaX2Z1BFyUBCM1cTEF`, subscribed only to `user.deleted`, at
 `https://dev-chronos-api.transparenta.eu/api/v1/webhooks/clerk`.
-The existing Phoenix development endpoint is unchanged. The signing secret is in
-the dev app BWS record; no real Clerk user is deleted for acceptance tests.
+This Clerk instance also delivers events to the Phoenix development endpoint.
+Run an end-to-end deletion test only when the test account's lifecycle events
+route exclusively to Chronos dev. With shared event routing, use a signed
+synthetic probe inside the Chronos dev API pod to exercise the receiver.
 
-The native receiver uses the existing Svix verifier and anonymizer. Saved-map
-writes remain separately mounted work. Owner tombstones prevent stale-token
-writes after deletion begins. Live acceptance creates only a synthetic map owner,
-checks invalid signatures, verifies anonymization and replay, and retains one audit row
-per probe; the scrubbed, soft-deleted map row also remains. Local receiver
-acceptance passed; public receiver deployment is a separate rollout gate. Audit tombstones are intentionally not cleaned up.
+The receiver verifies the Svix signature and runs the anonymizer. Check that an
+invalid signature is refused. Owner tombstones block stale-session writes after
+deletion starts. Keep the audit tombstone and any soft-deleted, scrubbed records
+as evidence.
+
+### Verify the development flow
+
+1. In Clerk, open **Configure → Developers → Webhooks** in the development
+   instance. Open the existing Chronos endpoint and check the URL and
+   `user.deleted` subscription. Its `CLERK_WEBHOOK_SIGNING_SECRET` is in the
+   dev application Bitwarden record.
+2. Confirm Chronos serves `GET` and `PUT /api/v1/learning/progress`. With
+   Chronos-only event routing verified, create a disposable Clerk dev user and sign in at
+   [dev-chronos.transparenta.eu](https://dev-chronos.transparenta.eu/). Sign
+   up for Funky and confirm the registration survives in a fresh browser
+   session after signing in again. This proves it reached the server.
+3. Delete only the disposable user. In the Chronos endpoint's **Message
+   Attempts**, confirm the actual `user.deleted` returned 200. Use the message
+   ID to match the API's completed anonymization log. Verify the test user's
+   campaign records are anonymized and a stale owner write is rejected.
+   Replay only that event to the Chronos endpoint and confirm the
+   anonymized state is unchanged. Keep the deletion audit tombstone.
+4. When running a delivery test, send only to `delivered+test1@resend.dev`.
+   Verify the Resend delivery event separately from Clerk sign-in and deletion.
+   Keep the existing Tester 1 account for mail tests.
+
+On 2026-11-16, Clerk's **Send Example** reached the public receiver. The
+receiver verified the signature and returned 400 because the example omitted
+`instance_id` (message `msg_3MBI2d3aoO0j9a3drFp3ZhMQJLj`). A schema-complete
+signed probe inside the dev API pod returned 200 for the synthetic ID and 200 on
+replay, with anonymization completion logged for both attempts. The probe had
+zero user records.
+
+After the learning-progress rollout on 2026-11-16, a real disposable development
+Clerk account signed in through the Clerk Frontend API and registered for Funky
+through the Chronos dev API. A separate GET returned the saved registration.
+Clerk deletion delivered event `msg_3MBL5w497uBt1BrpwLuNo2sVUUR` to Chronos.
+A read-only check confirmed zero rows under the original owner, one retained
+registration with its value and audit events cleared, two inactive anonymized
+notification preferences, and the matching deletion audit record. The old
+session could read zero records and received 403 on a subsequent write. The
+test covered the API flow. Chronos email delivery remains a separate test.
+
+### Connect production at cutover
+
+Run these steps once the production cutover is approved and Chronos is ready to
+own user-data writes.
+
+1. In the existing production Clerk instance, confirm the production client
+   origin, publishable key, and matching API JWT issuer and verification key.
+   Prepare the API receiver against the production user DB, with sends paused.
+2. If Cloudflare moves the existing webhook URL to Chronos, preserve that
+   endpoint's signing secret and event subscriptions. If the URL changes,
+   create the production endpoint with the required subscriptions and use its
+   own signing secret. Store the selected secret as
+   `CLERK_WEBHOOK_SIGNING_SECRET` in the production application Bitwarden
+   record. Seal for the exact production Secret name and namespace, then
+   sync the ciphertext and restart the API to load it.
+3. Route webhook traffic to Chronos once it owns writes. Enable
+   `user.created` delivery only when its handler and email controls are
+   ready. Reconcile the Clerk delivery log across the maintenance window and
+   confirm the corresponding application effects before enabling sends.
+
+See the [Clerk webhook setup guide](https://clerk.com/docs/guides/development/webhooks/syncing)
+and [user-data anonymization rules](../../../../docs/USER-DATA-ANONYMIZATION.md).
 
 ## Rollback and recovery
 

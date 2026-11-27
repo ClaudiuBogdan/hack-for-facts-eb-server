@@ -124,6 +124,8 @@ const FINANCIAL_2024: CompanyFinancialYear = {
   employees: '5',
   source: statementSource(2024, CUI),
   qualification: notAssessedQualification('no_active_policy'),
+  reportingForm: null,
+  formEvidence: null,
   summary: {
     turnover: '100.00',
     netProfit: null,

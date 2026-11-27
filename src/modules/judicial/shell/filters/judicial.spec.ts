@@ -102,7 +102,8 @@ export const judicialCasesSpec: CollectionFilterSpec = {
       type: 'string',
       ops: ['contains'],
       column: { alias: 'c', column: 'object' },
-      description: 'Trigram/ILIKE on the case object (procedural subject). NEVER party names.',
+      description:
+        'Refused at present (INVALID_INPUT): the case object text is neither published nor searchable (JUST-9Q9C).',
     },
     {
       name: 'hasObject',
@@ -269,7 +270,7 @@ export const judicialDecisionsSpec: CollectionFilterSpec = {
       column: { alias: 'd', column: 'privacy_class' },
       enumValues: JUDICIAL_DECISION_PRIVACY_CLASSES,
       description:
-        'The stored privacy class label (public or restricted); both are served as stored.',
+        'The stored privacy class label (public or restricted); restricted matches no public decisions.',
     },
   ],
   sort: { default: 'decisionId', allowed: ['decisionId'] },

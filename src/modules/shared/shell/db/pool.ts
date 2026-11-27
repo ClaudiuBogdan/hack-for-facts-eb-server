@@ -76,6 +76,15 @@ export interface ProdDbConfig {
   readonly idleTimeoutMillis?: number;
   readonly ssl?: boolean;
   readonly sslRejectUnauthorized?: boolean;
+  /**
+   * `'off'` runs `set jit = off` on every new connection before it is handed
+   * out (CQA-22); absent, the pool keeps the server default. For pools of
+   * short one-entity reads: the planner's estimate of the company profile's
+   * financial statements read crossed `jit_above_cost`, and compiling it took
+   * about 1.66 s of a 1.68 s read. A pool whose aggregates may gain from JIT
+   * does not ask.
+   */
+  readonly jit?: 'off';
 }
 
 export interface ProdDb {
@@ -104,6 +113,52 @@ const sslOptionFor = (config: ProdDbConfig): pg.PoolConfig['ssl'] => {
 const stripSslmode = (connectionString: string): string =>
   connectionString.replace(/([?&])sslmode=[a-z-]+&?/iu, '$1').replace(/[?&]$/u, '');
 
+/** What the hook needs of a new connection: a node-pg client, or a plain fake in the unit test. */
+interface SessionClient {
+  query(text: string): Promise<unknown>;
+}
+
+/**
+ * How long `set jit = off` may take on a new connection. pg-pool stops its
+ * connect timer before the hook runs, so without this a server that accepts the
+ * connection and then stops answering would hold the checkout for good. Equal
+ * to the pool's default `connectionTimeoutMillis`.
+ */
+const JIT_OFF_DEADLINE_MS = 10_000;
+
+/**
+ * pg-pool's `onConnect` of a pool asked for `jit: 'off'` (exported for the
+ * unit test). pg-pool awaits it before the new client is handed out, and
+ * closes the client when it rejects (a failed statement, or no answer within
+ * the deadline), so no read runs on a connection that still compiles. A
+ * session setting, not the startup `options`: node-pg lets an `options`
+ * parameter of the connection URL replace the pool's own, and an explicit
+ * `options` switches off its `PGOPTIONS` fallback. The URL is therefore never
+ * rewritten for this. Nothing here issues `reset all` or `discard all`, which
+ * would undo it; `set local jit` in a transaction ends with that transaction.
+ */
+export const turnJitOff = async (client: SessionClient): Promise<void> => {
+  let deadline: NodeJS.Timeout | undefined;
+  const expired = new Promise<never>((_resolve, reject) => {
+    deadline = setTimeout(() => {
+      reject(new Error(`set jit = off: no answer in ${String(JIT_OFF_DEADLINE_MS)} ms`));
+    }, JIT_OFF_DEADLINE_MS);
+  });
+  try {
+    // The race also takes the statement's late rejection once the deadline won.
+    await Promise.race([client.query('set jit = off'), expired]);
+  } finally {
+    clearTimeout(deadline);
+  }
+};
+
+/**
+ * `@types/pg` types `onConnect` as returning void, but pg-pool awaits what the
+ * hook returns, and that wait is the point: the same function, under the
+ * declared type.
+ */
+const JIT_OFF_ON_CONNECT = turnJitOff as NonNullable<pg.PoolConfig['onConnect']>;
+
 export const createProdDb = (config: ProdDbConfig): ProdDb => {
   const max = config.max ?? 15;
   // pg-pool does not preconnect `min` clients; after real traffic it retains
@@ -121,6 +176,7 @@ export const createProdDb = (config: ProdDbConfig): ProdDb => {
     // Per-pool type parsers (string-typed int8/date/timestamp[tz]) — never global.
     types: prodTypeParsers,
     ...(ssl !== undefined ? { ssl } : {}),
+    ...(config.jit === 'off' ? { onConnect: JIT_OFF_ON_CONNECT } : {}),
   });
 
   // pg-pool removes its idle error listener while a connection is checked out.
@@ -154,7 +210,8 @@ const PROCUREMENT_POOL_MAX = 5;
 /**
  * The procurement module's database (PRJ-54YB): its own pool and login when `connectionString`
  * is set, else the kernel's own `db`, the same pool and login as today. `close` destroys only a
- * pool this opened. The URL is never logged.
+ * pool this opened. The URL is never logged. Its own pool does not ask for `jit: 'off'`: its
+ * aggregates may gain from JIT, so it keeps the server default (CQA-22).
  */
 export const procurementDbFor = (
   kernelDb: Kysely<ProdDatabase>,

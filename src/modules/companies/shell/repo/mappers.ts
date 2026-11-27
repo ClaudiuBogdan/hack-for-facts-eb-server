@@ -8,13 +8,17 @@ import {
   COMPANY_FINANCIAL_METRICS,
   COMPANY_METRIC_STATUSES,
   COMPANY_QUALIFICATION_EVALUATOR,
+  COMPANY_REPORTING_FORMS,
   type CompanyCaenActivity,
   type CompanyFinancialSummary,
   type CompanyFinancialQualityFlag,
   type CompanyFinancialYear,
   type CompanyFiscal,
+  type CompanyIfrsFormYear,
   type CompanyLongFormStatement,
   type CompanyMetricStatus,
+  type CompanyReportingForm,
+  type CompanyReportingFormMark,
   type CompanyRegistryCaenObservation,
   type CompanyRegistryCuiProfile,
   type CompanyRegistryStatusObservation,
@@ -389,6 +393,85 @@ export const mapLongFormStatement = (r: LongFormStatementRow): CompanyLongFormSt
   resourceUrl: r.resource_url ?? null,
 });
 
+const isReportingForm = (value: unknown): value is CompanyReportingForm =>
+  typeof value === 'string' && (COMPANY_REPORTING_FORMS as readonly string[]).includes(value);
+
+/** One IFRS-file company-year as the view states it (figures already cast to text). */
+export interface IfrsFormYearRow {
+  year: number;
+  source_system: string | null;
+  reporting_form: string;
+  form_evidence: string;
+  statement_profile_hash: string | null;
+  metric_rule_version: string;
+  turnover: string | null;
+  net_profit: string | null;
+  net_loss: string | null;
+  net_result: string | null;
+  employees: string | null;
+  source_snapshot_id: string | null;
+  source_row_number: string | null;
+  /** The repo's own gated resource join; absent when the resource capability is not readable. */
+  resource_url?: string | null | undefined;
+}
+
+/**
+ * The view's exact text, nothing coalesced. Fail closed: a row whose form this
+ * API does not know, or without its publisher, capture or layout, is dropped
+ * (an empty list), never relabelled or served half-identified.
+ */
+export const mapIfrsFormYear = (r: IfrsFormYearRow): CompanyIfrsFormYear[] => {
+  if (
+    !isReportingForm(r.reporting_form) ||
+    r.source_system === null ||
+    r.source_snapshot_id === null ||
+    r.statement_profile_hash === null
+  ) {
+    return [];
+  }
+  return [
+    {
+      year: r.year,
+      sourceSystem: r.source_system,
+      reportingForm: r.reporting_form,
+      formEvidence: r.form_evidence,
+      turnover: r.turnover,
+      netProfit: r.net_profit,
+      netLoss: r.net_loss,
+      netResult: r.net_result,
+      employees: r.employees,
+      sourceUrl: r.resource_url ?? null,
+      sourceSnapshotId: r.source_snapshot_id,
+      sourceRowNumber: r.source_row_number,
+      statementProfileHash: r.statement_profile_hash,
+      metricRuleVersion: r.metric_rule_version,
+    },
+  ];
+};
+
+/** One row of `statement_reporting_form`. */
+export interface ReportingFormMarkRow {
+  year: number;
+  source_system: string | null;
+  statement_profile_hash: string | null;
+  reporting_form: string;
+  form_evidence: string;
+}
+
+/** A mark of a known form with its publisher; anything else is dropped (the year stays unmarked). */
+export const mapReportingFormMark = (r: ReportingFormMarkRow): CompanyReportingFormMark[] =>
+  isReportingForm(r.reporting_form) && r.source_system !== null
+    ? [
+        {
+          year: r.year,
+          sourceSystem: r.source_system,
+          statementProfileHash: r.statement_profile_hash,
+          reportingForm: r.reporting_form,
+          formEvidence: r.form_evidence,
+        },
+      ]
+    : [];
+
 const PLAIN_DECIMAL = /^-?\d+(?:\.\d+)?$/u;
 
 const isMetricStatus = (value: unknown): value is CompanyMetricStatus =>
@@ -493,4 +576,7 @@ export const mapFinancialYear = (
   lines: stringifyLines(r.lines),
   source: mapStatementSource(r),
   qualification: mapQualification(r, qualificationReadable),
+  // The form is a separate one-company read (`markReportingForms`), never this row's.
+  reportingForm: null,
+  formEvidence: null,
 });

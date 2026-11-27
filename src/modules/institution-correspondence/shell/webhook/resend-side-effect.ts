@@ -129,46 +129,24 @@ const extractEmailDomain = (emailAddress: string): string | null => {
   return domain === '' ? null : domain;
 };
 
-const normalizeHeaders = (headers: Record<string, string>): Record<string, string> => {
-  return Object.fromEntries(
-    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
-  );
-};
-
-const hasVerifiedMailAuthentication = (headers: Record<string, string>): boolean => {
-  const authenticationResults = normalizeHeaders(headers)['authentication-results']?.toLowerCase();
-  if (authenticationResults === undefined) {
-    return false;
-  }
-
-  return (
-    authenticationResults.includes('dmarc=pass') || authenticationResults.includes('dkim=pass')
-  );
-};
-
-const isVerifiedInstitutionSender = (
-  senderAddress: string,
-  officialEmail: string,
+// Addresses help route mail to the right private review queue. Only an admin
+// review can authorize subscriber publication, including exact address matches.
+const matchesInstitutionAddress = (
+  sender: string,
+  official: string,
   headers: Record<string, string>
 ): boolean => {
-  const normalizedSender = normalizeEmailAddress(senderAddress);
-  const normalizedOfficialEmail = normalizeEmailAddress(officialEmail);
-
-  if (normalizedSender === normalizedOfficialEmail) {
-    return true;
-  }
-
-  const senderDomain = extractEmailDomain(normalizedSender);
-  const officialDomain = extractEmailDomain(normalizedOfficialEmail);
-  if (senderDomain === null || officialDomain === null || senderDomain !== officialDomain) {
+  if (normalizeEmailAddress(sender) === normalizeEmailAddress(official)) return true;
+  const domain = extractEmailDomain(sender);
+  if (domain === null || domain !== extractEmailDomain(official) || FREEMAIL_DOMAINS.has(domain))
     return false;
-  }
-
-  if (FREEMAIL_DOMAINS.has(senderDomain)) {
-    return false;
-  }
-
-  return hasVerifiedMailAuthentication(headers);
+  const routingHint = Object.entries(headers)
+    .find(([name]) => name.toLowerCase() === 'authentication-results')?.[1]
+    .toLowerCase();
+  return (
+    routingHint !== undefined &&
+    (routingHint.includes('dmarc=pass') || routingHint.includes('dkim=pass'))
+  );
 };
 
 const SUBJECT_THREAD_KEY_TOKEN_REGEX = /\[teu:[^\]]+\]/giu;
@@ -723,7 +701,7 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
             const recipientMatch = uniqueRecipientMatches[0];
             if (recipientMatch !== undefined) {
               if (
-                isVerifiedInstitutionSender(
+                matchesInstitutionAddress(
                   receivedEmail.from,
                   recipientMatch.officialEmail,
                   receivedEmail.headers
@@ -830,13 +808,6 @@ export const makeInstitutionCorrespondenceResendSideEffect = (
           );
         }
       }
-
-      await updatePublisher?.publish({
-        eventType: 'reply_received',
-        thread: appendResult.value,
-        occurredAt: receivedEmail.createdAt,
-        reply: inboundEntry,
-      });
 
       log.debug(
         { svixId: input.storedEvent.svixId, threadKey: appendResult.value.threadKey },

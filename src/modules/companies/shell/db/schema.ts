@@ -269,6 +269,55 @@ export interface CompaniesFinancialQualificationTable {
   hold_drift: string[] | null;
 }
 
+/**
+ * `companies_v2.ifrs_form_financials` (scrapper migration 20261125T190000,
+ * PRIV-ZVPV): a read-only view, one row per live Ministry IFRS-file (class
+ * `ir`) company-year, FY2012-2018, with the figures its layout's metric rules
+ * resolve. A blank source cell is NULL and nothing is coalesced. Its
+ * `privacy_class` is the most restrictive of the selection row and the
+ * indicator rows used; reads allowlist 'public'. The view also has
+ * `source_url` (joined WITHOUT a privacy gate) and `source_statement_locator`:
+ * both deliberately untyped so they can never be selected. The file URL is
+ * read through the repo's own gated join on `financial_source_resources`.
+ * Read only behind the repo's capability probe.
+ */
+export interface CompaniesIfrsFormFinancialsView {
+  cui: string;
+  year: number;
+  /** 'ifrs' today; a value this API does not know is dropped, never relabelled. */
+  reporting_form: string;
+  form_evidence: string;
+  source_system: string | null;
+  statement_profile_hash: string | null;
+  metric_rule_version: string;
+  turnover: string | null; // numeric → string
+  net_profit: string | null;
+  net_loss: string | null;
+  /** Profit minus loss, only when both legs are present. */
+  net_result: string | null;
+  employees: string | null; // bigint → string
+  source_snapshot_id: string | null;
+  /** The file line the figures were read from; NULL when no figure cell is retained. */
+  source_row_number: number | null;
+  privacy_class: string;
+}
+
+/**
+ * `companies_v2.statement_reporting_form` (same migration): the company-years
+ * reported on the IFRS form, by the Ministry's IFRS file (the rows above) or
+ * by ANAF's IFRS statement layout (FY2019+). A company-year absent from it is
+ * UNMARKED, which proves no other form. Read only behind the same probe.
+ */
+export interface CompaniesStatementReportingFormView {
+  cui: string;
+  year: number;
+  reporting_form: string;
+  form_evidence: string;
+  source_system: string | null;
+  statement_profile_hash: string | null;
+  privacy_class: string;
+}
+
 export interface CompaniesStatusFlagsTable {
   cui: string;
   status_code: string;
@@ -310,6 +359,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'companies_v2.financial_source_selection': CompaniesFinancialSourceSelectionTable;
     'companies_v2.financial_indicators': CompaniesFinancialIndicatorsTable;
     'companies_v2.financial_qualification_active': CompaniesFinancialQualificationTable;
+    'companies_v2.ifrs_form_financials': CompaniesIfrsFormFinancialsView;
+    'companies_v2.statement_reporting_form': CompaniesStatementReportingFormView;
     'companies_v2.registration_identifiers': {
       scheme: string;
       value: string;

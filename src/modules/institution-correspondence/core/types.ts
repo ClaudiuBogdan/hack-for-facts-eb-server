@@ -75,6 +75,12 @@ export type CorrespondenceAttachmentMetadata = Static<
   typeof CorrespondenceAttachmentMetadataSchema
 >;
 
+export const ApprovedPublicExcerptSchema = Type.String({
+  minLength: 1,
+  maxLength: 400,
+  pattern: '\\S',
+});
+
 export const CorrespondenceEntrySchema = Type.Object(
   {
     id: Type.String({ minLength: 1 }),
@@ -93,6 +99,7 @@ export const CorrespondenceEntrySchema = Type.Object(
     headers: UnknownRecordSchema,
     attachments: Type.Array(CorrespondenceAttachmentMetadataSchema),
     occurredAt: IsoDateTimeStringSchema,
+    approvedPublicExcerpt: Type.Optional(ApprovedPublicExcerptSchema),
     metadata: UnknownRecordSchema,
   },
   { additionalProperties: false }
@@ -255,6 +262,7 @@ export interface ReviewReplyInput {
   basedOnEntryId: string;
   resolutionCode: ResolutionCode;
   reviewNotes?: string | null;
+  approvedPublicExcerpt?: string;
   reviewedAt?: Date;
 }
 

@@ -28,10 +28,15 @@ import { companiesTypeDefs } from '@/modules/companies/shell/graphql/typedefs.js
 import { makeCompaniesMcpTools } from '@/modules/companies/shell/mcp/tools.js';
 import { baseTypeDefs, mergeGraphqlSlices, scalarResolvers } from '@/modules/shared/index.js';
 
+import {
+  notAssessedQualification,
+  statementSource,
+} from '../../unit/companies/qualification-fixtures.js';
 import { PUBLISHED_SCOPE } from '../../unit/companies/registry-fixtures.js';
 import { stubFlows, stubRepo } from '../../unit/companies/repo-fixtures.js';
 
 import type { CompaniesRepository, CompanyProfileData } from '@/modules/companies/core/ports.js';
+import type { CompanyFinancialYear, CompanyIfrsFormYear } from '@/modules/companies/core/types.js';
 
 const CUI = '2816464';
 
@@ -616,5 +621,324 @@ describe('long-format-only statements and public-flow wording on the transports'
       ?.handler({ cui: CUI })) as { summary?: string };
     expect(none.summary).toContain('no indexed incoming public flow');
     expect(none.summary).not.toContain('0 RON');
+  });
+});
+
+/**
+ * PRIV-ZVPV over the same transports: the Ministry IFRS-file years as their
+ * own labelled list, the reporting-form mark on typed years, and the MCP tool
+ * under the same rules. The strings are what the real view returns.
+ */
+describe('the IFRS-form series on the transports', () => {
+  const OMV = '1590082';
+  const ANAF_IFRS_LAYOUT = '464d1c40cac85eca14212758a48a73c3ba5b272d6fdc76e7943a6a8febbabd58';
+  const typedYear = (year: number, layout: string | null): CompanyFinancialYear => ({
+    year,
+    sourceSystem: 'anaf',
+    turnover: '100.00',
+    netProfit: null,
+    netLoss: null,
+    employees: '5',
+    summary: {} as CompanyFinancialYear['summary'],
+    lines: null,
+    source: { ...statementSource(year, OMV), statementProfileHash: layout },
+    qualification: notAssessedQualification('no_active_policy'),
+    reportingForm: null,
+    formEvidence: null,
+  });
+  /** FY2015 as filed (a loss year) and a year with blank and zero cells. */
+  const IFRS_2015: CompanyIfrsFormYear = {
+    year: 2015,
+    sourceSystem: 'mfp',
+    reportingForm: 'ifrs',
+    formEvidence: 'mfp_filer_class_ir',
+    turnover: '13687616179',
+    netProfit: '0',
+    netLoss: '630646624',
+    netResult: '-630646624',
+    employees: '15581',
+    sourceUrl: 'https://data.gov.ro/dataset/s/resource/r2015/download/web_ir_an2015.txt',
+    sourceSnapshotId: 'mfp:situatii_financiare_2015:2015:r2015',
+    sourceRowNumber: '412',
+    statementProfileHash: 'b1'.repeat(32),
+    metricRuleVersion: 'anaf-bilant-metric-v1',
+  };
+  const IFRS_2014: CompanyIfrsFormYear = {
+    ...IFRS_2015,
+    year: 2014,
+    turnover: null,
+    netProfit: null,
+    netLoss: '5',
+    netResult: null,
+    employees: '0',
+    sourceUrl: null,
+    sourceRowNumber: null,
+  };
+  const MARK_2024 = {
+    year: 2024,
+    sourceSystem: 'anaf',
+    statementProfileHash: ANAF_IFRS_LAYOUT,
+    reportingForm: 'ifrs' as const,
+    formEvidence: 'anaf_statement_layout',
+  };
+  const seriesRepo = (
+    series: Awaited<ReturnType<CompaniesRepository['getIfrsFormSeries']>>,
+    typed: readonly CompanyFinancialYear[] = [
+      typedYear(2024, ANAF_IFRS_LAYOUT),
+      typedYear(2023, ANAF_IFRS_LAYOUT),
+    ]
+  ) =>
+    stubRepo({
+      getFinancials: vi.fn(async () => ok(typed)),
+      getIfrsFormSeries: vi.fn(async () => series),
+    });
+  const IFRS_FIELDS = `ifrsFormYears {
+    year sourceSystem reportingForm formEvidence turnover netProfit netLoss netResult employees
+    sourceUrl sourceSnapshotId sourceRowNumber statementProfileHash metricRuleVersion
+  }`;
+  const financialsTool = (repo: CompaniesRepository) => {
+    const tool = makeCompaniesMcpTools({ ...deps(repo), clientBaseUrl: 'x' }).find(
+      (t) => t.name === 'get_company_financials'
+    );
+    if (tool === undefined) throw new Error('no financials tool');
+    return tool;
+  };
+
+  it('GraphQL: the IFRS-file years with their exact strings, beside the marked typed years', async () => {
+    const body = await gql(
+      await buildGraphql(seriesRepo(ok({ years: [IFRS_2015, IFRS_2014], marks: [MARK_2024] }))),
+      `query { companyFinancials(cui: "${OMV}") {
+        years { year reportingForm formEvidence }
+        latest { year reportingForm }
+        trajectory { fromYear toYear turnoverDelta turnoverDeltaReason employeesDeltaReason netResultDeltaReason }
+        ${IFRS_FIELDS}
+      } }`
+    );
+    expect(body.errors).toBeUndefined();
+    expect(body.data?.['companyFinancials']).toEqual({
+      // 2024 is marked, 2023 is not: the enum travels in GraphQL case, null is not a form.
+      years: [
+        { year: 2024, reportingForm: 'IFRS', formEvidence: 'anaf_statement_layout' },
+        { year: 2023, reportingForm: null, formEvidence: null },
+      ],
+      latest: { year: 2024, reportingForm: 'IFRS' },
+      trajectory: {
+        fromYear: 2023,
+        toYear: 2024,
+        turnoverDelta: null,
+        turnoverDeltaReason: 'reporting_form_changed',
+        employeesDeltaReason: 'reporting_form_changed',
+        netResultDeltaReason: 'reporting_form_changed',
+      },
+      ifrsFormYears: [
+        { ...IFRS_2015, reportingForm: 'IFRS' },
+        { ...IFRS_2014, reportingForm: 'IFRS' },
+      ],
+    });
+  });
+
+  it('GraphQL: unreadable views are null (unknown) and no year carries a form', async () => {
+    const body = await gql(
+      await buildGraphql(seriesRepo(ok(null))),
+      `query { companyFinancials(cui: "${OMV}") { years { year reportingForm formEvidence } ifrsFormYears { year } } }`
+    );
+    expect(body.errors).toBeUndefined();
+    expect(body.data?.['companyFinancials']).toEqual({
+      years: [
+        { year: 2024, reportingForm: null, formEvidence: null },
+        { year: 2023, reportingForm: null, formEvidence: null },
+      ],
+      ifrsFormYears: null,
+    });
+  });
+
+  it('GraphQL: known none is [], and a failed series read is an error, never a partial answer', async () => {
+    const none = await gql(
+      await buildGraphql(seriesRepo(ok({ years: [], marks: [] }))),
+      `query { companyFinancials(cui: "${OMV}") { ifrsFormYears { year } } }`
+    );
+    expect(none.data?.['companyFinancials']).toEqual({ ifrsFormYears: [] });
+    const failed = await gql(
+      await buildGraphql(
+        seriesRepo(err({ type: 'Database' as const, message: 'getIfrsFormSeries failed' }))
+      ),
+      `query { companyFinancials(cui: "${OMV}") { years { year } } }`
+    );
+    expect(failed.data?.['companyFinancials'] ?? null).toBeNull();
+    expect(failed.errors).toHaveLength(1);
+  });
+
+  it('GraphQL: an IFRS-file year has no qualification, summary or row locator in its contract', async () => {
+    for (const field of ['qualification { assessment }', 'summary', 'sourceStatementLocator']) {
+      const body = await gql(
+        await buildGraphql(seriesRepo(ok({ years: [IFRS_2015], marks: [] }))),
+        `query { companyFinancials(cui: "${OMV}") { ifrsFormYears { year ${field} } } }`
+      );
+      expect(body.data?.['companyFinancials'] ?? null).toBeNull();
+      expect(JSON.stringify(body.errors)).toContain('CompanyIfrsFormYear');
+    }
+  });
+
+  it('GraphQL: the company profile reads and carries the form of its typed years only when asked', async () => {
+    const getProfileData = vi.fn(
+      async (_cui: string, scope: CompanyRegistryEnvelope, options?: { formMarks?: boolean }) =>
+        ok({
+          ...profileUnder(scope),
+          financials:
+            options?.formMarks === true
+              ? [
+                  {
+                    ...typedYear(2024, ANAF_IFRS_LAYOUT),
+                    reportingForm: 'ifrs' as const,
+                    formEvidence: 'anaf_statement_layout',
+                  },
+                  typedYear(2023, null),
+                ]
+              : [typedYear(2024, ANAF_IFRS_LAYOUT), typedYear(2023, null)],
+        })
+    );
+    const app = await buildGraphql(stubRepo({ getProfileData }));
+    const body = await gql(
+      app,
+      `query { company(cui: "${CUI}") { financials { year reportingForm formEvidence } } }`
+    );
+    expect(body.errors).toBeUndefined();
+    expect(body.data?.['company']).toEqual({
+      financials: [
+        { year: 2024, reportingForm: 'IFRS', formEvidence: 'anaf_statement_layout' },
+        { year: 2023, reportingForm: null, formEvidence: null },
+      ],
+    });
+    expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: true });
+    // Through an alias and a fragment too; formEvidence alone is enough. The
+    // request must itself succeed and reach the profile read.
+    const before = getProfileData.mock.calls.length;
+    const aliased = await gql(
+      app,
+      `query { company(cui: "${CUI}") { years: financials { ...F } } } fragment F on CompanyFinancialYear { formEvidence }`
+    );
+    expect(aliased.errors).toBeUndefined();
+    expect(aliased.data?.['company']).toEqual({
+      years: [{ formEvidence: 'anaf_statement_layout' }, { formEvidence: null }],
+    });
+    expect(getProfileData.mock.calls.length).toBeGreaterThan(before);
+    expect(getProfileData.mock.calls.slice(before).map((call) => call[2])).toEqual(
+      getProfileData.mock.calls.slice(before).map(() => ({ formMarks: true }))
+    );
+    // Not selected: the profile read is not asked for the marks at all.
+    for (const selection of ['cui', 'cui financials { year turnover }']) {
+      const calls = getProfileData.mock.calls.length;
+      const plain = await gql(app, `query { company(cui: "${CUI}") { ${selection} } }`);
+      expect(plain.errors).toBeUndefined();
+      expect(getProfileData.mock.calls.length).toBeGreaterThan(calls);
+      expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: false });
+    }
+  });
+
+  it('MCP snapshot: the latest year carries its form, so the profile read is asked for the marks', async () => {
+    const getProfileData = vi.fn(
+      async (_cui: string, scope: CompanyRegistryEnvelope, _options?: { formMarks?: boolean }) =>
+        ok({
+          ...profileUnder(scope),
+          financials: [
+            {
+              ...typedYear(2024, ANAF_IFRS_LAYOUT),
+              reportingForm: 'ifrs' as const,
+              formEvidence: 'anaf_statement_layout',
+            },
+          ],
+        })
+    );
+    const repo = stubRepo({ getProfileData, getActivityEvidence: vi.fn(async () => ok(EVIDENCE)) });
+    const snapshot = makeCompaniesMcpTools({ ...deps(repo), clientBaseUrl: 'x' }).find(
+      (t) => t.name === 'get_company_snapshot'
+    );
+    const out = (await snapshot?.handler({ cui: CUI })) as {
+      item?: { latestFinancial?: { reportingForm: string | null } | null };
+    };
+    expect(out.item?.latestFinancial?.reportingForm).toBe('ifrs');
+    expect(getProfileData.mock.calls.at(-1)?.[2]).toEqual({ formMarks: true });
+    expect(snapshot?.description).toContain('never the ordinary form');
+  });
+
+  it('the schema says what the figures are and what a missing mark is not', () => {
+    expect(companiesTypeDefs).toMatch(
+      /SOURCE OBSERVATIONS with a verified mapping, OUTSIDE the analytics\s+admission policy/u
+    );
+    expect(companiesTypeDefs).toContain("never 'the ordinary form'");
+    expect(companiesTypeDefs).toContain('reporting_form_changed');
+  });
+
+  it('a missing figure is not described as a blank cell only, nor a missing mark as unmarked only', () => {
+    const tools = makeCompaniesMcpTools({ ...deps(stubRepo({})), clientBaseUrl: 'x' });
+    const describe = (name: string): string =>
+      tools.find((t) => t.name === name)?.description ?? '';
+    // The view also serves no figure for a layout without exactly one rule.
+    expect(companiesTypeDefs.match(/without exactly one verified rule/gu)).toHaveLength(4);
+    expect(companiesTypeDefs).not.toMatch(/Null = a blank source cell[;,]/u);
+    expect(describe('get_company_financials')).toContain('without exactly one verified rule');
+    expect(describe('get_company_financials')).not.toContain('null means a blank source cell');
+    // A mark that could not be read looks the same as no mark.
+    expect(describe('get_company_snapshot')).toContain('not marked or not readable here');
+    // The comparison rule names both witnesses of an IFRS-file year.
+    expect(companiesTypeDefs).toMatch(/ifrsFormYears or longFormOnly \(filerClass ir\)/u);
+    expect(describe('get_company_financials')).toContain(
+      'ifrsFormYears or longFormOnly (filerClass ir)'
+    );
+  });
+
+  it('MCP get_company_financials: the same series and marks, stated in the summary', async () => {
+    const tool = financialsTool(
+      seriesRepo(ok({ years: [IFRS_2015, IFRS_2014], marks: [MARK_2024] }))
+    );
+    const out = (await tool.handler({ cui: OMV })) as {
+      item?: {
+        years: readonly { year: number; reportingForm: string | null }[];
+        trajectory: { turnoverDeltaReason: string | null } | null;
+        ifrsFormYears: unknown;
+      };
+      summary?: string;
+    };
+    expect(out.item?.ifrsFormYears).toEqual([IFRS_2015, IFRS_2014]);
+    expect(out.item?.years.map((y) => [y.year, y.reportingForm])).toEqual([
+      [2024, 'ifrs'],
+      [2023, null],
+    ]);
+    expect(out.item?.trajectory?.turnoverDeltaReason).toBe('reporting_form_changed');
+    expect(out.summary).toContain(
+      '2 IFRS-form year(s) from the Ministry of Finance IFRS file (source observations, not qualified)'
+    );
+    for (const stated of [
+      'ifrsFormYears',
+      'reportingForm',
+      'reporting_form_changed',
+      'never the ordinary form',
+    ]) {
+      expect(tool.description).toContain(stated);
+    }
+  });
+
+  it('MCP: unknown is said as unknown, and long-format years with figures are not called figureless', async () => {
+    const unknown = (await financialsTool(seriesRepo(ok(null))).handler({ cui: OMV })) as {
+      item?: { ifrsFormYears: unknown };
+      summary?: string;
+    };
+    expect(unknown.item?.ifrsFormYears).toBeNull();
+    expect(unknown.summary).toContain('IFRS-form years unknown');
+    const LONG = {
+      year: 2015,
+      sourceSystem: 'mfp',
+      filerClass: 'ir',
+      sourceSnapshotId: IFRS_2015.sourceSnapshotId,
+      resourceUrl: IFRS_2015.sourceUrl,
+    };
+    const both = stubRepo({
+      getLongFormOnlyStatements: vi.fn(async () => ok([LONG])),
+      getIfrsFormSeries: vi.fn(async () => ok({ years: [IFRS_2015], marks: [] })),
+    });
+    const out = (await financialsTool(both).handler({ cui: OMV })) as { summary?: string };
+    expect(out.summary).toBe(
+      `0 financial year(s) for CUI ${OMV}; 1 long-format-only statement(s) outside the series; 1 IFRS-form year(s) from the Ministry of Finance IFRS file (source observations, not qualified).`
+    );
   });
 });

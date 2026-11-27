@@ -419,14 +419,8 @@ const buildThreadEventDefinition = (
       subject: thread.record.subject,
       occurredAt: notification.occurredAt.toISOString(),
       reusedOutboxComposeStrategy: 'skip_terminal_compose' as const,
-      ...(notification.reply !== undefined ? { replyEntryId: notification.reply.id } : {}),
-      ...(notification.reply?.textBody !== undefined && notification.reply.textBody !== null
-        ? {
-            replyTextPreview:
-              notification.reply.textBody.length > 400
-                ? `${notification.reply.textBody.slice(0, 397)}...`
-                : notification.reply.textBody,
-          }
+      ...(notification.approvedPublicExcerpt !== undefined
+        ? { approvedPublicExcerpt: notification.approvedPublicExcerpt }
         : {}),
       ...(notification.basedOnEntryId !== undefined
         ? { basedOnEntryId: notification.basedOnEntryId }
@@ -434,7 +428,6 @@ const buildThreadEventDefinition = (
       ...(notification.resolutionCode !== undefined
         ? { resolutionCode: notification.resolutionCode }
         : {}),
-      ...(notification.reviewNotes !== undefined ? { reviewNotes: notification.reviewNotes } : {}),
     };
 
     const enqueueInput =

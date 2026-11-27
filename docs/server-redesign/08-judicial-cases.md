@@ -22,6 +22,8 @@
 
 ## 0. The privacy invariant, stated once (read this before anything else)
 
+> **2026-11-26:** party names and the case object text are withheld pending JUST-9Q9C.
+
 The justice domain stores litigation. Litigation names **natural persons**. The
 single unrecoverable mistake this module can make is to emit a natural person's
 name (or a free-text field that can contain one) on any public surface. The
@@ -172,7 +174,7 @@ export interface JudicialCase {
   readonly categoryName: string | null;
   readonly stage: string | null;
   readonly stageName: string | null;
-  readonly object: string | null; // raw object text — safe (procedural subject, not parties)
+  readonly object: string | null; // raw object text; served null at present (§0 note)
   readonly sourceOpenedAt: string | null; // source-dependent date (see sourceOpenedAtBasis)
   readonly sourceOpenedAtBasis: 'portal_header_data' | 'iccj_archive_case_date' | 'unknown';
   readonly latestSourceModifiedAt: string | null;
@@ -359,7 +361,7 @@ module source to assert that.
   their published-only counts and case identifiers. `get_judicial_case` also
   returns the existing party view rows and `personPartyCount`; person/unknown
   names remain null and withheld fields remain withheld. Decision-link evidence
-  is served as stored under the scoped instruction in §4.3.
+  is returned for public decisions (§4.3).
 
 ### 3.4 Search & embeddings (the most dangerous lane) — see §9
 
@@ -641,14 +643,11 @@ and company cursors keep their identities.
 
 ### 4.3 API-04 — stored decisions and the complete judicial API (2026-10-04)
 
-**Scoped override (user decision, relayed by the parent for API-04 only).** The
-three decision tables are served **as stored**: both `privacy_class` values
-(`public` and `restricted`) and the link `evidence` JSON value. Privacy work for
-these tables is deferred. Every existing case, party, hearing, candidate and
-lineage policy is unchanged. The leak audit admits `evidence` only at the exact
-decision-link boundaries (repo select, row type, mapper, SDL field, REST schema)
-and keeps every old negative control (`party_company_candidates.evidence` /
-`.candidates`, `case_lineage_candidates.evidence`, hearing solutions, party names).
+**Public decision access.** The API exposes only decisions classified `public`.
+The same check applies to both subject-link directions and source-system discovery,
+before sorting or pagination. The `restricted` filter remains valid and returns
+an empty page. Public records retain their stored attributes, provenance and
+link evidence. Raw and serving records retain both classes.
 
 **Tables and native representations.**
 
@@ -868,7 +867,7 @@ cursor `fhash` + tri-surface equivalence. The module invents no DSL.
 | `stage`                        | string[] | `in`                       | `cases.stage`                                                                                                                                                     | `stage`                    | `[String!]`             | —                        |
 | `year` / `yearFrom` / `yearTo` | int      | `eq`/`gte`/`lte`/`between` | session calendar year of `cases.source_opened_at` — a source-dependent clock (see §10 date basis); mixed-source ranges combine clocks; operators intersect (§4.2) | `yearFrom`/`yearTo`        | `{from,to}`             | year                     |
 | `modifiedFrom`/`modifiedTo`    | date     | `between`                  | `cases.latest_source_modified_at` / `cases_modified_idx`                                                                                                          | `modifiedFrom`/`To`        | `{from,to}`             | —                        |
-| `q`                            | string   | `contains`                 | `cases.object`, parameterized PostgreSQL ILIKE                                                                                                                    | `q`                        | `String`                | resolver step            |
+| `q`                            | string   | `contains`                 | `cases.object`, parameterized PostgreSQL ILIKE. **Refused at present, see the §0 note**                                                                           | `q`                        | `String`                | resolver step            |
 | `hasObject`                    | bool     | `isNull` (mandatory op)    | `cases.object IS [NOT] NULL`                                                                                                                                      | `objectIsNull`             | `Boolean`               | coverage                 |
 | `sort`                         | enum     | —                          | `modifiedAt`(default,desc) / `openedAt`                                                                                                                           | `sort`                     | `JudicialCaseSort`      | —                        |
 
@@ -950,7 +949,7 @@ input definitions; the five existing schemas retain their prior behavior.
 Cursor lists carry `meta.cursor.next`. Rate-limited and bounded.
 **Existing case outputs omit `display_name`, `solution_summary`, `solution`,
 and party/lineage candidate evidence, candidate arrays and reviewer fields.**
-Decision-link `evidence` is served as stored under the scoped instruction (§4.3);
+Decision-link `evidence` is returned for public decisions (§4.3);
 the leak audit keeps the existing case exclusions.
 
 | Tool                                   | Input                                       | Output                                                              | Usecase                | `link`                                 | Summary template                                                                      |

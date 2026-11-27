@@ -4,7 +4,8 @@
  * the `siruta` resolve dim). All return `Result<T, ApiError>`.
  *
  * GRAIN GATE (§4): the usecases NEVER compute a spend total. `amount_ron` flows only
- * through `listSalaryClaims` as a disclosure claim; no usecase sums it.
+ * through `listSalaryClaims` as a disclosure claim; no usecase sums it. The salary
+ * claims are withheld pending review (LOC-XMCM): that list is empty.
  *
  * Territory ENRICHMENT (per-entity `territory` field) works via the kernel
  * `territoryForCui` point lookup. Territory FILTERS (region/siruta/population) are

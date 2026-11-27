@@ -100,7 +100,13 @@ export const CASE_FLAT_RULES: readonly FlatRule[] = [
   rule('modifiedTo', 'modified', 'to', 'string', 'Source-modified range upper bound.'),
   rule('modifiedGte', 'modified', 'gte', 'string', 'Source-modified lower bound (gte).'),
   rule('modifiedLte', 'modified', 'lte', 'string', 'Source-modified upper bound (lte).'),
-  rule('q', 'q', 'contains', 'string', 'Case object substring (never party names).'),
+  rule(
+    'q',
+    'q',
+    'contains',
+    'string',
+    'Refused at present (invalid input): the case object text is not published or searchable.'
+  ),
   rule(
     'objectIsNull',
     'hasObject',

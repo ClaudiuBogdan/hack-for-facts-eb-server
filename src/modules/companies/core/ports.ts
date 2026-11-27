@@ -41,6 +41,7 @@ import type {
   CompanyRegistrationDiffData,
   CompanyGroupBy,
   CompanyGroupCount,
+  CompanyIfrsFormSeries,
   CompanyListRow,
   CompanyLongFormStatement,
   CompanyNameHit,
@@ -77,7 +78,13 @@ export interface CompaniesRepository extends CompanyRegistryScopePort {
    */
   getProfileData(
     cui: string,
-    scope: CompanyRegistryEnvelope
+    scope: CompanyRegistryEnvelope,
+    /**
+     * `formMarks`: also read the reporting form of the profile's typed years
+     * (one more one-company statement). Without it no year is marked: the form
+     * was not read, which is not "unmarked".
+     */
+    options?: { readonly formMarks?: boolean }
   ): Promise<Result<CompanyProfileData | null, ApiError>>;
   getFinancials(cui: string): Promise<Result<readonly CompanyFinancialYear[], ApiError>>;
   /**
@@ -89,6 +96,15 @@ export interface CompaniesRepository extends CompanyRegistryScopePort {
   getLongFormOnlyStatements(
     cui: string
   ): Promise<Result<readonly CompanyLongFormStatement[] | null, ApiError>>;
+  /**
+   * The IFRS-form series of one CUI (PRIV-ZVPV), each from its own
+   * one-company statement: the Ministry IFRS-file years with their figures
+   * (newest first; same public witness and parent rule as
+   * `getLongFormOnlyStatements`), and the marks of the company-years reported
+   * on the IFRS form. `null` = this runtime cannot read the two views: both
+   * unknown, never "none" and never "unmarked".
+   */
+  getIfrsFormSeries(cui: string): Promise<Result<CompanyIfrsFormSeries | null, ApiError>>;
   /** Warn-only quality flags + measured corpus-wide assessment coverage (all public-class). */
   getFinancialQualityAssessment(
     cui: string

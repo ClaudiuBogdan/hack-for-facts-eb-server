@@ -77,6 +77,8 @@ const yearRow = (year: number, netProfit: string, netLoss: string): CompanyFinan
   lines: null,
   source: statementSource(year),
   qualification: assessedQualification({}, exactDecimalDiff(netProfit, netLoss)),
+  reportingForm: null,
+  formEvidence: null,
 });
 
 const deps = (over: Partial<CompaniesRepository> = {}): CompanyUsecaseDeps => ({

@@ -72,7 +72,9 @@ import {
   caenActivitiesOf,
   mapCountyDisplayName,
   mapFinancialYear,
+  mapIfrsFormYear,
   mapLongFormStatement,
+  mapReportingFormMark,
   mapQualityFlag,
   mapFiscal,
   statusFlagsOf,
@@ -123,6 +125,7 @@ import {
   usesRegistryFilters,
   type CompanyRegistryEnvelope,
 } from '../../core/registry.js';
+import { markReportingForms } from '../../core/reporting-form.js';
 import {
   COMPANY_FINANCIAL_METRICS,
   COMPANY_TERRITORY_COVERAGE_NOTE,
@@ -133,9 +136,11 @@ import {
   type CompanyFinancialYear,
   type CompanyGroupBy,
   type CompanyGroupCount,
+  type CompanyIfrsFormSeries,
   type CompanyListRow,
   type CompanyLongFormStatement,
   type CompanyNameHit,
+  type CompanyReportingFormMark,
   type CompanySort,
 } from '../../core/types.js';
 
@@ -301,6 +306,8 @@ interface ServingCapabilities {
   readonly resources: boolean;
   /** The selection ledger + its public indicator witness (long-format-only statements). */
   readonly selection: boolean;
+  /** The two IFRS-form views with their witness (PRIV-ZVPV): readable together or not at all. */
+  readonly ifrsForm: boolean;
 }
 
 /** No optional financial capability: the typed statements alone. */
@@ -308,6 +315,7 @@ const NO_CAPABILITIES: ServingCapabilities = {
   qualification: false,
   resources: false,
   selection: false,
+  ifrsForm: false,
 };
 
 /** A missing or ungranted capability is re-probed this long after it was seen. */
@@ -326,6 +334,22 @@ const CAPABILITY_SQLSTATES = new Set(['42P01', '42703', '42883', '3F000', '42704
 const isCapabilityError = (error: unknown): boolean => {
   const code = (error as { code?: unknown } | null)?.code;
   return typeof code === 'string' && CAPABILITY_SQLSTATES.has(code);
+};
+
+/**
+ * Two reads in parallel, and the failure that matters: a real database error
+ * is the one reported, even when the other read failed first with a
+ * capability SQLSTATE. `Promise.all` would report whichever settled first and
+ * let a capability error hide a timeout.
+ */
+const settleBoth = async <A, B>(first: Promise<A>, second: Promise<B>): Promise<[A, B]> => {
+  const [a, b] = await Promise.allSettled([first, second]);
+  if (a.status === 'fulfilled' && b.status === 'fulfilled') return [a.value, b.value];
+  const reasons = [a, b].flatMap((result): unknown[] =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  const reason = reasons.find((candidate) => !isCapabilityError(candidate)) ?? reasons[0];
+  throw reason instanceof Error ? reason : new Error('a financial read failed');
 };
 
 interface ListConditions {
@@ -565,7 +589,7 @@ export const makeCompaniesRepo = (
     }
   };
   const probeCapabilities = async (): Promise<ServingCapabilities> => {
-    const [qualification, resources, selection] = await Promise.all([
+    const [qualification, resources, selection, ifrsForm] = await Promise.all([
       probeCapability(() =>
         db
           .selectFrom('companies_v2.financial_qualification_active as q')
@@ -590,16 +614,28 @@ export const makeCompaniesRepo = (
           .limit(1)
           .execute()
       ),
+      // Both IFRS-form reads as served, without the optional file URL.
+      probeCapability(() =>
+        settleBoth(
+          ifrsFormYears({ ...NO_CAPABILITIES, ifrsForm: true }, PROBE_CUI)
+            .limit(1)
+            .execute(),
+          reportingFormMarks(PROBE_CUI).limit(1).execute()
+        )
+      ),
     ]);
-    return { qualification, resources, selection };
+    return { qualification, resources, selection, ifrsForm };
   };
   let capabilityCache: { at: number; promise: Promise<ServingCapabilities> } | null = null;
   const servingCapabilities = async (): Promise<ServingCapabilities> => {
     if (capabilityCache !== null) {
       const cached = capabilityCache;
       const known = await cached.promise;
+      // Replaced while this caller waited (another caller's re-probe after the
+      // retry window, or a downgrade): read that entry, never probe beside it.
+      if (capabilityCache !== cached) return servingCapabilities();
       if (
-        (known.qualification && known.resources && known.selection) ||
+        (known.qualification && known.resources && known.selection && known.ifrsForm) ||
         Date.now() - cached.at < CAPABILITY_RETRY_MS
       ) {
         return known;
@@ -611,6 +647,23 @@ export const makeCompaniesRepo = (
       if (capabilityCache?.promise === promise) capabilityCache = null;
     });
     return promise;
+  };
+  /**
+   * A read found capabilities unreadable after the probe. They are marked on
+   * top of what the cache holds NOW, not of the snapshot the read started
+   * with, so two fallbacks of one request cannot undo each other; `seen` is
+   * used only when no entry is left. When the entry is a probe still in
+   * flight and that probe fails, nothing is kept: its error is not replaced
+   * by an answer built from older flags, and the next caller probes again.
+   * Re-probed after CAPABILITY_RETRY_MS like every incomplete answer.
+   */
+  const markUnreadable = (lost: Partial<ServingCapabilities>, seen: ServingCapabilities): void => {
+    const current = capabilityCache?.promise ?? Promise.resolve(seen);
+    const promise = current.then((known) => ({ ...known, ...lost }));
+    capabilityCache = { at: Date.now(), promise };
+    promise.catch(() => {
+      if (capabilityCache?.promise === promise) capabilityCache = null;
+    });
   };
 
   /**
@@ -723,8 +776,9 @@ export const makeCompaniesRepo = (
       ) {
         throw error;
       }
-      // Re-probed after CAPABILITY_RETRY_MS like every incomplete answer.
-      capabilityCache = { at: Date.now(), promise: Promise.resolve(NO_CAPABILITIES) };
+      // The IFRS-form views are not part of this statement: what is known of
+      // them stays.
+      markUnreadable({ qualification: false, resources: false, selection: false }, capabilities);
       return { rows: await run(NO_CAPABILITIES), qualificationReadable: false };
     }
   };
@@ -819,18 +873,172 @@ export const makeCompaniesRepo = (
       const withoutUrls: ServingCapabilities = { ...capabilities, resources: false };
       try {
         const rows = await longFormStatements(withoutUrls, cui).execute();
-        capabilityCache = { at: Date.now(), promise: Promise.resolve(withoutUrls) };
+        markUnreadable({ resources: false }, capabilities);
         return ok(rows.map(mapLongFormStatement));
       } catch (error) {
         if (!isCapabilityError(error)) throw error;
-        capabilityCache = {
-          at: Date.now(),
-          promise: Promise.resolve({ ...withoutUrls, selection: false }),
-        };
+        markUnreadable({ resources: false, selection: false }, capabilities);
         return ok(null);
       }
     } catch (error) {
       return err(databaseError('getLongFormOnlyStatements failed', error));
+    }
+  };
+
+  /**
+   * The CUI's Ministry IFRS-file years with their figures (PRIV-ZVPV), newest
+   * first: ONE one-company statement over `ifrs_form_financials`, never folded
+   * into the typed statements read (whose planner estimate is already
+   * inflated, CQA-22). The view's own class is the most restrictive of the
+   * selection row and the indicator rows it used; the long-format list's
+   * witness and parent rule apply on top, so a year served here is also a
+   * `longFormOnly` statement. The file URL is this repo's own LEFT JOIN with
+   * its public gate in ON: the view's `source_url` has no gate and is not
+   * read. Money and headcount leave as exact text.
+   */
+  const ifrsFormYears = (capabilities: ServingCapabilities, cui: string) =>
+    db
+      .selectFrom('companies_v2.ifrs_form_financials as v')
+      .$if(capabilities.resources, (qb) =>
+        qb
+          .leftJoin('companies_v2.financial_source_resources as res', (join) =>
+            join
+              .onRef('res.source_system', '=', 'v.source_system')
+              .onRef('res.source_snapshot_id', '=', 'v.source_snapshot_id')
+              .on('res.privacy_class', '=', 'public')
+          )
+          .select('res.captured_source_url as resource_url')
+      )
+      .select([
+        'v.year',
+        'v.source_system',
+        'v.reporting_form',
+        'v.form_evidence',
+        'v.statement_profile_hash',
+        'v.metric_rule_version',
+        sql<string | null>`v.turnover::text`.as('turnover'),
+        sql<string | null>`v.net_profit::text`.as('net_profit'),
+        sql<string | null>`v.net_loss::text`.as('net_loss'),
+        sql<string | null>`v.net_result::text`.as('net_result'),
+        sql<string | null>`v.employees::text`.as('employees'),
+        'v.source_snapshot_id',
+        sql<string | null>`v.source_row_number::text`.as('source_row_number'),
+      ])
+      .where('v.cui', '=', cui)
+      .where('v.privacy_class', '=', 'public')
+      .where((eb) =>
+        eb.exists(
+          eb
+            .selectFrom('companies_v2.financial_indicators as i')
+            .select('i.cui')
+            .whereRef('i.cui', '=', 'v.cui')
+            .whereRef('i.year', '=', 'v.year')
+            .whereRef('i.source_system', '=', 'v.source_system')
+            .whereRef('i.source_snapshot_id', '=', 'v.source_snapshot_id')
+            .whereRef('i.statement_profile_hash', '=', 'v.statement_profile_hash')
+            .where('i.privacy_class', '=', 'public')
+        )
+      )
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('core.organizations as parent')
+              .select('parent.org_id')
+              .whereRef('parent.cui', '=', 'v.cui')
+              .where('parent.privacy_class', 'is distinct from', PARENT_PRIVACY_ALLOWED)
+          )
+        )
+      )
+      .orderBy('v.year', 'desc');
+
+  /**
+   * The CUI's company-years reported on the IFRS form (PRIV-ZVPV): ONE
+   * one-company statement over `statement_reporting_form`, public rows, under
+   * the standalone parent rule. A mark carries no figure; it labels the typed
+   * statement of the same year, publisher and layout.
+   */
+  const reportingFormMarks = (cui: string) =>
+    db
+      .selectFrom('companies_v2.statement_reporting_form as rf')
+      .select([
+        'rf.year',
+        'rf.source_system',
+        'rf.statement_profile_hash',
+        'rf.reporting_form',
+        'rf.form_evidence',
+      ])
+      .where('rf.cui', '=', cui)
+      .where('rf.privacy_class', '=', 'public')
+      .where((eb) =>
+        eb.not(
+          eb.exists(
+            eb
+              .selectFrom('core.organizations as parent')
+              .select('parent.org_id')
+              .whereRef('parent.cui', '=', 'rf.cui')
+              .where('parent.privacy_class', 'is distinct from', PARENT_PRIVACY_ALLOWED)
+          )
+        )
+      )
+      .orderBy('rf.year', 'desc');
+
+  /**
+   * Both IFRS-form reads of one CUI, in parallel. Unknown (null) when the
+   * views are not readable; a capability lost after the probe drops the
+   * optional file URL first, then reads as unknown, and is re-probed later.
+   * Any other database error stays an error.
+   */
+  const getIfrsFormSeries = async (
+    rawCui: string
+  ): Promise<Result<CompanyIfrsFormSeries | null, ApiError>> => {
+    const cui = normalizeCui(rawCui);
+    if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
+    const read = async (capabilities: ServingCapabilities): Promise<CompanyIfrsFormSeries> => {
+      const [years, marks] = await settleBoth(
+        ifrsFormYears(capabilities, cui).execute(),
+        reportingFormMarks(cui).execute()
+      );
+      return { years: years.flatMap(mapIfrsFormYear), marks: marks.flatMap(mapReportingFormMark) };
+    };
+    try {
+      const capabilities = await servingCapabilities();
+      if (!capabilities.ifrsForm) return ok(null);
+      const withoutUrls: ServingCapabilities = { ...capabilities, resources: false };
+      for (const attempt of capabilities.resources ? [capabilities, withoutUrls] : [capabilities]) {
+        try {
+          const series = await read(attempt);
+          if (attempt !== capabilities) markUnreadable({ resources: false }, capabilities);
+          return ok(series);
+        } catch (error) {
+          if (!isCapabilityError(error)) throw error;
+        }
+      }
+      // The read without the URL join failed too, so the resource join was
+      // not the cause: only the views are marked unreadable.
+      markUnreadable({ ifrsForm: false }, capabilities);
+      return ok(null);
+    } catch (error) {
+      return err(databaseError('getIfrsFormSeries failed', error));
+    }
+  };
+
+  /**
+   * The form marks of a profile's own typed years, read only for a profile
+   * that asks for them (`formMarks`): a profile that serves no form never
+   * waits on this statement. No mark (every year unmarked) when the views are
+   * not readable, also when that is found out by this read; they are re-probed
+   * later. Any other error is real.
+   */
+  const readFormMarks = async (cui: string): Promise<readonly CompanyReportingFormMark[]> => {
+    const capabilities = await servingCapabilities();
+    if (!capabilities.ifrsForm) return [];
+    try {
+      return (await reportingFormMarks(cui).execute()).flatMap(mapReportingFormMark);
+    } catch (error) {
+      if (!isCapabilityError(error)) throw error;
+      markUnreadable({ ifrsForm: false }, capabilities);
+      return [];
     }
   };
 
@@ -870,7 +1078,8 @@ export const makeCompaniesRepo = (
   // ── detail (per-CUI fan-out) ────────────────────────────────────────────────
   const getProfileData = async (
     rawCui: string,
-    scope: CompanyRegistryEnvelope
+    scope: CompanyRegistryEnvelope,
+    options: { readonly formMarks?: boolean } = {}
   ): Promise<Result<CompanyProfileData | null, ApiError>> => {
     const cui = normalizeCui(rawCui);
     if (cui === null) return err(invalidInput('invalid CUI format', 'cui'));
@@ -893,7 +1102,7 @@ export const makeCompaniesRepo = (
       // An evidence read that loses the registry capability AFTER the capture
       // is not a database failure: the whole attempt, partial evidence
       // included, is discarded as a moved scope and re-pinned.
-      const [fiscal, fin, registry] = await Promise.all([
+      const [fiscal, fin, formMarks, registry] = await Promise.all([
         readFiscal(cui),
         readStatements((capabilities) =>
           financialStatements(capabilities, { provenance: true })
@@ -904,6 +1113,9 @@ export const makeCompaniesRepo = (
             .orderBy('fin.year', 'desc')
             .execute()
         ),
+        // Its own one-company statement, beside the statements read, and only
+        // for a profile that serves the form of its years.
+        options.formMarks === true ? readFormMarks(cui) : [],
         readRegistryEvidence(db, scope, cui, isOnrcQualifiedCui(cui)).then(
           (evidence) => ({ evidence, lost: false as const }),
           (error: unknown) => {
@@ -941,7 +1153,10 @@ export const makeCompaniesRepo = (
         // v2 person/role tables are privacy_class='restricted'. Keep the public
         // field stable but do not leak representative names without an API gate.
         representatives: [],
-        financials: fin.rows.map((r) => mapFinancialYear(r, fin.qualificationReadable)),
+        financials: markReportingForms(
+          fin.rows.map((r) => mapFinancialYear(r, fin.qualificationReadable)),
+          formMarks
+        ),
         // Not part of the ONRC edition contract; the legacy projection is not read.
         euBranches: [],
         registry: evidence,
@@ -1825,6 +2040,7 @@ export const makeCompaniesRepo = (
     getProfileData,
     getFinancials,
     getLongFormOnlyStatements,
+    getIfrsFormSeries,
     getFinancialQualityAssessment,
     getRegistrationDiffData,
     getActivityEvidence,

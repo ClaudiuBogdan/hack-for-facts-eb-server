@@ -34,6 +34,10 @@ import {
   type SendJobPayload,
 } from '../../../core/types.js';
 import {
+  checkPublicDebateReplyPublication,
+  UNAPPROVED_REPLY,
+} from '../../../core/usecases/check-public-debate-reply-publication.js';
+import {
   FUNKY_WEEKLY_PROGRESS_DIGEST_OUTBOX_TYPE,
   parseWeeklyProgressDigestOutboxMetadata,
   type WeeklyProgressDigestOutboxMetadata,
@@ -994,6 +998,23 @@ export const processSendJob = async (
     templateVersion: delivery.templateVersion,
     metadata: delivery.metadata,
   };
+
+  if (delivery.notificationType === 'funky:outbox:entity_update') {
+    const publication = await checkPublicDebateReplyPublication(deliveryRepo, delivery.metadata);
+    if (publication.isErr()) {
+      const message = getErrorMessage(publication.error);
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_transient', {
+        lastError: message,
+      });
+      throw new Error(message);
+    }
+    if (!publication.value) {
+      await deliveryRepo.updateStatusIfStillSending(outboxId, 'failed_permanent', {
+        lastError: UNAPPROVED_REPLY,
+      });
+      return { outboxId, status: 'failed_permanent', error: UNAPPROVED_REPLY };
+    }
+  }
 
   let sendResult: Awaited<ReturnType<EmailSenderPort['send']>>;
 

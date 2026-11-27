@@ -52,7 +52,7 @@ const decisionEnums = [
   ),
   enumSdl(
     'JudicialDecisionPrivacyClass',
-    'The stored privacy class label of a decision. Both are served as stored (scoped instruction; dedicated privacy work deferred).',
+    'The stored privacy class label of a decision. Only public decisions are returned.',
     JUDICIAL_DECISION_PRIVACY_CLASSES
   ),
   enumSdl(
@@ -138,7 +138,7 @@ const objectsAndQuery = /* GraphQL */ `
     categoryName: String
     stage: String
     stageName: String
-    "Raw procedural object text — SAFE (the subject of the case, never party names)."
+    "Null at present: the case object text is not published (JUST-9Q9C)."
     object: String
     "Source-dependent case date (see sourceOpenedAtBasis: the Portal Just header data field, or the ICCJ archive case-date field) - not a verified filing, registration or first-ever date. Displayed in the server session timezone (YYYY-MM-DD). Exceptional stored values are explicit: an era suffix outside AD 1-9999 (0001-12-31 BC, 10000-01-01 AD) or infinity/-infinity. Display only; pagination uses the exact timestamp."
     sourceOpenedAt: Date
@@ -171,12 +171,12 @@ const objectsAndQuery = /* GraphQL */ `
     appealType: String
   }
 
-  "A party rendered for case detail. name is withheld; nameKeyId may identify a publishable company/public party."
+  "A party rendered for case detail: its kind and role. No party name is published at present (JUST-9Q9C), so name, nameKeyId and legalForm are null for every party."
   type JudicialPartyView {
     partyIndex: Int!
     partyKind: JudicialPartyKind!
     roleNormalized: String
-    "Public company/entity key; null for person, unknown, or otherwise non-publishable parties."
+    "Null for every party at present (no party name or name key is published, JUST-9Q9C)."
     nameKeyId: BigInt
     "Intentionally null until the judicial permission layer exists."
     name: String
@@ -281,6 +281,7 @@ const objectsAndQuery = /* GraphQL */ `
   "Company-litigation summary (JD-1). published-only ⇒ empty in v1 (caseCount 0, coverage 0). years lists finite session calendar years only; cases with a null or infinite date still count in caseCount and courtLevels, and a caveat discloses their omission from years."
   type JudicialCompanyLitigation {
     cui: String!
+    "Null at present: no party name is published (JUST-9Q9C)."
     companyName: String
     caseCount: Int!
     courtLevels: [JudicialCourtLevelCount!]!
@@ -325,7 +326,7 @@ const objectsAndQuery = /* GraphQL */ `
     totalCount: Int
   }
 
-  "A name→value discovery hit (kernel ResolveHit shape, module-local SDL projection). companyName resolves company/public dictionary ONLY (a person name returns zero rows)."
+  "A name→value discovery hit (kernel ResolveHit shape, module-local SDL projection). companyName resolves nothing at present: no party name is published (JUST-9Q9C), so it returns zero rows for every query."
   type JudicialResolveHit {
     kind: String!
     value: String!
@@ -344,7 +345,7 @@ const objectsAndQuery = /* GraphQL */ `
     createdAt: DateTime!
   }
 
-  "A stored decision row, every value as stored (scoped instruction: both privacy classes are served; dedicated privacy work is deferred). Not merged by ECLI, application number or number/year."
+  "A public decision row with stored values. Not merged by ECLI, application number or number/year."
   type JudicialDecision {
     "Native decision_id as an exact decimal string."
     decisionId: BigInt!
@@ -378,7 +379,7 @@ const objectsAndQuery = /* GraphQL */ `
     updatedAt: DateTime!
   }
 
-  "A stored decision-to-subject link, one item per link row. subjectRef is exact stored text with no cross-domain join; validationStatus is a recorded label; evidence is the stored JSON value (served as stored under the scoped instruction)."
+  "A stored decision-to-subject link, one item per link row. subjectRef is exact stored text with no cross-domain join; validationStatus is a recorded label; evidence is the stored JSON value for a public decision."
   type JudicialDecisionSubjectLink {
     linkId: BigInt!
     decisionId: BigInt!
@@ -461,7 +462,7 @@ const objectsAndQuery = /* GraphQL */ `
       first: Int = 20
       after: String
     ): JudicialCaseCitationConnection!
-    "Resolve a free-text query to a filter value (court→code, company name→nameKeyId, ...). dim is one of court, courtLevel, companyName, category; limit is an integer 1 to 50 (null means 10). Invalid input is INVALID_INPUT and is never echoed."
+    "Resolve a free-text query to a filter value (court→code, ...; companyName returns zero rows at present, no party name is published). dim is one of court, courtLevel, companyName, category; limit is an integer 1 to 50 (null means 10). Invalid input is INVALID_INPUT and is never echoed."
     judicialResolve(dim: String!, q: String!, limit: Int = 10): [JudicialResolveHit!]!
     "The legal-act citations of one case (the same projection as JudicialCaseDetail.legalReferences). caseId is decimal digits up to 9223372036854775807 (otherwise INVALID_INPUT)."
     judicialCaseLegalReferences(caseId: BigInt!): [JudicialLegalRef!]!

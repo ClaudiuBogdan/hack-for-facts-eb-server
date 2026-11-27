@@ -2403,53 +2403,56 @@ describe('campaign admin notifications routes', () => {
     await setup.app.close();
   });
 
-  it('skips a thread trigger when the requested event does not match the current thread phase', async () => {
-    const harness = createPublicDebateNotificationHarness({
-      threads: [
-        createThreadRecord({
-          id: 'thread-1',
-          entityCui: '12345678',
-          phase: 'awaiting_reply',
-          lastEmailAt: new Date('2026-04-03T16:43:04.930Z'),
-          record: createThreadAggregateRecord({
-            campaign: 'funky',
-            campaignKey: 'funky',
-            submissionPath: 'platform_send',
-            subject: 'Cerere dezbatere buget local - Oras Test',
-            institutionEmail: 'contact@primarie.ro',
+  it.each(['reply_received', 'reply_reviewed'])(
+    'keeps unreviewed replies private for the manual %s trigger',
+    async (eventType) => {
+      const harness = createPublicDebateNotificationHarness({
+        threads: [
+          createThreadRecord({
+            id: 'thread-1',
+            entityCui: '12345678',
+            phase: 'reply_received_unreviewed',
+            lastEmailAt: new Date('2026-04-03T16:43:04.930Z'),
+            record: createThreadAggregateRecord({
+              campaign: 'funky',
+              campaignKey: 'funky',
+              submissionPath: 'platform_send',
+              subject: 'Cerere dezbatere buget local - Oras Test',
+              institutionEmail: 'contact@primarie.ro',
+            }),
+          }),
+        ],
+        entityNames: {
+          '12345678': 'Municipiul Exemplu',
+        },
+      });
+      const setup = await createTestApp({ harness });
+
+      const response = await setup.app.inject({
+        method: 'POST',
+        url: `/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_entity_update.${eventType}`,
+        headers: {
+          authorization: `Bearer ${setup.testAuth.tokens.user1}`,
+        },
+        payload: {
+          threadId: 'thread-1',
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        ok: true,
+        data: expect.objectContaining({
+          result: expect.objectContaining({
+            status: 'skipped',
+            reason: 'phase_mismatch',
           }),
         }),
-      ],
-      entityNames: {
-        '12345678': 'Municipiul Exemplu',
-      },
-    });
-    const setup = await createTestApp({ harness });
+      });
 
-    const response = await setup.app.inject({
-      method: 'POST',
-      url: '/api/v1/admin/campaigns/funky/notifications/triggers/public_debate_entity_update.reply_reviewed',
-      headers: {
-        authorization: `Bearer ${setup.testAuth.tokens.user1}`,
-      },
-      payload: {
-        threadId: 'thread-1',
-      },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
-      ok: true,
-      data: expect.objectContaining({
-        result: expect.objectContaining({
-          status: 'skipped',
-          reason: 'phase_mismatch',
-        }),
-      }),
-    });
-
-    await setup.app.close();
-  });
+      await setup.app.close();
+    }
+  );
 
   it('queues the thread_failed trigger for failed platform-send threads outside admin-thread scope', async () => {
     const harness = createPublicDebateNotificationHarness({

@@ -60,7 +60,7 @@ export interface JusticeCasesTable {
   category_name: string | null;
   stage: string | null;
   stage_name: string | null;
-  object: string | null; // raw object text — SAFE (procedural subject, not parties)
+  object: string | null; // raw object text; not served or searched at present (JUST-9Q9C)
   source_opened_at: Tstz | null;
   latest_source_modified_at: Tstz | null;
   // latest_snapshot_id, sync_run_id, *_seen_at: internal — not declared.
@@ -172,8 +172,7 @@ export interface JusticeCaseLineageCandidatesTable {
 }
 
 // ── issuing_bodies / decisions / decision_subject_links (API-04) ──────────────
-// SERVED AS STORED under the scoped human instruction (core/types.ts): both
-// stored privacy classes and the link evidence JSON. Exact columns of
+// The repository gates decisions and their links on the parent privacy class. Exact columns of
 // 20260629T132000__justice_decisions.
 
 export interface JusticeIssuingBodiesTable {
