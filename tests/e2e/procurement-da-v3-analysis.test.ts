@@ -1083,13 +1083,16 @@ describe('rollups answer exactly as the live rows', () => {
     // order; left() has no statistics, so the planner walked a whole ordering index. The scope now
     // also carries the same prefix as a range on category_code; the rows must not change.
     if (db === undefined || container === undefined) throw new Error('no database');
-    const statements: string[] = [];
+    const statements: { sql: string; parameters: readonly unknown[] }[] = [];
+    const aggregates: string[] = [];
     const logged = new Kysely<ProdDatabase>({
       dialect: new PostgresDialect({
         pool: new pg.Pool({ connectionString: container.getConnectionUri(), max: 1 }),
       }),
       log: (event) => {
-        if (event.query.sql.includes('p.purchase_id as id')) statements.push(event.query.sql);
+        if (event.query.sql.includes('p.purchase_id as id'))
+          statements.push({ sql: event.query.sql, parameters: event.query.parameters });
+        else if (event.query.sql.includes('category_code')) aggregates.push(event.query.sql);
       },
     });
     try {
@@ -1101,11 +1104,13 @@ describe('rollups answer exactly as the live rows', () => {
         [{ cpvDivision: '44' }, '44'],
         [{ cpvDivision: '30' }, '30'],
         [{ cpvGroup: '441' }, '441'],
+        // A leading zero: the next prefix keeps its width ('03' → '04', never '4').
+        [{ cpvDivision: '03' }, '03'],
         // The last prefix of its length: a range with no upper bound.
         [{ cpvDivision: '99' }, '99'],
       ] as const;
       let seen = 0;
-      const byPrefix = new Map<string, string[]>();
+      const byPrefix = new Map<string, { sql: string; parameters: readonly unknown[] }[]>();
       for (const [scope, prefix] of cases) {
         const before = statements.length;
         for (const [sort, key] of [
@@ -1139,10 +1144,18 @@ describe('rollups answer exactly as the live rows', () => {
       for (const [prefix, list] of byPrefix) {
         expect(list.length, prefix).toBeGreaterThan(0);
         for (const statement of list) {
-          expect(statement, prefix).toMatch(lower);
-          expect(upper.test(statement), prefix).toBe(prefix !== '99');
+          expect(statement.sql, prefix).toMatch(lower);
+          expect(upper.test(statement.sql), prefix).toBe(prefix !== '99');
         }
       }
+      // The bounds' values: division 03 reads [03, 04).
+      for (const statement of byPrefix.get('03') ?? []) {
+        expect(statement.parameters).toContain('03');
+        expect(statement.parameters).toContain('04');
+      }
+      // Aggregates (the page's total) keep the plain left() test.
+      expect(aggregates.length).toBeGreaterThan(0);
+      for (const statement of aggregates) expect(statement).not.toMatch(lower);
     } finally {
       await logged.destroy();
     }

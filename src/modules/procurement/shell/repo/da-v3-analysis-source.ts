@@ -561,16 +561,18 @@ const nextPrefix = (prefix: string): string | null =>
   /^9+$/u.test(prefix) ? null : (BigInt(prefix) + 1n).toString().padStart(prefix.length, '0');
 
 /**
- * A CPV prefix scope (`exact`: the `left()` test) over the live rows, with the same prefix also as a
- * range on `category_code`, which `da_purchases_category_code_idx` serves with real statistics:
- * `left()` has none, so the planner guessed 1,158 rows for CPV 45 in a year (54,854 counted) and,
- * for an 8-digit code under a value or date order, walked the whole ordering index row by row until
- * the 15 s timeout (prod, 26-27 Nov: 64 of 65 records timeouts). Every code that starts with the
- * prefix lies in [prefix, next) under any collation that orders digits, so the range only adds an
- * index path; `left()` stays for exactness. A rollup's `cpv8` keeps the plain test.
+ * A CPV prefix scope (`exact`: the `left()` test). A records page (`pointReads`, live rows) also
+ * gets the same prefix as a range on `category_code`, which `da_purchases_category_code_idx`
+ * serves with real statistics: `left()` has none, so the planner guessed 1,158 rows for CPV 45 in a
+ * year (54,854 counted) and, for an 8-digit code under a value or date order, walked the whole
+ * ordering index row by row until the 15 s timeout (prod, 26-27 Nov: 64 of 65 records timeouts).
+ * Under the database's C collation (core/filters.ts; checked on prod, 27 Nov) every code that
+ * starts with the prefix lies in [prefix, next), so the range only adds an index path; `left()`
+ * stays for exactness. Aggregates (their plans were not measured with it) and rollups keep the
+ * plain test.
  */
-const cpvPrefix = (f: Facts, exact: Sql, prefix: string): Sql => {
-  if (f.rollup !== null || !/^\d+$/u.test(prefix)) return exact;
+const cpvPrefix = (f: Facts, exact: Sql, prefix: string, pointReads: boolean): Sql => {
+  if (!pointReads || f.rollup !== null || !/^\d+$/u.test(prefix)) return exact;
   const next = nextPrefix(prefix);
   return next === null
     ? sql`${f.cpv} >= ${prefix} and ${exact}`
@@ -632,16 +634,18 @@ const compile = (
   if (scope.supplierCui !== undefined)
     conds.push(f.supplierScope(withoutLeadingZeros(scope.supplierCui)));
   if (scope.cpvDivision !== undefined)
-    conds.push(cpvPrefix(f, sql`left(${f.cpv}, 2) = ${scope.cpvDivision}`, scope.cpvDivision));
+    conds.push(
+      cpvPrefix(f, sql`left(${f.cpv}, 2) = ${scope.cpvDivision}`, scope.cpvDivision, pointReads)
+    );
   for (const [field, length] of CPV_PREFIXES) {
     const value = scope[field];
     if (value !== undefined) {
       const prefix = value.slice(0, length);
-      conds.push(cpvPrefix(f, sql`left(${f.cpv}, ${length}) = ${prefix}`, prefix));
+      conds.push(cpvPrefix(f, sql`left(${f.cpv}, ${length}) = ${prefix}`, prefix, pointReads));
     }
   }
   if (scope.cpvCode !== undefined)
-    conds.push(cpvPrefix(f, sql`left(${f.cpv}, 8) = ${scope.cpvCode}`, scope.cpvCode));
+    conds.push(cpvPrefix(f, sql`left(${f.cpv}, 8) = ${scope.cpvCode}`, scope.cpvCode, pointReads));
   if (scope.buyerRegion !== undefined) conds.push(sql`${f.region} = ${scope.buyerRegion}`);
   if (scope.buyerCounty !== undefined) conds.push(sql`${f.county} = ${scope.buyerCounty}`);
   if (scope.buyerSiruta !== undefined) {
