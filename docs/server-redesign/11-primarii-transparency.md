@@ -15,6 +15,9 @@ headcount), **salarii** (salary disclosures) — plus a derived data-quality sta
 and the evidence documents backing each claim. Its **strongest correlation axis is
 territory (UAT/county), not money flows**; it owns no `flows.money_flows` rows.
 
+> **2026-11-26:** the salary claims (`primariiEntitySalaryClaims`) are withheld pending
+> review (LOC-XMCM): the query answers an empty connection.
+
 ---
 
 ## 1. Summary & data status
@@ -77,6 +80,9 @@ holds logical raw references, not bytes — bytes live in MinIO, per NOTES).
   - `salary_amount_claims` only.\*\* Add a `/entities/:cui/salary-documents` surface
     in v2 if the year/`is_latest` dimension is needed (the `salary_documents_cui_year_idx`
     is ready for it).
+
+> **2026-11-26:** `salary_amount_claims` is withheld pending review (see the note at the
+> top); only the `documents` evidence (`category=salarii`) is served.
 
 **What this source does NOT have** (honesty for the contributor/entity-360 wiring):
 
@@ -428,6 +434,8 @@ fragment merged at `/api/v1/openapi.json`.
 
 - Envelope per §5.2 (`{ ok, data, meta }`) + `requestId` (§14.11). 404
   (`NotFound`) for unknown `:cui`.
+- **`/entities/:cui/salary-claims` is not served:** the salary claims are withheld pending
+  review (see the note at the top).
 - **No `/entities/:cui/flows`** here — that is the kernel cross-source route
   (`/api/v1/entities/:cui/flows`); this module contributes no flows (§4).
 - `total` is exact everywhere (all collections are small — ≤3,187 entities, 7,233

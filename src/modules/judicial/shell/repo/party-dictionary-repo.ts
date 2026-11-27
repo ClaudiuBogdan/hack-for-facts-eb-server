@@ -18,6 +18,10 @@
  * `CLASSIFIER_VERSION`. If the loader writes a version the server does not pin,
  * those rows do not satisfy the EXISTS, so the name is simply withheld (no leak),
  * which is the safe failure mode.
+ *
+ * SWITCHED OFF (JUST-9Q9C, 26 November 2026): while
+ * `PARTY_NAMES_PUBLISHED` is false both reads answer empty before any SQL, for
+ * every kind. The gate below is unchanged and unused until it is switched on.
  */
 
 import { sql, type Kysely } from 'kysely';
@@ -25,7 +29,12 @@ import { err, ok, type Result } from 'neverthrow';
 
 import { databaseError, type ApiError, type ProdDatabase } from '@/modules/shared/index.js';
 
-import { CLASSIFIER_VERSION, PUBLISHABLE_PARTY_KINDS, PUBLISHABLE_RULES } from './constants.js';
+import {
+  CLASSIFIER_VERSION,
+  PARTY_NAMES_PUBLISHED,
+  PUBLISHABLE_PARTY_KINDS,
+  PUBLISHABLE_RULES,
+} from './constants.js';
 
 import type { PartyDictionaryRepo } from '../../core/ports.js';
 import type { PublishableName } from '../../core/types.js';
@@ -61,6 +70,8 @@ export const makeJudicialPartyDictionaryRepo = (db: Db): PartyDictionaryRepo => 
   const getPublishableNames = async (
     nameKeyIds: readonly string[]
   ): Promise<Result<ReadonlyMap<string, PublishableName>, ApiError>> => {
+    // JUST-9Q9C: no party name is published, for any kind.
+    if (!PARTY_NAMES_PUBLISHED) return ok(new Map());
     const ids = [...new Set(nameKeyIds.filter((id) => ID_RE.test(id)))];
     if (ids.length === 0) return ok(new Map());
     const idArr = sql`array[${sql.join(
@@ -104,6 +115,8 @@ export const makeJudicialPartyDictionaryRepo = (db: Db): PartyDictionaryRepo => 
     q: string,
     limit: number
   ): Promise<Result<readonly PublishableName[], ApiError>> => {
+    // JUST-9Q9C: no party name is published, so no name resolves.
+    if (!PARTY_NAMES_PUBLISHED) return ok([]);
     const needle = q.trim();
     if (needle === '') return ok([]);
     const capped = Math.min(Math.max(Math.floor(limit), 1), 50);

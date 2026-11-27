@@ -269,26 +269,22 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
 
     const unknown = detail!.parties.find((p) => p.partyKind === 'unknown');
     const publicEntity = detail!.parties.find((p) => p.partyKind === 'public_entity');
-    const declinedCompany = detail!.parties.find(
-      (p) => p.partyKind === 'company' && p.nameKeyId === null
-    );
-    // the publishable company party is the COMPANY-kind row carrying NAME_KEY_COMPANY.
-    const publishableCompany = detail!.parties.find(
-      (p) => p.partyKind === 'company' && p.nameKeyId === NAME_KEY_COMPANY
-    );
+    const companies = detail!.parties.filter((p) => p.partyKind === 'company');
     // THE P0-1 CASE: a person row that SHARES the publishable company's name_key.
     const personSharingCompanyKey = detail!.parties.find((p) => p.partyKind === 'person');
 
     expect(unknown?.name).toBeNull();
-    expect(publishableCompany).toMatchObject({
-      name: null,
-      nameKeyId: NAME_KEY_COMPANY,
-      legalForm: 'SRL',
-    });
-    expect(publicEntity).toMatchObject({ name: null, nameKeyId: NAME_KEY_PUBLIC, legalForm: null });
-    // the DECLINED-rule company party exposes neither its stable key nor its name.
-    expect(declinedCompany?.nameKeyId).toBeNull();
-    expect(declinedCompany?.name).toBeNull();
+    // JUST-9Q9C: no party name is published, for any kind. The publishable
+    // company, the declined-rule company and the public entity are all listed
+    // by kind, and none exposes a name, a stable key or a legal form.
+    expect(companies.length).toBeGreaterThanOrEqual(2);
+    for (const party of [...companies, publicEntity]) {
+      expect(party).toMatchObject({ name: null, nameKeyId: null, legalForm: null });
+    }
+    const keys = JSON.stringify(detail!.parties);
+    for (const key of [NAME_KEY_COMPANY, NAME_KEY_PUBLIC, NAME_KEY_DECLINED]) {
+      expect(keys).not.toContain(key);
+    }
     // CENTERPIECE: a person sharing the company's name_key exposes neither value.
     expect(personSharingCompanyKey).toBeTruthy();
     expect(personSharingCompanyKey?.nameKeyId).toBeNull();
@@ -307,14 +303,15 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
     expect(detail!.legalReferences.map((r) => r.actNumber)).not.toContain('999');
   });
 
-  it('company litigation (GraphQL): the published fixture link surfaces the GATED company name (never candidate_company_name path)', async () => {
+  it('company litigation (GraphQL): the published fixture link keeps its count and carries no name (JUST-9Q9C)', async () => {
     const res = await gql<{
       judicialCompanyLitigation: { cui: string; caseCount: number; companyName: string | null };
     }>(`{ judicialCompanyLitigation(cui:"${TEST_CUI}") { cui caseCount companyName coverage } }`);
     expect(res.errors).toBeUndefined();
     const s = res.data?.judicialCompanyLitigation;
     expect(s?.caseCount).toBe(1);
-    expect(s?.companyName).toBe(COMPANY_NAME); // sourced from the gated dictionary
+    expect(s?.companyName).toBeNull(); // no party name is published, for any kind
+    expect(JSON.stringify(s)).not.toContain(COMPANY_NAME);
     assertNoLeak(s, 'judicialCompanyLitigation GraphQL');
   });
 
@@ -333,14 +330,13 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
     }>('get_judicial_case', { caseId: CASE_ID });
     expect(out.ok).toBe(true);
     expect(out.item.personPartyCount).toBe(3);
-    const company = out.item.parties.find((p) => p.nameKeyId === NAME_KEY_COMPANY);
-    expect(company).toMatchObject({ partyKind: 'company', name: null, legalForm: 'SRL' });
-    // no person/unknown party carries a name or correlatable key on MCP either.
+    expect(out.item.parties.some((p) => p.partyKind === 'company')).toBe(true);
+    // JUST-9Q9C: no party of any kind carries a name, a correlatable key or a
+    // legal form on MCP either.
     for (const p of out.item.parties) {
-      if (p.partyKind === 'person' || p.partyKind === 'unknown') {
-        expect(p.nameKeyId).toBeNull();
-        expect(p.name).toBeNull();
-      }
+      expect(p.nameKeyId).toBeNull();
+      expect(p.name).toBeNull();
+      expect(p.legalForm).toBeNull();
     }
     assertNoLeak(out, 'get_judicial_case MCP');
   });
@@ -357,7 +353,7 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
     expect(out.item.denominator).toBe(1);
   });
 
-  it('resolve companyName resolves the dictionary (gated), a person name returns empty (S1)', async () => {
+  it('resolve companyName returns nothing, for a company name and for a person name (JUST-9Q9C, S1)', async () => {
     const company = await mcpCall<{ ok: boolean; items: { value: string; label: string }[] }>(
       'resolve_judicial_filters',
       {
@@ -365,7 +361,8 @@ d('Judicial golden + tri-surface + runtime leak audit (seeded fixture)', () => {
         q: 'ACME TEST',
       }
     );
-    expect(company.items.some((h) => h.label === COMPANY_NAME)).toBe(true);
+    expect(company.items).toHaveLength(0); // no party name is published
+    expect(JSON.stringify(company)).not.toContain(COMPANY_NAME);
     assertNoLeak(company, 'resolve companyName');
 
     const person = await mcpCall<{ ok: boolean; items: unknown[] }>('resolve_judicial_filters', {

@@ -121,6 +121,7 @@ export const primariiTypeDefs = /* GraphQL */ `
     confidence: Float
   }
 
+  "Withheld pending review: no salary claim is served."
   type PrimariiSalaryClaim {
     salaryAmountClaimId: BigInt!
     cui: CUI!
@@ -263,6 +264,7 @@ export const primariiTypeDefs = /* GraphQL */ `
     ): PrimariiEntityConnection!
     primariiEntity(cui: CUI!): PrimariiEntityProfile
     primariiEntitySnapshots(cui: CUI!, first: Int = 20, after: String): PrimariiSnapshotConnection!
+    "Withheld pending review: answers an empty connection for every CUI."
     primariiEntitySalaryClaims(
       cui: CUI!
       first: Int = 20

@@ -41,6 +41,7 @@ import {
   type ResolveHit,
 } from '@/modules/shared/index.js';
 
+import { SALARY_CLAIMS_PUBLISHED } from './constants.js';
 import {
   boolEq,
   eqValue,
@@ -487,6 +488,7 @@ export const makePrimariiRepo = (
   };
 
   // ── listSalaryClaims (per-CUI, keyset on amount desc then PK) ─────────────────
+  // Withheld pending review while SALARY_CLAIMS_PUBLISHED is false.
   const listSalaryClaims = async (
     rawCui: Cui,
     page: CursorPageRequest
@@ -504,6 +506,8 @@ export const makePrimariiRepo = (
       if (decoded.isErr()) return err(decoded.error);
       cursorKeys = decoded.value.keys;
     }
+    // Withheld pending review (constants.ts): an empty page, before any statement.
+    if (!SALARY_CLAIMS_PUBLISHED) return ok({ items: [], next: null, totalCount: 0 });
 
     const conds: RawBuilder<unknown>[] = [sql`sac.cui = ${cui}`];
     const pageConds = [...conds];

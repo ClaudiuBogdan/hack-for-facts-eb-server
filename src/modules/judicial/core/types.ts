@@ -112,7 +112,7 @@ export interface JudicialCase {
   readonly categoryName: string | null;
   readonly stage: string | null;
   readonly stageName: string | null;
-  readonly object: string | null; // raw object text — safe (procedural subject, not parties)
+  readonly object: string | null; // null at present: not published (JUST-9Q9C)
   /**
    * The source-dependent case date (see `sourceOpenedAtBasis`), displayed in
    * the session timezone: `YYYY-MM-DD` for AD years 1–9999; otherwise explicit

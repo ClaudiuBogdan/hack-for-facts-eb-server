@@ -183,7 +183,10 @@ export interface PrimariiDocument {
   readonly effectiveDate: string | null; // TEXT (unparsed)
 }
 
-/** `salary_amount_claims` — per-UAT salary disclosures. SELF-REPORTED, NOT spend. */
+/**
+ * `salary_amount_claims` — per-UAT salary disclosures. SELF-REPORTED, NOT spend.
+ * Withheld pending review (LOC-XMCM, 26 November 2026): none is served.
+ */
 export interface PrimariiSalaryClaim {
   readonly salaryAmountClaimId: string; // bigint → string
   readonly cui: string;

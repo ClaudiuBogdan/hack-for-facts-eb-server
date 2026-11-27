@@ -486,11 +486,15 @@ d('Primarii-transparency golden (live prod)', () => {
     expect(JSON.stringify(emptyOp.errors)).toContain('InvalidInput');
   }, 60_000);
 
-  it('salary claims are numeric-string disclosure facts and PII/raw evidence is gated off', async () => {
+  it('salary claims are withheld pending review: an empty connection, no raw evidence', async () => {
     const res = await gql(
       `query($cui: CUI!) {
         primariiEntitySalaryClaims(cui: $cui, first: 5) {
           totalCount
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
           edges {
             node {
               salaryAmountClaimId
@@ -509,16 +513,16 @@ d('Primarii-transparency golden (live prod)', () => {
       res.data as {
         primariiEntitySalaryClaims: {
           totalCount: number;
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
           edges: { node: { amountRon: string; roleTitle: string | null } }[];
         };
       }
     ).primariiEntitySalaryClaims;
-    expect(claims.totalCount).toBe(240);
-    expect(claims.edges.length).toBe(5);
-    for (const edge of claims.edges) {
-      expect(edge.node.amountRon).toMatch(/^\d+(?:\.\d+)?$/u);
-      expect(edge.node.roleTitle).toBeNull();
-    }
+    // LOC-XMCM (26 November 2026): nothing is served, whatever is stored. This CUI
+    // had 240 stored claims at the pinned snapshot, so a served list would not be empty.
+    expect(claims.totalCount).toBe(0);
+    expect(claims.edges).toEqual([]);
+    expect(claims.pageInfo).toEqual({ hasNextPage: false, endCursor: null });
   });
 
   it('load issues expose the pinned error codes and warning evidence_missing count', async () => {

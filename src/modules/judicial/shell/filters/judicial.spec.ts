@@ -102,7 +102,8 @@ export const judicialCasesSpec: CollectionFilterSpec = {
       type: 'string',
       ops: ['contains'],
       column: { alias: 'c', column: 'object' },
-      description: 'Trigram/ILIKE on the case object (procedural subject). NEVER party names.',
+      description:
+        'Refused at present (INVALID_INPUT): the case object text is neither published nor searchable (JUST-9Q9C).',
     },
     {
       name: 'hasObject',
