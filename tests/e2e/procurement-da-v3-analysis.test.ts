@@ -1078,6 +1078,76 @@ describe('rollups answer exactly as the live rows', () => {
     }
   });
 
+  it('pages a CPV scope exactly as the left() test does, with the index-able range beside it', async () => {
+    // Prod, 26-27 Nov: 64 of 65 records timeouts were an 8-digit cpvCode under a value or date
+    // order; left() has no statistics, so the planner walked a whole ordering index. The scope now
+    // also carries the same prefix as a range on category_code; the rows must not change.
+    if (db === undefined || container === undefined) throw new Error('no database');
+    const statements: string[] = [];
+    const logged = new Kysely<ProdDatabase>({
+      dialect: new PostgresDialect({
+        pool: new pg.Pool({ connectionString: container.getConnectionUri(), max: 1 }),
+      }),
+      log: (event) => {
+        if (event.query.sql.includes('p.purchase_id as id')) statements.push(event.query.sql);
+      },
+    });
+    try {
+      const source = makeDaV3AnalysisSource(logged);
+      const gen = (await source.generation())._unsafeUnwrap();
+      if (gen === null) throw new Error('no generation');
+      const cases = [
+        [{ cpvCode: '44110000' }, '44110000'],
+        [{ cpvDivision: '44' }, '44'],
+        [{ cpvDivision: '30' }, '30'],
+        [{ cpvGroup: '441' }, '441'],
+        // The last prefix of its length: a range with no upper bound.
+        [{ cpvDivision: '99' }, '99'],
+      ] as const;
+      let seen = 0;
+      const byPrefix = new Map<string, string[]>();
+      for (const [scope, prefix] of cases) {
+        const before = statements.length;
+        for (const [sort, key] of [
+          ['date_desc', 'finalization_day'],
+          ['value_desc', 'case when counted then counted_value end'],
+        ] as const) {
+          const expected = (
+            await sql<{ id: string }>`select purchase_id as id from procurement_v3.da_purchases
+              where left(category_code, ${prefix.length}) = ${prefix}
+              order by ${sql.raw(key)} desc nulls last, purchase_id desc`.execute(db)
+          ).rows.map((row) => row.id);
+          seen += expected.length;
+          const got: string[] = [];
+          for (let offset = 0; offset < expected.length + 7; offset += 7) {
+            const page = await source.recordsFor(DA, { ...DA, ...scope }, gen, {
+              sort,
+              offset,
+              limit: 7,
+            });
+            got.push(...page._unsafeUnwrap().rows.map((row) => row.id));
+          }
+          expect({ scope, sort, got }).toEqual({ scope, sort, got: expected });
+        }
+        byPrefix.set(prefix, statements.slice(before));
+      }
+      expect(seen).toBeGreaterThan(0);
+      // Every CPV-scoped page statement carries the range; only the last prefix of its length (99)
+      // has no upper bound (its next would be 100, which sorts before every 99… code).
+      const lower = /p\.category_code >= \$\d+/u;
+      const upper = /p\.category_code < \$\d+/u;
+      for (const [prefix, list] of byPrefix) {
+        expect(list.length, prefix).toBeGreaterThan(0);
+        for (const statement of list) {
+          expect(statement, prefix).toMatch(lower);
+          expect(upper.test(statement), prefix).toBe(prefix !== '99');
+        }
+      }
+    } finally {
+      await logged.destroy();
+    }
+  });
+
   it('skips a supplier rollup still on the earlier shape and answers the same', async () => {
     if (db === undefined || container === undefined) throw new Error('no database');
     const scope = { ...DA, supplierCui: COMPANY.fiscalCode ?? '', from: '2023-01' };

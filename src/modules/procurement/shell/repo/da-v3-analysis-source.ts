@@ -556,6 +556,27 @@ const CPV_PREFIXES = [
   ['cpvCategory', 5],
 ] as const;
 
+/** The digit string right after a prefix of the same length (`45` → `46`); null after all nines. */
+const nextPrefix = (prefix: string): string | null =>
+  /^9+$/u.test(prefix) ? null : (BigInt(prefix) + 1n).toString().padStart(prefix.length, '0');
+
+/**
+ * A CPV prefix scope (`exact`: the `left()` test) over the live rows, with the same prefix also as a
+ * range on `category_code`, which `da_purchases_category_code_idx` serves with real statistics:
+ * `left()` has none, so the planner guessed 1,158 rows for CPV 45 in a year (54,854 counted) and,
+ * for an 8-digit code under a value or date order, walked the whole ordering index row by row until
+ * the 15 s timeout (prod, 26-27 Nov: 64 of 65 records timeouts). Every code that starts with the
+ * prefix lies in [prefix, next) under any collation that orders digits, so the range only adds an
+ * index path; `left()` stays for exactness. A rollup's `cpv8` keeps the plain test.
+ */
+const cpvPrefix = (f: Facts, exact: Sql, prefix: string): Sql => {
+  if (f.rollup !== null || !/^\d+$/u.test(prefix)) return exact;
+  const next = nextPrefix(prefix);
+  return next === null
+    ? sql`${f.cpv} >= ${prefix} and ${exact}`
+    : sql`${f.cpv} >= ${prefix} and ${f.cpv} < ${next} and ${exact}`;
+};
+
 /** The scope's window over a date column (both bounds month-aligned). */
 const windowOn = (day: Sql, scope: AnalysisScope): { dated: Sql; bounded: boolean } => {
   const bounds: Sql[] = [];
@@ -610,12 +631,17 @@ const compile = (
     conds.push(f.authorityScope(withoutLeadingZeros(scope.authorityCui)));
   if (scope.supplierCui !== undefined)
     conds.push(f.supplierScope(withoutLeadingZeros(scope.supplierCui)));
-  if (scope.cpvDivision !== undefined) conds.push(sql`left(${f.cpv}, 2) = ${scope.cpvDivision}`);
+  if (scope.cpvDivision !== undefined)
+    conds.push(cpvPrefix(f, sql`left(${f.cpv}, 2) = ${scope.cpvDivision}`, scope.cpvDivision));
   for (const [field, length] of CPV_PREFIXES) {
     const value = scope[field];
-    if (value !== undefined) conds.push(sql`left(${f.cpv}, ${length}) = ${value.slice(0, length)}`);
+    if (value !== undefined) {
+      const prefix = value.slice(0, length);
+      conds.push(cpvPrefix(f, sql`left(${f.cpv}, ${length}) = ${prefix}`, prefix));
+    }
   }
-  if (scope.cpvCode !== undefined) conds.push(sql`left(${f.cpv}, 8) = ${scope.cpvCode}`);
+  if (scope.cpvCode !== undefined)
+    conds.push(cpvPrefix(f, sql`left(${f.cpv}, 8) = ${scope.cpvCode}`, scope.cpvCode));
   if (scope.buyerRegion !== undefined) conds.push(sql`${f.region} = ${scope.buyerRegion}`);
   if (scope.buyerCounty !== undefined) conds.push(sql`${f.county} = ${scope.buyerCounty}`);
   if (scope.buyerSiruta !== undefined) {
