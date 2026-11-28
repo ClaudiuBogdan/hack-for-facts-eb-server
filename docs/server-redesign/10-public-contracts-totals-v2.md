@@ -132,7 +132,9 @@ type).
   D6 rule and `exclusionOf`, so a figure equals `procurementTotals` for the same keys.
 - **Counts (root, 28 Nov).** `recordCount` is the record population: every contract-award record of the
   scope, any status, one per contract (`awarded` for ordinary contracts and call-offs, `framework_ceiling`
-  for framework agreements). It equals totals' `population` count and the contract-award views' lists.
+  for framework agreements). With no window it equals totals' `population` count; with a window it counts
+  the dated records in it, as the contract-award views' lists do, and undated records are `undatedInScope`
+  (so `recordCount + undatedInScope` is totals' windowed `population`).
   `withValueCount` and every lei figure are the records totals count. A supplier scope leaves joint wins out of
   money and reports their money as `valueWithheldAssociationSum`.
 - **Record kinds.** An unset `frameworkRole` counts ordinary contracts and call-offs, never a ceiling (the

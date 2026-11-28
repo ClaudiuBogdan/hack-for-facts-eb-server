@@ -1955,9 +1955,14 @@ export const analysisRecords = async (
     gcR.value.gen.capabilities
   );
   const { gen, cov } = sourceFor(gcR.value.gen, gcR.value.cov, grain);
-  if (routesR.isErr()) return err(routesR.error);
-  const route = routesR.value.find((candidate) => candidate.grain === grain);
-  if (route === undefined || routesR.value.length !== 1) {
+  // The money-build contract grain lists no records yet: it abstains below whatever the scope,
+  // so a scope only its stats would refuse never fails the page.
+  const caMoneyRecords = grain === 'contract' && gen.capabilities.contractMoneyV3 === true;
+  if (routesR.isErr() && !caMoneyRecords) return err(routesR.error);
+  const route = routesR.isOk()
+    ? routesR.value.find((candidate) => candidate.grain === grain)
+    : undefined;
+  if (!caMoneyRecords && (route === undefined || routesR.isErr() || routesR.value.length !== 1)) {
     return err(databaseError(`records routing did not resolve the single grain ${grain}`));
   }
 
@@ -1997,6 +2002,9 @@ export const analysisRecords = async (
     return ok({ grain, total: null, page, pageSize, sort, items: [], meta: meta('abstained') });
   }
 
+  if (route === undefined) {
+    return err(databaseError(`records routing did not resolve the single grain ${grain}`));
+  }
   const readR = await deps.analysisRepo.recordsFor(route, scope, gen, {
     sort,
     offset,

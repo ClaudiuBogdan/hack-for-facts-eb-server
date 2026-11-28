@@ -574,6 +574,10 @@ describe('the money-build contract source, review round 1', () => {
       })
     )._unsafeUnwrap()[0];
     expect(distinct?.meta.answerability).toBe('abstained');
+    const records = (
+      await analysisRecords(d, { scope: { grain: 'contract', buyerCounty: 'CJ' } })
+    )._unsafeUnwrap();
+    expect(records.meta.answerability).toBe('abstained');
     expect(fake.reads).toEqual([]);
   });
 

@@ -289,7 +289,7 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
       (tool) =>
         legacyEnabled ||
         CPV_REFERENCE_TOOLS.has(tool.name) ||
-        (tool.name === ANALYSIS_TOOL && daV3Enabled)
+        (tool.name === ANALYSIS_TOOL && (daV3Enabled || caMoneySource !== undefined))
     )
     .filter((tool) => legacyDaListEnabled || tool.name !== LEGACY_DA_LIST_TOOL);
 
