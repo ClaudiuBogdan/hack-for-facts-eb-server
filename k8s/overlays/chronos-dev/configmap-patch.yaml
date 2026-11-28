@@ -53,6 +53,9 @@ data:
   # Contract awards (PROC-KB0Z: buyer and winner-code lists, detail, 5 MCP tools) over the
   # procurement_v3 contract-award views, on Chronos dev only (user, 25 Nov). Needs D6 enforced.
   PROCUREMENT_CA_RECORDS_ENABLED: 'true'
+  # The analysis API's contract grain (stats and series) from the ClickHouse money build, the
+  # facts procurementTotals sums (PROC-KB0Z slice a; root, 28 Nov). Needs D6 enforced.
+  PROCUREMENT_CA_ANALYSIS_ENABLED: 'true'
   # Companies analytics: same ClickHouse service, its own database and its own
   # read-only companies_reader user (credentials from the workload patch).
   COMPANIES_ANALYTICS_CLICKHOUSE_URL: https://transparenta-eu-etl-clickhouse.transparenta-eu-etl-prod.svc.cluster.local:8443

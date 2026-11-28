@@ -207,6 +207,37 @@ describe('direct-acquisition switches', () => {
   );
 });
 
+describe('PROCUREMENT_CA_ANALYSIS_ENABLED (PROC-KB0Z)', () => {
+  const base = { PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod' };
+
+  it('is off unless true, and needs site-wide D6', () => {
+    expect(loadRedesignConfig(base).procurement?.caAnalysisEnabled).toBeUndefined();
+    expect(
+      loadRedesignConfig({ ...base, PROCUREMENT_CA_ANALYSIS_ENABLED: 'false' }).procurement
+        ?.caAnalysisEnabled
+    ).toBeUndefined();
+    expect(() => loadRedesignConfig({ ...base, PROCUREMENT_CA_ANALYSIS_ENABLED: 'true' })).toThrow(
+      /PROCUREMENT_CA_ANALYSIS_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true/u
+    );
+    expect(
+      loadRedesignConfig({
+        ...base,
+        PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED: 'true',
+        PROCUREMENT_CA_ANALYSIS_ENABLED: 'true',
+      }).procurement
+    ).toMatchObject({ caAnalysisEnabled: true });
+  });
+
+  it.each(['True', 'on', '1', ''])(
+    'refuses PROCUREMENT_CA_ANALYSIS_ENABLED=%j at boot',
+    (value) => {
+      expect(() => loadRedesignConfig({ ...base, PROCUREMENT_CA_ANALYSIS_ENABLED: value })).toThrow(
+        /PROCUREMENT_CA_ANALYSIS_ENABLED must be 'true' or 'false'/u
+      );
+    }
+  );
+});
+
 describe('PROCUREMENT_DATABASE_URL (PRJ-54YB)', () => {
   const base = { PROD_DATABASE_URL: 'postgres://reader@example.invalid/transparenta_prod' };
 

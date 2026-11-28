@@ -21,6 +21,7 @@ import { makeCaRecordsMcpTools } from './shell/mcp/ca-records-tools.js';
 import { makeDaReleaseMcpTools } from './shell/mcp/da-release-tools.js';
 import { makeProcurementMcpTools } from './shell/mcp/tools.js';
 import { makeTotalsMcpTools } from './shell/mcp/totals-tools.js';
+import { makeCaMoneyAnalysisSource } from './shell/repo/ca-money-analysis-source.js';
 import { makeCaRecordsRepo } from './shell/repo/ca-records-repo.js';
 import {
   makeClickhouseAnalysisRepo,
@@ -112,6 +113,12 @@ export interface ProcurementModuleDeps {
    * Needs ClickHouse. Env: PROCUREMENT_TOTALS_V2.
    */
   readonly totalsV2Enabled?: boolean;
+  /**
+   * The analysis API's contract grain from the money build (PROC-KB0Z): stats and series over
+   * the facts procurementTotals sums. Off (the default): the contract grain stays on the
+   * legacy analysis base. Needs ClickHouse. Env: PROCUREMENT_CA_ANALYSIS_ENABLED.
+   */
+  readonly caAnalysisEnabled?: boolean;
   /**
    * The legacy procurement reads: records (lists, details, supplier records,
    * search), the legacy ClickHouse analysis (every grain the DA v3 reader does
@@ -228,9 +235,19 @@ export const makeProcurementModule = (deps: ProcurementModuleDeps): ProcurementM
   // grain stays on ClickHouse. Off, the analysis repo is unchanged.
   const daV3Source =
     deps.daV3Enabled === true ? makeDaV3AnalysisSource(deps.db, deps.logger) : undefined;
+  // ── Contract awards (PROC-KB0Z): with PROCUREMENT_CA_ANALYSIS_ENABLED the contract grain is
+  // answered from the money build (the facts procurementTotals sums).
+  const caMoneySource =
+    deps.caAnalysisEnabled === true && clickhouseReader !== undefined
+      ? makeCaMoneyAnalysisSource(
+          makeClickhouseMoneyRepo({ db: deps.db, reader: clickhouseReader }),
+          deps.supplierDisclosure,
+          deps.logger
+        )
+      : undefined;
   const analysis =
-    daV3Source !== undefined
-      ? makeDaRoutingAnalysisRepo(baseAnalysis, daV3Source, deps.logger)
+    daV3Source !== undefined || caMoneySource !== undefined
+      ? makeDaRoutingAnalysisRepo(baseAnalysis, daV3Source, deps.logger, caMoneySource)
       : baseAnalysis;
   const clientBaseUrl = deps.clientBaseUrl ?? 'https://transparenta.eu';
 

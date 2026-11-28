@@ -19,7 +19,7 @@
  *   serves `CA_FLOOR_DAY`), never as a refusal.
  */
 
-import { Type } from '@sinclair/typebox';
+import { Type, type Static } from '@sinclair/typebox';
 import { sql, type Kysely } from 'kysely';
 import { err, ok, type Result } from 'neverthrow';
 
@@ -33,7 +33,9 @@ import {
 import { DA_RELEASE_SCHEMA } from './da-v3-sql.js';
 
 import type { ClickhouseReader } from './clickhouse-reader.js';
+import type { CaMoneyCoverage, CaMoneyPort, CaMoneyRow } from '../../core/ca-money-analysis.js';
 import type {
+  ContractKind,
   AggregateFilters,
   FactAggregate,
   FactStatus,
@@ -98,6 +100,33 @@ const AggregateRowSchema = Type.Object(
   { additionalProperties: false }
 );
 
+/** The contract grain's rows: the totals' grouping plus contract kind and award month. */
+const ContractRowSchema = Type.Object(
+  {
+    ...AggregateRowSchema.properties,
+    contract_kind: Type.Union([Type.String(), Type.Null()]),
+    month: Type.Union([Type.String({ pattern: '^[0-9]{4}-[0-9]{2}$' }), Type.Null()]),
+  },
+  { additionalProperties: false }
+);
+
+const CoverageRowSchema = Type.Object(
+  {
+    total: CountString,
+    dated: CountString,
+    counted: CountString,
+    valued: CountString,
+    with_cpv: CountString,
+    with_geo: CountString,
+    money: IntegerString,
+    money_dated: IntegerString,
+    money_geo: IntegerString,
+  },
+  { additionalProperties: false }
+);
+
+const CONTRACT_KINDS: readonly string[] = ['ordinary', 'call_off', 'framework_agreement'];
+
 const LabelRowSchema = Type.Object(
   {
     label_set: Type.String(),
@@ -158,10 +187,53 @@ export const moneyWhere = (
   return conds.join(' AND ');
 };
 
+/** The totals' grouped columns: one row per combination a totals decision needs. */
+const AGGREGATE_COLUMNS = `
+           value_kind,
+           status,
+           toString(toUInt8(additive)) AS additive,
+           toString(toUInt8(award_day IS NOT NULL)) AS dated,
+           toString(toUInt8(amount_bani IS NOT NULL)) AS has_amount,
+           toString(toUInt8(has(flags, 'joint_win'))) AS joint_win,
+           vat_basis,
+           currency,
+           toString(toUInt8(ifNull(ca_head_status, '') = 'unverified')) AS unverified_head,
+           toString(toUInt8(has(flags, 'list_value'))) AS list_value,
+           toString(toUInt8(ifNull(toString(supplier_ref), '') = '0')) AS withheld_supplier,
+           toString(count()) AS n,
+           toString(sum(toInt128(ifNull(amount_bani, 0)))) AS sum_bani,
+           toString(sum(toInt128(ifNull(native_amount, toDecimal64(0, 2)) * 100))) AS native_minor`;
+const AGGREGATE_KEYS = `value_kind, status, additive, dated, has_amount, joint_win, vat_basis, currency,
+                  unverified_head, list_value, withheld_supplier`;
+
+const toAggregate = (row: Static<typeof AggregateRowSchema>): FactAggregate => {
+  const dated = row.dated === '1';
+  return {
+    valueKind: row.value_kind as ValueKind,
+    status: row.status as FactStatus,
+    additive: row.additive === '1',
+    dated,
+    // The WHERE admits only in-range or undated rows.
+    inRange: dated,
+    hasAmount: row.has_amount === '1',
+    jointWin: row.joint_win === '1',
+    vatBasis: (['excluded', 'included'].includes(row.vat_basis)
+      ? row.vat_basis
+      : 'unknown') as VatBasis,
+    currency: row.currency,
+    unverifiedHead: row.unverified_head === '1',
+    listValue: row.list_value === '1',
+    withheldSupplier: row.withheld_supplier === '1',
+    count: BigInt(row.n),
+    sumBani: BigInt(row.sum_bani),
+    nativeSumMinor: BigInt(row.native_minor),
+  };
+};
+
 export const makeClickhouseMoneyRepo = (deps: {
   readonly db: Kysely<ProdDatabase>;
   readonly reader: ClickhouseReader;
-}): MoneyTotalsPort => {
+}): MoneyTotalsPort & CaMoneyPort => {
   return {
     activeBuild: async () => {
       try {
@@ -256,54 +328,83 @@ export const makeClickhouseMoneyRepo = (deps: {
     aggregate: async (build, filters, supplierRef, valueKinds, caFloor) => {
       const rows = notServed(
         await deps.reader.query(
-          `SELECT
-           value_kind,
-           status,
-           toString(toUInt8(additive)) AS additive,
-           toString(toUInt8(award_day IS NOT NULL)) AS dated,
-           toString(toUInt8(amount_bani IS NOT NULL)) AS has_amount,
-           toString(toUInt8(has(flags, 'joint_win'))) AS joint_win,
-           vat_basis,
-           currency,
-           toString(toUInt8(ifNull(ca_head_status, '') = 'unverified')) AS unverified_head,
-           toString(toUInt8(has(flags, 'list_value'))) AS list_value,
-           toString(toUInt8(ifNull(toString(supplier_ref), '') = '0')) AS withheld_supplier,
-           toString(count()) AS n,
-           toString(sum(toInt128(ifNull(amount_bani, 0)))) AS sum_bani,
-           toString(sum(toInt128(ifNull(native_amount, toDecimal64(0, 2)) * 100))) AS native_minor
+          `SELECT ${AGGREGATE_COLUMNS}
          FROM ${tableOf('money_facts', build)}
          WHERE ${moneyWhere(filters, supplierRef, valueKinds, caFloor)}
-         GROUP BY value_kind, status, additive, dated, has_amount, joint_win, vat_basis, currency,
-                  unverified_head, list_value, withheld_supplier`,
+         GROUP BY ${AGGREGATE_KEYS}`,
           AggregateRowSchema
         )
       );
+      return rows.map((value) => value.map(toAggregate));
+    },
+
+    contractRows: async (build, filters, supplierRef, valueKinds, caFloor) => {
+      // The totals' read itself, grouped also by contract kind and award month.
+      const rows = notServed(
+        await deps.reader.query(
+          `SELECT ${AGGREGATE_COLUMNS},
+           contract_kind,
+           if(award_day IS NULL, NULL, formatDateTime(award_day, '%Y-%m')) AS month
+         FROM ${tableOf('money_facts', build)}
+         WHERE ${moneyWhere(filters, supplierRef, valueKinds, caFloor)}
+         GROUP BY ${AGGREGATE_KEYS}, contract_kind, month`,
+          ContractRowSchema
+        )
+      );
       if (rows.isErr()) return err(rows.error);
-      const out: FactAggregate[] = [];
+      const out: CaMoneyRow[] = [];
       for (const row of rows.value) {
-        const dated = row.dated === '1';
+        // A kind outside the schema is never guessed into a figure.
+        if (row.contract_kind !== null && !CONTRACT_KINDS.includes(row.contract_kind)) {
+          return err(databaseError('the money build holds an unknown contract kind'));
+        }
         out.push({
-          valueKind: row.value_kind as ValueKind,
-          status: row.status as FactStatus,
-          additive: row.additive === '1',
-          dated,
-          // The WHERE admits only in-range or undated rows.
-          inRange: dated,
-          hasAmount: row.has_amount === '1',
-          jointWin: row.joint_win === '1',
-          vatBasis: (['excluded', 'included'].includes(row.vat_basis)
-            ? row.vat_basis
-            : 'unknown') as VatBasis,
-          currency: row.currency,
-          unverifiedHead: row.unverified_head === '1',
-          listValue: row.list_value === '1',
-          withheldSupplier: row.withheld_supplier === '1',
-          count: BigInt(row.n),
-          sumBani: BigInt(row.sum_bani),
-          nativeSumMinor: BigInt(row.native_minor),
+          ...toAggregate(row),
+          contractKind: row.contract_kind as ContractKind | null,
+          month: row.month,
         });
       }
       return ok(out);
+    },
+
+    contractCoverage: async (build, caFloor) => {
+      const record = `procurement_kind = 'contract_award'
+           AND ((contract_kind IN ('ordinary', 'call_off') AND value_kind = 'awarded')
+             OR (contract_kind = 'framework_agreement' AND value_kind = 'framework_ceiling'))
+           AND (award_day IS NULL OR award_day >= toDate(${lit(caFloor)}))`;
+      const valued = `status = 'awarded' AND additive AND amount_bani IS NOT NULL`;
+      const rows = notServed(
+        await deps.reader.query(
+          `SELECT
+           toString(count()) AS total,
+           toString(countIf(award_day IS NOT NULL)) AS dated,
+           toString(countIf(status = 'awarded' AND additive)) AS counted,
+           toString(countIf(${valued})) AS valued,
+           toString(countIf(cpv_code IS NOT NULL AND cpv_code != '')) AS with_cpv,
+           toString(countIf(buyer_county_code IS NOT NULL)) AS with_geo,
+           toString(sumIf(toInt128(ifNull(amount_bani, 0)), ${valued})) AS money,
+           toString(sumIf(toInt128(ifNull(amount_bani, 0)), ${valued} AND award_day IS NOT NULL)) AS money_dated,
+           toString(sumIf(toInt128(ifNull(amount_bani, 0)), ${valued} AND buyer_county_code IS NOT NULL)) AS money_geo
+         FROM ${tableOf('money_facts', build)}
+         WHERE ${record}`,
+          CoverageRowSchema
+        )
+      );
+      if (rows.isErr()) return err(rows.error);
+      const row = rows.value[0];
+      if (row === undefined)
+        return err(databaseError('the money build coverage read returned no row'));
+      return ok({
+        total: row.total,
+        dated: row.dated,
+        counted: row.counted,
+        valued: row.valued,
+        withCpv: row.with_cpv,
+        withGeo: row.with_geo,
+        moneyBani: row.money,
+        moneyDatedBani: row.money_dated,
+        moneyGeoBani: row.money_geo,
+      } satisfies CaMoneyCoverage);
     },
   };
 };

@@ -52,6 +52,7 @@ import {
   supplierScoped,
   type AnalysisScope,
 } from './analysis-scope.js';
+import { CA_MONEY_JOINT_NOTE } from './ca-money-analysis.js';
 import { routeAnalysis, type AnalysisRoute } from './combinations.js';
 import {
   DA_NATURAL_PERSON_BUCKET,
@@ -330,6 +331,12 @@ const MODIFICATION_COUNTS_NOTE =
 const LEGACY_CONTRACT_POPULATION_NOTE =
   'temporary framework-role compatibility mode: contract analytics include standalone awards, framework ceilings and call-offs from the legacy build-8 population; these are legacy totals, not purchases-only spending, until the framework-role data build is published';
 
+/** The money-build contract grain could not be read (PROC-KB0Z). */
+const CA_MONEY_UNAVAILABLE = 'contract awards are unavailable: the money build could not be read';
+/** A shape the money-build contract grain does not answer yet (PROC-KB0Z slice a). */
+const CA_MONEY_SHAPE_UNSERVED =
+  'this answer is not yet served for contract awards from the money build (stats and series are)';
+
 const grainNotes = (
   grain: AnalysisGrain,
   capabilities: GenerationCapabilities
@@ -417,6 +424,11 @@ const scopeNotes = (
   ...grainNotes(grain, gen.capabilities),
   ...sourceNotes(grain, gen.sourceCapture),
   ...(gen.notes ?? []),
+  ...(grain === 'contract' &&
+  gen.capabilities.contractMoneyV3 === true &&
+  scope.supplierCui !== undefined
+    ? [CA_MONEY_JOINT_NOTE]
+    : []),
 ];
 
 /** The stats read projected onto the envelope's fields. */
@@ -535,11 +547,18 @@ const envelopeOn = (
   ...[policy, ...rest]: Parameters<typeof buildEnvelope>
 ): AnswerEnvelope => {
   const v3 = policy.grain === 'direct_acquisition' && gen.capabilities.directAcquisitionV3 === true;
+  const caMoney = policy.grain === 'contract' && gen.capabilities.contractMoneyV3 === true;
   const envelope = buildEnvelope(
-    v3 ? { ...policy, dateBasis: 'finalization_day (direct acquisitions release 1)' } : policy,
+    v3
+      ? { ...policy, dateBasis: 'finalization_day (direct acquisitions release 1)' }
+      : caMoney
+        ? { ...policy, dateBasis: 'award_day (contract conclusion, money build)' }
+        : policy,
     ...rest
   );
-  const disclosureKey = policy.grain === 'direct_acquisition' ? (gen.disclosureKey ?? 'off') : null;
+  // D6 decides which supplier scopes the money-build contract grain reads, as on the DA grain.
+  const disclosureKey =
+    policy.grain === 'direct_acquisition' || caMoney ? (gen.disclosureKey ?? 'off') : null;
   // The amount fields keep their names; the structured basis says what they sum.
   return v3 && envelope.valueBasis === 'awarded'
     ? { ...envelope, valueBasis: 'counted', disclosureKey }
@@ -571,9 +590,31 @@ const shapeGate = (
   cov: readonly BasisCoverageRow[] | undefined,
   grain: AnalysisGrain,
   scope: AnalysisScope,
-  options: { readonly isSeries?: boolean; readonly dimension?: BreakdownDimension }
+  options: {
+    readonly isSeries?: boolean;
+    readonly dimension?: BreakdownDimension;
+    /** The shapes that do not read stats or a plain series (the money contract grain abstains). */
+    readonly shape?: 'concentration' | 'records' | 'distinct';
+  }
 ): GateDecision => {
   const decisions: GateDecision[] = [];
+  if (grain === 'contract' && gen.capabilities.contractMoneyV3 === true) {
+    if (gen.capabilities.contractMoneyV3Unavailable === true) {
+      decisions.push({
+        allow: false,
+        degraded: false,
+        caveats: [CA_MONEY_UNAVAILABLE],
+        reason: 'MISSING_QUALITY_VERDICT',
+      });
+    } else if (options.dimension !== undefined || options.shape !== undefined) {
+      decisions.push({
+        allow: false,
+        degraded: false,
+        caveats: [CA_MONEY_SHAPE_UNSERVED],
+        reason: 'GENERATION_LACKS_CAPABILITY',
+      });
+    }
+  }
   if (grain !== 'direct_acquisition' && gen.capabilities.analysisBaseUnavailable === true) {
     decisions.push({
       allow: false,
@@ -1026,7 +1067,10 @@ export const analysisSeries = async (
     }
 
     const gated = composeGates([
-      shapeGate(gen, cov, grain, scope, { isSeries: true }),
+      shapeGate(gen, cov, grain, scope, {
+        isSeries: true,
+        ...(policy.law === 'distinct' && { shape: 'distinct' as const }),
+      }),
       ...(policy.gateClass === 'spend' ? [spend] : []),
     ]);
     if (!gated.allow) {
@@ -1446,7 +1490,7 @@ export const analysisConcentration = async (
     const basis: 'value' | 'count' = input.basis ?? 'count';
     const policy = anchorPolicy(grain, basis === 'value' ? 'valueAwardedSum' : 'recordCount');
 
-    const blockGate = shapeGate(gen, cov, grain, input.scope, {});
+    const blockGate = shapeGate(gen, cov, grain, input.scope, { shape: 'concentration' });
     const requestedGate = basis === 'value' ? composeGates([blockGate, spend]) : blockGate;
     if (!requestedGate.allow) {
       blocks.push({
@@ -1913,7 +1957,7 @@ export const analysisRecords = async (
     return err(databaseError(`records routing did not resolve the single grain ${grain}`));
   }
 
-  const blockGate = shapeGate(gen, cov, grain, scope, {});
+  const blockGate = shapeGate(gen, cov, grain, scope, { shape: 'records' });
   const spend = anchorMoneyGate(gen, cov, grain);
   const moneyAllowed = spend?.allow ?? false;
   const gate = composeGates([blockGate, ...(spend !== null ? [spend] : [])]);

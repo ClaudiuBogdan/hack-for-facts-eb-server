@@ -727,6 +727,9 @@ export const registerRedesignSurface = async (
       ...(composition.totalsV2Enabled !== undefined && {
         totalsV2Enabled: composition.totalsV2Enabled,
       }),
+      ...(composition.caAnalysisEnabled !== undefined && {
+        caAnalysisEnabled: composition.caAnalysisEnabled,
+      }),
       ...(composition.legacyEnabled !== undefined && {
         legacyEnabled: composition.legacyEnabled,
       }),

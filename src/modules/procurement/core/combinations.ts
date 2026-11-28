@@ -21,6 +21,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { invalidInput, type ApiError } from '@/modules/shared/index.js';
 
 import { scopeDims, type AnalysisScope, type ScopeDimField } from './analysis-scope.js';
+import { caMoneyExclusion } from './ca-money-scope.js';
 import {
   CORE_ANALYSIS_GRAINS,
   NO_GENERATION_CAPABILITIES,
@@ -307,6 +308,11 @@ export const routeAnalysis = (
     const daExcluded = daV3Exclusion(scope, scopeDims(scope), dimension);
     if (daExcluded !== undefined) return err(invalidInput(daExcluded, 'scope'));
   }
+  // An explicit contract-grain request on the money build gets that source's own reason.
+  if (scope.grain === 'contract' && capabilities.contractMoneyV3 === true) {
+    const caExcluded = caMoneyExclusion(scope);
+    if (caExcluded !== undefined) return err(invalidInput(caExcluded, 'scope'));
+  }
   const legacyD6 =
     capabilities.daSupplierPrivacy === true && capabilities.directAcquisitionV3 !== true;
   if (scope.grain === 'direct_acquisition' && legacyD6) {
@@ -428,6 +434,12 @@ export const routeAnalysis = (
       daV3Exclusion(scope, dims, dimension) !== undefined
     ) {
       excluded = daV3Exclusion(scope, dims, dimension);
+    } else if (
+      grain === 'contract' &&
+      capabilities.contractMoneyV3 === true &&
+      caMoneyExclusion(scope) !== undefined
+    ) {
+      excluded = caMoneyExclusion(scope);
     } else if (
       grain === 'direct_acquisition' &&
       legacyD6 &&

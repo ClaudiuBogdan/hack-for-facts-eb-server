@@ -758,7 +758,9 @@ export const procurementTypeDefs = /* GraphQL */ `
     recordKind: String
     """
     Contract grain only: standalone | framework_ceiling | call_off | all.
-    Absent = the purchases-only default (standalone or not yet stamped); a
+    Absent = the purchases-only default, never a ceiling: standalone or not yet
+    stamped on the legacy build; ordinary contracts and call-offs when the
+    contract grain is read from the money build (meta.dateBasis award_day). A
     framework-agreement population must name its role explicitly.
     """
     frameworkRole: String
