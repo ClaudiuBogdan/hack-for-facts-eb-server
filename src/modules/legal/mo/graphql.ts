@@ -500,19 +500,20 @@ export const makeMonitorulResolvers = (deps: MonitorulGraphqlDeps): Record<strin
         args: {
           filter: {
             year: number;
-            issuerSlug?: string;
-            actType?: string[];
+            issuerSlug?: string | null;
+            actType?: string[] | null;
             resolution?: MoResolution[] | null;
             groupBy?: string;
           };
         }
       ) => {
         const f = args.filter;
+        // An explicit GraphQL null means "not filtered", as for resolution.
         return unwrap(
           await issuerYearBreakdown(repo, coverage, {
             year: f.year,
-            ...(f.issuerSlug !== undefined && { issuerSlug: f.issuerSlug }),
-            ...(f.actType !== undefined && { actType: f.actType }),
+            ...(f.issuerSlug != null && { issuerSlug: f.issuerSlug }),
+            ...(f.actType != null && { actType: f.actType }),
             ...(f.resolution != null && { resolution: f.resolution }),
             groupBy: (f.groupBy ?? 'issuer') as MoAggGroupBy,
           })

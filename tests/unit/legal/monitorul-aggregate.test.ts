@@ -71,4 +71,31 @@ describe('MO-1 aggregate: resolution filter and rates', () => {
       { year: 2025, resolution: [], groupBy: 'issuer' },
     ]);
   });
+
+  it('the GraphQL resolver drops an explicit null issuerSlug and actType', async () => {
+    const seen: MoPublicationAggInput[] = [];
+    const resolvers = makeMonitorulResolvers({
+      repo: repoSeeing(seen),
+      base: {} as never,
+      coverage,
+      registry: {} as never,
+    }) as {
+      Query: {
+        moPublicationsByIssuerYear: (
+          r: unknown,
+          a: { filter: { year: number; issuerSlug?: string | null; actType?: string[] | null } }
+        ) => Promise<unknown>;
+      };
+    };
+    await resolvers.Query.moPublicationsByIssuerYear(null, {
+      filter: { year: 2025, issuerSlug: null, actType: null },
+    });
+    await resolvers.Query.moPublicationsByIssuerYear(null, {
+      filter: { year: 2025, issuerSlug: 'guvernul-romaniei', actType: ['ordin'] },
+    });
+    expect(seen).toEqual([
+      { year: 2025, groupBy: 'issuer' },
+      { year: 2025, issuerSlug: 'guvernul-romaniei', actType: ['ordin'], groupBy: 'issuer' },
+    ]);
+  });
 });
