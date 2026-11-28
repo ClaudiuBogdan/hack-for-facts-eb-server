@@ -136,7 +136,7 @@ export const ANALYSIS_SCOPE_ZOD_SHAPE = {
     .enum(FRAMEWORK_ROLE_FILTERS)
     .optional()
     .describe(
-      'Contract grain only. Absent = the purchases-only default (standalone or unstamped); a framework-agreement population names framework_ceiling explicitly; all = every role.'
+      'Contract grain only. Absent = the purchases-only default, never a ceiling (standalone or unstamped on the legacy build; ordinary contracts and call-offs from the money build); a framework-agreement population names framework_ceiling explicitly; all = every role.'
     ),
   grain: z.enum(ANALYSIS_GRAINS).optional().describe('Absent = all grains the matrix supports.'),
   from: z.string().optional().describe('YYYY-MM, inclusive (XOR year).'),

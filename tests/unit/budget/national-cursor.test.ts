@@ -221,7 +221,7 @@ describe('lane snapshot tokens', () => {
       token
     );
     const execution = executionLaneToken([{ periodEnd: '2025-06-30', selectionId: 's1' }]);
-    expect(execution._unsafeUnwrap()).toMatch(/^e1\.[0-9a-f]{32}$/u);
+    expect(execution._unsafeUnwrap()).toMatch(/^e2\.[0-9a-f]{32}$/u);
     expect(pinToken('EXECUTION', ['b', 'a'])._unsafeUnwrap()).toBe(
       pinToken('EXECUTION', ['a', 'b'])._unsafeUnwrap()
     );

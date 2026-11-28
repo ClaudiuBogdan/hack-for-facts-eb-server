@@ -3,7 +3,7 @@
  *
  * Law and execution change independently, so each lane has its own token:
  * approved = digest of loaded `(edition, form, interpretation, line count)`;
- * execution = digest of the current `(period end, selection)` chain leaves. A
+ * execution = digest of the current `(period end, selection)` chain leaves, prefixed by the active reader generation. A
  * monthly bulletin load therefore never invalidates law cursors. Tokens are
  * current-state preconditions, not historical replay addresses.
  */
@@ -30,7 +30,7 @@ export interface ExecutionLeafKey {
 }
 
 const TOKEN_HEX_LENGTH = 32;
-const LANE_PREFIX: Readonly<Record<Lane, string>> = { APPROVED: 'a1', EXECUTION: 'e1' };
+const LANE_PREFIX: Readonly<Record<Lane, string>> = { APPROVED: 'a1', EXECUTION: 'e2' };
 
 const digest = (
   lane: Lane,

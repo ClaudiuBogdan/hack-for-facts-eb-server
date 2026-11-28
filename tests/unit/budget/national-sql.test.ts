@@ -303,7 +303,7 @@ describe('execution statements', () => {
       'ytd',
       ['2025-03-31', '2025-06-30'],
     ]);
-    expect(compiled.sql).toContain('from budget.execution_national_budget_series_v1 v');
+    expect(compiled.sql).toContain('from budget.execution_national_budget_series_v2 v');
     expect(compiled.sql).toContain('v.period_start::text as period_start');
     expect(compiled.sql).toContain('v.value_ron::text as value_ron');
     expect(compiled.sql).toContain("ei.release_id = v.endpoint_release_id and ei.input_id = 'bgc'");

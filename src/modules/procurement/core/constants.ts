@@ -162,6 +162,17 @@ export interface GenerationCapabilities {
    */
   readonly daSupplierPrivacy?: boolean;
   /**
+   * The contract grain is answered from the money build (PROC-KB0Z, flag
+   * PROCUREMENT_CA_ANALYSIS_ENABLED): stats and series only for now; routing refuses the scope
+   * fields it cannot apply and the usecases abstain on the other shapes. Absent means false.
+   */
+  readonly contractMoneyV3?: boolean;
+  /**
+   * The money-build contract source is routed but its build could not be read: the contract
+   * grain abstains BEFORE any read.
+   */
+  readonly contractMoneyV3Unavailable?: boolean;
+  /**
    * The ClickHouse generation could not be read while the v3 DA grain answers:
    * every other grain abstains BEFORE any read instead of failing the request.
    */

@@ -120,3 +120,29 @@ One read per distinct non-status filter set (lists are sorted, so equal sets in 
 - Behind `PROCUREMENT_TOTALS_V2`, default off.
 - The fact table and the label table are probed per request, so nothing depends on them existing.
 - Review by Sol at xhigh; pre-push and pre-sync notices to root.
+
+## The analysis contract grain from the money build (PROC-KB0Z, 28 Nov)
+
+Root's decision (28 Nov): with legacy procurement retired, the analysis API's `contract` grain is read from
+the money build, behind `PROCUREMENT_CA_ANALYSIS_ENABLED` (default off; on for Chronos dev only). Slice a
+serves stats and series; slice b adds breakdowns (procedures included: money build 2 carries the procedure
+type).
+
+- **Same facts as totals.** The source reuses `moneyWhere`, the build's floor (`servedCaFloor`), the totals'
+  D6 rule and `exclusionOf`, so a figure equals `procurementTotals` for the same keys.
+- **Counts (root, 28 Nov).** `recordCount` is the record population: every contract-award record of the
+  scope, any status, one per contract (`awarded` for ordinary contracts and call-offs, `framework_ceiling`
+  for framework agreements). With no window it equals totals' `population` count; with a window it counts
+  the dated records in it, as the contract-award views' lists do, and undated records are `undatedInScope`
+  (so `recordCount + undatedInScope` is totals' windowed `population`).
+  `withValueCount` and every lei figure are the records totals count. A supplier scope leaves joint wins out of
+  money and reports their money as `valueWithheldAssociationSum`.
+- **Record kinds.** An unset `frameworkRole` counts ordinary contracts and call-offs, never a ceiling (the
+  legacy default counted standalone or unstamped contracts only). `framework_ceiling` selects framework
+  agreements, whose money is the ceiling; `all` selects both.
+- **Build id.** The money build id followed by the floor day (`YYYYMMDD`): a floor that moves under one build
+  is a new build for pins and caches.
+- **Not served yet.** Breakdowns, concentration, records and distinct counts abstain on this source
+  (`GENERATION_LACKS_CAPABILITY`) rather than fail a request. Buyer place, status, procedure type, title search
+  and value bounds are refused by name until a later slice applies them. Supplier geography stays refused
+  (capability `supplierGeography`, D4/M3).

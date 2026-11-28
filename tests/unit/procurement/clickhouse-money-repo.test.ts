@@ -136,6 +136,71 @@ describe('makeClickhouseMoneyRepo', () => {
     });
   });
 
+  it('reads the contract grain with the totals’ own WHERE, by contract kind and month', async () => {
+    const base = {
+      value_kind: 'awarded',
+      status: 'awarded',
+      additive: '1',
+      dated: '1',
+      has_amount: '1',
+      joint_win: '0',
+      vat_basis: 'unknown',
+      currency: 'RON',
+      unverified_head: '0',
+      list_value: '0',
+      withheld_supplier: '0',
+      n: '4',
+      sum_bani: '1000',
+      native_minor: '1000',
+    };
+    const { r, sqls } = reader([{ ...base, contract_kind: 'call_off', month: '2025-03' }]);
+    const repo = makeClickhouseMoneyRepo({ db, reader: r });
+    const f = filters({ procurementKinds: ['contract_award'], buyerCode: '4305857' });
+    const rows = (
+      await repo.contractRows('17', f, 'r1', ['awarded'], '2021-01-01')
+    )._unsafeUnwrap();
+    await repo.aggregate('17', f, 'r1', ['awarded'], '2021-01-01');
+    expect(rows[0]).toMatchObject({ contractKind: 'call_off', month: '2025-03', count: 4n });
+    const where = (text: string | undefined) => text?.split('WHERE')[1]?.split('GROUP BY')[0];
+    expect(where(sqls[0])).toBe(where(sqls[1]));
+    expect(sqls[0]).toContain('GROUP BY value_kind');
+    expect(sqls[0]).toContain('contract_kind, month');
+
+    // A contract kind outside the schema is never guessed into a figure.
+    const odd = reader([{ ...base, contract_kind: 'mystery', month: null }]);
+    const refused = await makeClickhouseMoneyRepo({ db, reader: odd.r }).contractRows(
+      '17',
+      f,
+      null,
+      ['awarded'],
+      '2021-01-01'
+    );
+    expect(refused._unsafeUnwrapErr().type).toBe('Database');
+  });
+
+  it('measures contract-award coverage under the floor, records only', async () => {
+    const { r, sqls } = reader([
+      {
+        total: '10',
+        dated: '9',
+        counted: '8',
+        valued: '8',
+        with_cpv: '10',
+        with_geo: '7',
+        money: '500',
+        money_dated: '400',
+        money_geo: '300',
+      },
+    ]);
+    const coverage = (
+      await makeClickhouseMoneyRepo({ db, reader: r }).contractCoverage('17', '2018-01-01')
+    )._unsafeUnwrap();
+    expect(coverage).toMatchObject({ total: '10', withGeo: '7', moneyBani: '500' });
+    expect(sqls[0]).toContain('FROM money_facts_b17');
+    expect(sqls[0]).toContain("award_day >= toDate('2018-01-01')");
+    expect(sqls[0]).toContain("value_kind = 'framework_ceiling'");
+  });
+
   it('reads labels with every batch and only public supplier refs', async () => {
     const { r, sqls } = reader([]);
     const repo = makeClickhouseMoneyRepo({ db, reader: r });

@@ -78,7 +78,7 @@ const harness = (cached: boolean | NationalResponseCacheOptions = true) => {
     sets,
     /** Batched national-series view statements run so far. */
     seriesViewReads: () =>
-      captured.filter((query) => query.sql.includes('execution_national_budget_series_v1')).length,
+      captured.filter((query) => query.sql.includes('execution_national_budget_series_v2')).length,
     move: (options: SourceWorldOptions) => {
       world = makeSourceWorld(options);
     },

@@ -78,6 +78,7 @@ const RedesignEnvSchema = Type.Object({
   PROCUREMENT_DA_V3_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_CA_RECORDS_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_TOTALS_V2: Type.Optional(Type.String()),
+  PROCUREMENT_CA_ANALYSIS_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_DATABASE_URL: Type.Optional(Type.String()),
   PROCUREMENT_LEGACY_ENABLED: Type.Optional(Type.String()),
   PROCUREMENT_LEGACY_DA_LIST_ENABLED: Type.Optional(Type.String()),
@@ -128,6 +129,11 @@ export interface ProcurementComposition {
   readonly caRecordsEnabled?: boolean;
   /** Totals v2 (`procurementTotals`) over the money-fact builds; off unless PROCUREMENT_TOTALS_V2=true. */
   readonly totalsV2Enabled?: boolean;
+  /**
+   * The analysis API's contract grain from the money build (PROC-KB0Z); off unless
+   * PROCUREMENT_CA_ANALYSIS_ENABLED=true, which needs site-wide D6 on and ClickHouse.
+   */
+  readonly caAnalysisEnabled?: boolean;
   /**
    * The legacy procurement reads (records, legacy analysis, entity-360 presence);
    * on unless PROCUREMENT_LEGACY_ENABLED=false. Off, they answer ServiceUnavailable
@@ -465,6 +471,17 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
       "Invalid redesign env: PROCUREMENT_LEGACY_DA_LIST_ENABLED must be 'true' or 'false' when set"
     );
   }
+  const caAnalysis = e.PROCUREMENT_CA_ANALYSIS_ENABLED;
+  if (caAnalysis !== undefined && caAnalysis !== 'true' && caAnalysis !== 'false') {
+    throw new Error(
+      "Invalid redesign env: PROCUREMENT_CA_ANALYSIS_ENABLED must be 'true' or 'false' when set"
+    );
+  }
+  if (caAnalysis === 'true' && e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED !== 'true') {
+    throw new Error(
+      'Invalid redesign env: PROCUREMENT_CA_ANALYSIS_ENABLED=true requires PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED=true'
+    );
+  }
   const procurement: ProcurementComposition = {
     ...(daWindow > 0 && { daListMaxWindowDays: daWindow }),
     ...(legacy === 'false' && { legacyEnabled: false }),
@@ -472,6 +489,7 @@ const composeEmbeddedKernel = (e: EmbeddedKernelEnv): EmbeddedKernelConfig => {
     ...(e.PROCUREMENT_DA_V3_ENABLED === 'true' && { daV3Enabled: true }),
     ...(caRecords === 'true' && { caRecordsEnabled: true }),
     ...(e.PROCUREMENT_TOTALS_V2 === 'true' && { totalsV2Enabled: true }),
+    ...(caAnalysis === 'true' && { caAnalysisEnabled: true }),
     ...(e.PROCUREMENT_SUPPLIER_DISCLOSURE_ENFORCED === 'true' && {
       supplierDisclosureEnforced: true,
     }),

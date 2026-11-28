@@ -1322,6 +1322,19 @@ export const SERIES_ROWS: readonly Record<string, unknown>[] = [
     endpoint: june,
     predecessor: march,
   }),
+  // Synthetic SAFE value on the same grid as the existing-item fixture.
+  seriesRow({
+    item: 'mfin.bgc.expenditure.safe_programme',
+    basis: 'quarter',
+    start: '2025-04-01',
+    end: '2025-06-30',
+    predecessorEnd: '2025-03-31',
+    value: '2.5',
+    reason: 'available',
+    valueBasis: 'derived_change_between_selected_reports',
+    endpoint: june,
+    predecessor: march,
+  }),
 ];
 
 // ── the responder ────────────────────────────────────────────────────────────

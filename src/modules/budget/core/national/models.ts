@@ -293,7 +293,7 @@ export interface SeriesOperand {
   readonly headers: readonly CellEvidence[];
 }
 
-/** One row of `budget.execution_national_budget_series_v1`, mapped unchanged. */
+/** One row of `budget.execution_national_budget_series_v2`, mapped unchanged. */
 export interface NationalSeriesViewRow {
   readonly itemId: string;
   /** Grid label (`YYYY-MM`, `YYYY-QN`, `YYYY`): the display date only. */

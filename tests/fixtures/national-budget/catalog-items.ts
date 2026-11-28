@@ -1,6 +1,6 @@
 /**
- * The 52 reviewed BGC catalog items (`budget.execution_bgc_item_catalog_v1`),
- * copied from the scrapper migration data `mfin-bgc-item-catalog-v1.json`.
+ * The 52 original BGC catalog items and the SAFE addition from the
+ * scrapper migration data for `budget.execution_bgc_item_catalog_v2`.
  * Independent of the server code under test.
  */
 
@@ -381,6 +381,13 @@ export const CATALOG_ITEMS: readonly CatalogItemRow[] = [
     item_id: 'mfin.bgc.balance.surplus_deficit',
     section: 'balance',
     source_label: 'excedent(+) / deficit(-)',
+    related_scope_item_id: null,
+  },
+  {
+    mapping_version: 'bgc-item-map-v2',
+    item_id: 'mfin.bgc.expenditure.safe_programme',
+    section: 'expenditure',
+    source_label: 'cheltuieli aferente planului safe',
     related_scope_item_id: null,
   },
 ];
