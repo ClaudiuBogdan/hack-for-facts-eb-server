@@ -199,7 +199,7 @@ describe('one read-only repeatable-read transaction per root', () => {
 });
 
 describe('budgetNationalCatalog', () => {
-  it('discovers loaded editions, forms, named totals, coverage and the 52 catalog items', async () => {
+  it('discovers loaded editions, forms, named totals, coverage and the 53 catalog items', async () => {
     const catalog = data<{
       snapshots: { approved: string; execution: string };
       approved: {
@@ -235,7 +235,7 @@ describe('budgetNationalCatalog', () => {
       'budgetNationalCatalog'
     );
     expect(catalog.snapshots.approved).toMatch(/^a1\.[0-9a-f]{32}$/u);
-    expect(catalog.snapshots.execution).toMatch(/^e1\.[0-9a-f]{32}$/u);
+    expect(catalog.snapshots.execution).toMatch(/^e2\.[0-9a-f]{32}$/u);
     expect(catalog.approved.editions.map((e) => e.id)).toEqual([
       E2022,
       '2023:law_2023_as_sent_to_monitorul_oficial',
@@ -282,7 +282,7 @@ describe('budgetNationalCatalog', () => {
     expect(catalog.execution.coverage.firstMonth).toBe('2006-06');
     expect(catalog.execution.coverage.lastMonth).toBe('2026-07');
     expect(catalog.execution.coverage.missingMonths).toContain('2025-05');
-    expect(catalog.execution.seriesItems).toHaveLength(52);
+    expect(catalog.execution.seriesItems).toHaveLength(53);
     expect(catalog.execution.seriesItems.map((i) => i.itemId).sort()).toEqual(
       CATALOG_ITEMS.map((i) => i.item_id).sort()
     );
@@ -965,6 +965,22 @@ describe('budgetNationalExecutionSeries', () => {
     }[];
   }
 
+  it('serves SAFE and the existing spending total in one v2 request', async () => {
+    const total = 'mfin.bgc.expenditure.total';
+    const safe = 'mfin.bgc.expenditure.safe_programme';
+    const series = data<Result>(
+      await gql(
+        SERIES(`{ itemIds: ["${total}", "${safe}"], basis: PERIOD_DIFFERENCE,
+        period: { type: QUARTER, selection: { dates: ["2025-Q2"] } } }`)
+      ),
+      'budgetNationalExecutionSeries'
+    );
+    expect(series.mappingVersion).toBe('bgc-item-map-v2');
+    expect(series.results.map((entry) => entry.item.itemId)).toEqual([total, safe]);
+    expect(series.results[0]?.series.data).toEqual([{ date: '2025-Q2', value: '-12.5' }]);
+    expect(series.results[1]?.series.data).toEqual([{ date: '2025-Q2', value: '2.5' }]);
+  });
+
   it('serves Q2/Q4 differences, keeps June YTD interval and the requested item order', async () => {
     const quarters = data<Result>(
       await gql(
@@ -973,7 +989,7 @@ describe('budgetNationalExecutionSeries', () => {
       ),
       'budgetNationalExecutionSeries'
     );
-    expect(quarters.mappingVersion).toBe('bgc-item-map-v1');
+    expect(quarters.mappingVersion).toBe('bgc-item-map-v2');
     expect(quarters.derivationVersion).toBe('bgc-selected-cumulative-difference-v1');
     expect(quarters.results[0]?.series).toEqual({
       frequency: 'QUARTER',

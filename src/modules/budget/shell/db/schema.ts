@@ -434,8 +434,8 @@ declare module '@/modules/shared/shell/db/types.js' {
     'budget.execution_release_inputs': BudgetExecutionReleaseInputsTable;
     'budget.execution_release_facts': BudgetExecutionReleaseFactsTable;
     'budget.execution_release_selections': BudgetExecutionReleaseSelectionsTable;
-    'budget.execution_bgc_item_catalog_v1': BudgetExecutionBgcItemCatalogView;
-    'budget.execution_national_budget_series_v1': BudgetExecutionNationalBudgetSeriesView;
+    'budget.execution_bgc_item_catalog_v2': BudgetExecutionBgcItemCatalogView;
+    'budget.execution_national_budget_series_v2': BudgetExecutionNationalBudgetSeriesView;
     /* eslint-enable @typescript-eslint/naming-convention -- restore the rule after the schema-qualified table keys */
   }
 }

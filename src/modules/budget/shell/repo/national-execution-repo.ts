@@ -131,6 +131,10 @@ const MEASURE_LITERAL = inverse(MEASURES);
 const DISPOSITION_LITERAL = inverse(DISPOSITIONS);
 
 /** The reviewed view (local migration 20260921T040000) pins these constants. */
+// The v2 views keep each row's original mapping generation. The API publishes
+// one active mapping so old items and SAFE can be requested together.
+const EXECUTION_CATALOG_MAPPING_VERSION = 'bgc-item-map-v2';
+
 export const NATIONAL_SERIES_DERIVATION_VERSION = 'bgc-selected-cumulative-difference-v1';
 export const NATIONAL_SERIES_COMPONENT = 'general_consolidated_budget';
 
@@ -233,7 +237,7 @@ interface ItemRow {
 export const catalogItemsSql = sql<ItemRow>`
   /* budget.national:execution_catalog_items */
   select c.mapping_version, c.item_id, c.section, c.source_label, c.related_scope_item_id
-  from budget.execution_bgc_item_catalog_v1 c
+  from budget.execution_bgc_item_catalog_v2 c
   order by c.item_id
 `;
 
@@ -581,7 +585,7 @@ export const observationsSql = (request: ObservationPageRequest) => {
     );
   }
   if (query.itemIds !== null) {
-    filters.push(sql`exists (select 1 from budget.execution_bgc_item_catalog_v1 ci
+    filters.push(sql`exists (select 1 from budget.execution_bgc_item_catalog_v2 ci
       where ci.item_id = any(${[...query.itemIds]}::text[]) and ${CATALOG_MATCH_U})`);
   }
   const after = request.after;
@@ -631,7 +635,7 @@ export const observationsSql = (request: ObservationPageRequest) => {
       c.source_label as item_source_label, c.related_scope_item_id as item_related_scope_item_id
     from page p
     join budget.execution_release_inputs i on i.release_id = p.release_id and i.input_id = p.input_id
-    left join budget.execution_bgc_item_catalog_v1 c on ${CATALOG_MATCH_P}
+    left join budget.execution_bgc_item_catalog_v2 c on ${CATALOG_MATCH_P}
     order by p.period_end, p.selection_id, p.input_id collate "C", p.observation_key collate "C"
   `;
 };
@@ -692,7 +696,7 @@ export const occurrenceFromRow = (row: ObservationRow): ObservationOccurrence =>
               section: required(SECTIONS, row.item_section, 'item section'),
               sourceLabel: row.item_source_label,
               relatedScopeItemId: row.item_related_scope_item_id,
-              mappingVersion: row.item_mapping_version,
+              mappingVersion: EXECUTION_CATALOG_MAPPING_VERSION,
             },
       section: optional(SECTIONS, row.section, 'section'),
       lineItem: row.line_item,
@@ -827,7 +831,7 @@ export const seriesRowsSql = (request: SeriesRowsRequest) => {
       v.derivation_version, v.component,
       ${ENDPOINT_COLUMNS},
       ${PREDECESSOR_COLUMNS}
-    from budget.execution_national_budget_series_v1 v
+    from budget.execution_national_budget_series_v2 v
     left join budget.execution_release_inputs ei
       on ei.release_id = v.endpoint_release_id and ei.input_id = 'bgc'
     left join budget.execution_release_inputs pi
@@ -971,7 +975,7 @@ export const makeNationalExecutionReader = (run: NationalRun): NationalExecution
         section: required(SECTIONS, row.section, 'item section'),
         sourceLabel: row.source_label,
         relatedScopeItemId: row.related_scope_item_id,
-        mappingVersion: row.mapping_version,
+        mappingVersion: EXECUTION_CATALOG_MAPPING_VERSION,
       }));
     }),
 
