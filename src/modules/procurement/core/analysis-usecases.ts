@@ -896,9 +896,13 @@ const statsBlockFor = async (
   // Only supplier-money reads have a withheld population (repo profile
   // election mirrors supplierScoped) — a buyer read under value bounds is
   // NOT affected and gets no consortium caveat.
+  // The money build flags joint wins itself and totals quote their money per firm
+  // (association_unattributed), so that source's amount is served as read (CA_MONEY_JOINT_NOTE).
   const withheldD =
     moneyAllowed && grain === 'contract' && supplierScoped(scope)
-      ? withheldDisclosure(scope, read.valueWithheldAssociationSum, read.valueAwardedSum)
+      ? gen.capabilities.contractMoneyV3 === true
+        ? { ron: read.valueWithheldAssociationSum, caveats: [] as readonly string[] }
+        : withheldDisclosure(scope, read.valueWithheldAssociationSum, read.valueAwardedSum)
       : { ron: null, caveats: [] as readonly string[] };
   const withheld = withheldD.ron !== null ? d(withheldD.ron).toFixed(MONEY_DP) : null;
 

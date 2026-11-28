@@ -21,7 +21,7 @@ import { err, ok, type Result } from 'neverthrow';
 import { invalidInput, type ApiError } from '@/modules/shared/index.js';
 
 import { scopeDims, type AnalysisScope, type ScopeDimField } from './analysis-scope.js';
-import { caMoneyExclusion } from './ca-money-scope.js';
+import { caMoneyExclusion, caMoneyServes } from './ca-money-scope.js';
 import {
   CORE_ANALYSIS_GRAINS,
   NO_GENERATION_CAPABILITIES,
@@ -289,9 +289,13 @@ export const routeAnalysis = (
   // (legacy procurement retired, or its build unreadable or busy) the capability cannot be
   // judged: the contract and framework grains answer their own unavailability (abstain, or a
   // retryable busy) like any other request, never a malformed-request error (PROC-KB0Z).
+  // The money-build contract grain carries every record kind itself: the base build's
+  // framework_role column does not decide it.
+  const caMoneyContract = scope.grain === 'contract' && capabilities.contractMoneyV3 === true;
   if (
     !capabilities.frameworkRole &&
     capabilities.analysisBaseUnavailable !== true &&
+    !caMoneyContract &&
     (scope.frameworkRole !== undefined || dimension === 'frameworkRole')
   ) {
     return err(
@@ -308,8 +312,9 @@ export const routeAnalysis = (
     const daExcluded = daV3Exclusion(scope, scopeDims(scope), dimension);
     if (daExcluded !== undefined) return err(invalidInput(daExcluded, 'scope'));
   }
-  // An explicit contract-grain request on the money build gets that source's own reason.
-  if (scope.grain === 'contract' && capabilities.contractMoneyV3 === true) {
+  // An explicit contract-grain request on the money build gets that source's own reason, for
+  // the shapes it serves; the others abstain in the usecases (one error fails a whole page).
+  if (caMoneyContract && caMoneyServes(shape, measure)) {
     const caExcluded = caMoneyExclusion(scope);
     if (caExcluded !== undefined) return err(invalidInput(caExcluded, 'scope'));
   }
@@ -437,6 +442,7 @@ export const routeAnalysis = (
     } else if (
       grain === 'contract' &&
       capabilities.contractMoneyV3 === true &&
+      caMoneyServes(shape, measure) &&
       caMoneyExclusion(scope) !== undefined
     ) {
       excluded = caMoneyExclusion(scope);

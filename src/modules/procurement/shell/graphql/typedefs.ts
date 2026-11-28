@@ -807,7 +807,7 @@ export const procurementTypeDefs = /* GraphQL */ `
     provisional: Boolean!
     caveats: [String!]!
     canonicalScope: String!
-    "DA blocks: the D6 state served under (off, unavailable, or the supplier_privacy publication); key DA caches by (buildId, disclosureKey). Never cache a DA answer whose key is unavailable. Keys never cover supplier names (a name can be withdrawn without any key moving): do not keep a name beyond its response. Null on other grains."
+    "DA blocks, and contract blocks read from the money build (dateBasis award_day): the D6 state served under (off, unavailable, or the supplier_privacy publication); key their caches by (buildId, disclosureKey). Never cache such an answer whose key is unavailable. Keys never cover supplier names (a name can be withdrawn without any key moving): do not keep a name beyond its response. Null on other grains."
     disclosureKey: String
   }
 

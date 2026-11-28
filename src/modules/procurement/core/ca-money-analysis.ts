@@ -40,7 +40,7 @@ const COUNTED_STATUSES = ['awarded'] as const;
 
 /** Attached to every contract-grain envelope this source answers. */
 export const CA_MONEY_VALUE_NOTE =
-  'contract awards: recordCount is every contract-award record of the scope (one per contract across notice versions), any status, as the contract-award lists count them; withValueCount and lei figures are the records procurementTotals counts (status awarded, a summable lei amount, published values without VAT conversion); a framework agreement’s money is its ceiling';
+  'contract awards: recordCount is every contract-award record of the scope (one per contract across notice versions), any status — in a window, the dated ones (as the contract-award lists count them; undated records are undatedInScope), with no window every record (as procurementTotals counts its population); withValueCount and lei figures are the records procurementTotals counts (status awarded, a summable lei amount, published values without VAT conversion); a framework agreement’s money is its ceiling';
 
 /** Attached to supplier-scoped contract-grain envelopes. */
 export const CA_MONEY_JOINT_NOTE =
@@ -368,3 +368,6 @@ export const caMoneyVerdict = (coverage: CaMoneyCoverage): GrainQualityVerdict =
  */
 export const caMoneyBuildId = (build: string, floor: string): string =>
   `${build}${floor.replace(/-/gu, '')}`;
+
+/** A build id the analysis pin accepts (at most 19 digits): money builds up to 11 digits. */
+export const caMoneyBuildIdFits = (build: string): boolean => /^[1-9][0-9]{0,10}$/u.test(build);

@@ -27,6 +27,7 @@ import {
 import {
   CA_MONEY_VALUE_NOTE,
   caMoneyBuildId,
+  caMoneyBuildIdFits,
   caMoneySeries,
   caMoneySeriesMeasureServed,
   caMoneyStats,
@@ -65,6 +66,9 @@ interface Issued {
   readonly build: string;
   readonly floor: string;
 }
+
+/** How long a request waits for a build's first coverage measurement. */
+const COVERAGE_WAIT_MS = 3000;
 
 /** Issued build ids kept (a request resolves one; a few cover concurrent cutovers). */
 const ISSUED_MAX = 32;
@@ -112,7 +116,27 @@ export const makeCaMoneyAnalysisSource = (
       if (codes.isErr()) return err(codes.error);
       disclosureKey = disclosureKeyOf(codes.value);
     }
-    const quality = await verdictOf(build.value, floor);
+    // A build id the pin cannot hold is not served (money builds are small sequential ids).
+    if (!caMoneyBuildIdFits(build.value)) {
+      return err(
+        serviceUnavailable('the active money build id cannot be served as an analysis build')
+      );
+    }
+    // Coverage is measured once per build and floor; a slow first measurement never holds up the
+    // request (nor its other grains): the contract grain abstains this once instead.
+    const quality = await Promise.race([
+      verdictOf(build.value, floor),
+      new Promise<null>((resolve) => {
+        setTimeout(() => {
+          resolve(null);
+        }, COVERAGE_WAIT_MS).unref();
+      }),
+    ]);
+    // Coverage that could not be read (a missing grant, a dropped table, a slow first read)
+    // abstains the grain before any read.
+    if (quality === null || quality.isErr()) {
+      return err(serviceUnavailable('the money build coverage could not be read'));
+    }
     const buildId = caMoneyBuildId(build.value, floor);
     issued.delete(buildId);
     issued.set(buildId, { build: build.value, floor });
@@ -125,8 +149,7 @@ export const makeCaMoneyAnalysisSource = (
       buildId,
       publishedAt: null,
       matrixHash: null,
-      // No verdict when coverage could not be measured: time, geo and money abstain.
-      quality: quality.isOk() ? { contract: quality.value } : {},
+      quality: { contract: quality.value },
       capabilities: CA_MONEY_CAPABILITIES,
       disclosureKey,
       notes: [CA_MONEY_VALUE_NOTE],
@@ -140,6 +163,9 @@ export const makeCaMoneyAnalysisSource = (
   ): Promise<Result<readonly CaMoneyRow[], ApiError>> => {
     const source = issued.get(gen.buildId);
     if (source === undefined) return err(REPUBLISHED());
+    // A scope whose record kinds intersect to none (a framework agreement under the purchases
+    // default) selects nothing: never an empty IN list.
+    if (query.shapes.length === 0) return ok([]);
     const code = query.filters.supplierCode;
     let ref: string | null = null;
     if (code !== null) {
@@ -153,19 +179,16 @@ export const makeCaMoneyAnalysisSource = (
       }
       const found = await port.supplierRef(source.build, code);
       if (found.isErr()) return err(found.error);
-      // Not public in this build (D6, or a company the build gives no id): nothing is read.
-      if (found.value === null) return ok([]);
       ref = found.value;
     }
-    const rows = await port.contractRows(
-      source.build,
-      query.filters,
-      ref,
-      query.valueKinds,
-      source.floor
-    );
+    // Not public in this build (D6, or a company the build gives no id): nothing is read.
+    const rows =
+      code !== null && ref === null
+        ? ok([])
+        : await port.contractRows(source.build, query.filters, ref, query.valueKinds, source.floor);
     if (rows.isErr()) return err(rows.error);
-    if (d6 !== undefined && ref !== null) {
+    // Every supplier-scoped answer, read or not, is re-checked against a fresh publication.
+    if (d6 !== undefined && code !== null) {
       const fresh = await d6.publicSupplierCodes({ fresh: true });
       if (fresh.isErr()) return err(fresh.error);
       if (disclosureKeyOf(fresh.value) !== gen.disclosureKey) return err(REPUBLISHED());

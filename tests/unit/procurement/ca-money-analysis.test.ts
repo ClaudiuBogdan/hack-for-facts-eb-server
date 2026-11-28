@@ -28,6 +28,12 @@ import {
   type CaMoneyQuery,
   type CaMoneyRow,
 } from '@/modules/procurement/core/ca-money-analysis.js';
+import {
+  moneyTotals,
+  type AggregateFilters,
+  type MoneyTotalsPort,
+  type ValueKind,
+} from '@/modules/procurement/core/money-totals.js';
 import { makeCaMoneyAnalysisSource } from '@/modules/procurement/shell/repo/ca-money-analysis-source.js';
 import { makeDaRoutingAnalysisRepo } from '@/modules/procurement/shell/repo/da-routing-analysis-repo.js';
 import {
@@ -37,10 +43,9 @@ import {
   type SupplierDisclosurePort,
 } from '@/modules/shared/index.js';
 
-import { fakeAnalysisRepo } from './analysis-fakes.js';
+import { fakeAnalysisRepo, generation } from './analysis-fakes.js';
 
 import type { AnalysisScope } from '@/modules/procurement/core/analysis-scope.js';
-import type { AggregateFilters, ValueKind } from '@/modules/procurement/core/money-totals.js';
 
 const row = (over: Partial<CaMoneyRow> = {}): CaMoneyRow => ({
   valueKind: 'awarded',
@@ -64,6 +69,8 @@ const row = (over: Partial<CaMoneyRow> = {}): CaMoneyRow => ({
 });
 
 const compiled = (scope: AnalysisScope): CaMoneyQuery => compileCaMoneyScope(scope)._unsafeUnwrap();
+
+const PUBLIC_CODE = '14837428';
 
 describe('the contract grain scope', () => {
   it('selects purchases by default, ceilings only when asked, and intersects recordKind', () => {
@@ -208,6 +215,74 @@ describe('contract grain figures', () => {
     expect(verdict.coverage.date).toBe(0.999);
     expect(caMoneyBuildId('2', '2021-01-01')).toBe('220210101');
     expect(caMoneyBuildId('2', '2018-01-01')).not.toBe(caMoneyBuildId('2', '2021-01-01'));
+  });
+});
+
+describe('contract grain figures against procurementTotals (one fixture)', () => {
+  const rows: CaMoneyRow[] = [
+    row(),
+    row({ status: 'identity_review', additive: false, count: 2n, sumBani: 20_000n }),
+    row({ additive: false, count: 1n, sumBani: 5_000n }),
+    row({ hasAmount: false, count: 3n, sumBani: 0n }),
+    row({ dated: false, inRange: false, month: null, count: 4n, sumBani: 40_000n }),
+    row({ jointWin: true, count: 5n, sumBani: 50_000n, month: '2025-05' }),
+  ];
+  const totalsPort = (asked: readonly CaMoneyRow[]): MoneyTotalsPort => ({
+    activeBuild: () => Promise.resolve(ok('2')),
+    caFloor: () => Promise.resolve(ok(null)),
+    labels: () => Promise.resolve(ok([])),
+    supplierRef: () => Promise.resolve(ok('r1')),
+    aggregate: (_build, filters) =>
+      Promise.resolve(
+        ok(
+          // The shell's WHERE drops dated facts outside a range; this fixture is all 2025.
+          asked.filter(
+            (r) => filters.from === null || !r.dated || r.month?.startsWith('2025') === true
+          )
+        )
+      ),
+  });
+  const totalsOf = async (supplierCode: string | null, from: string | null, to: string | null) =>
+    (
+      await moneyTotals(totalsPort(rows), [
+        {
+          id: 't',
+          filters: {
+            procurementKinds: ['contract_award'],
+            contractKinds: ['ordinary', 'call_off'],
+            supplierCode,
+            from,
+            to,
+          },
+          valueKinds: ['awarded'],
+        },
+      ])
+    )._unsafeUnwrap()[0];
+
+  for (const supplier of [null, PUBLIC_CODE]) {
+    it(`no window${supplier === null ? '' : ', a supplier'}: recordCount is the population, money is totals’`, async () => {
+      const t = await totalsOf(supplier, null, null);
+      const stats = caMoneyStats(
+        rows,
+        compiled(supplier === null ? {} : { supplierCui: supplier })
+      );
+      expect(stats.rows).toBe(t?.population[0]?.count);
+      expect(stats.withValue).toBe(t?.totals[0]?.recordCount);
+      expect(stats.valueAwardedSum).toBe(t?.totals[0]?.sumLei);
+      const joint =
+        t?.exclusions.find((e) => e.key === 'association_unattributed')?.valueLei ?? null;
+      expect(stats.valueWithheldAssociationSum).toBe(joint);
+    });
+  }
+
+  it('a window: recordCount plus undatedInScope is the population; money is totals’', async () => {
+    const t = await totalsOf(null, '2025-01-01', '2025-12-31');
+    const stats = caMoneyStats(rows, compiled({ year: 2025 }));
+    expect((BigInt(stats.rows) + BigInt(stats.undatedCount)).toString()).toBe(
+      t?.population[0]?.count
+    );
+    expect(stats.withValue).toBe(t?.totals[0]?.recordCount);
+    expect(stats.valueAwardedSum).toBe(t?.totals[0]?.sumLei);
   });
 });
 
@@ -407,6 +482,17 @@ describe('the money-build contract source', () => {
     expect(fake.reads).toEqual([]);
   });
 
+  it('a scope whose record kinds select nothing reads nothing', async () => {
+    const fake = fakePort();
+    const block = (
+      await analysisStats(deps(fake.port), {
+        scope: { grain: 'contract', recordKind: 'framework_agreement' },
+      })
+    )._unsafeUnwrap().blocks[0];
+    expect(block?.recordCount).toBe('0');
+    expect(fake.reads).toEqual([]);
+  });
+
   it('refuses a scope field it cannot apply, naming it', async () => {
     const result = await analysisStats(deps(fakePort().port), {
       scope: { grain: 'contract', buyerCounty: 'CJ' },
@@ -435,5 +521,111 @@ describe('the money-build contract source', () => {
     // The other grains still answer from the base.
     expect(blocks.find((b) => b.grain === 'procedure')?.meta.answerability).not.toBe('abstained');
     expect(base.calls.filter((call) => call.grain === 'contract')).toEqual([]);
+  });
+});
+
+describe('the money-build contract source, review round 1', () => {
+  it('echoes a withheld supplier as withheld, and re-checks D6 on an answer it did not read', async () => {
+    const fake = fakePort();
+    const d6 = d6Port();
+    const d = { ...deps(fake.port, d6), supplierDisclosure: d6 };
+    const block = (
+      await analysisStats(d, { scope: { grain: 'contract', supplierCui: '999999' } })
+    )._unsafeUnwrap().blocks[0];
+    expect(block?.meta.canonicalScope).toContain('withheld');
+    expect(block?.meta.canonicalScope).not.toContain('999999');
+
+    // A public code without an id in the build reads nothing, and is still re-checked.
+    const moved = d6Port([AS_OF, AS_OF, '2026-11-28T11:00:00.000000Z']);
+    const raced = await analysisStats(deps(fakePort().port, moved), {
+      scope: { grain: 'contract', supplierCui: PUBLIC },
+    });
+    expect(raced._unsafeUnwrapErr().type).toBe('ServiceUnavailable');
+  });
+
+  it('serves a public supplier’s joint-win money as totals quote it', async () => {
+    const fake = fakePort({
+      refs: { [PUBLIC]: 'r1' },
+      rows: [row(), row({ jointWin: true, count: 5n, sumBani: 50_000n })],
+    });
+    const block = (
+      await analysisStats(deps(fake.port), { scope: { grain: 'contract', supplierCui: PUBLIC } })
+    )._unsafeUnwrap().blocks[0];
+    expect(block?.valueAwardedSum).toBe('1000.00');
+    expect(block?.valueWithheldAssociationSum).toBe('500.00');
+    expect(block?.recordCount).toBe('15');
+  });
+
+  it('abstains on unserved shapes even with a scope field stats would refuse', async () => {
+    const fake = fakePort();
+    const d = deps(fake.port);
+    const breakdown = (
+      await analysisBreakdown(d, {
+        scope: { grain: 'contract', buyerCounty: 'CJ' },
+        dimension: 'supplier',
+      })
+    )._unsafeUnwrap()[0];
+    expect(breakdown?.meta.answerability).toBe('abstained');
+    const distinct = (
+      await analysisSeries(d, {
+        scope: { grain: 'contract', buyerCounty: 'CJ' },
+        bucket: 'year',
+        measure: 'distinctAuthorities',
+      })
+    )._unsafeUnwrap()[0];
+    expect(distinct?.meta.answerability).toBe('abstained');
+    expect(fake.reads).toEqual([]);
+  });
+
+  it('decides record kinds and supplier places by its own rules, not the base build’s', async () => {
+    // A live base build without framework_role and with supplier geography served.
+    const base = fakeAnalysisRepo({
+      generation: generation(undefined, { frameworkRole: false, supplierGeography: true }),
+    });
+    const fake = fakePort({ rows: [row({ contractKind: 'call_off' })] });
+    const d = {
+      analysisRepo: makeDaRoutingAnalysisRepo(
+        base.repo,
+        undefined,
+        undefined,
+        makeCaMoneyAnalysisSource(fake.port, d6Port())
+      ),
+    };
+    const callOffs = await analysisStats(d, {
+      scope: { grain: 'contract', frameworkRole: 'call_off' },
+    });
+    expect(callOffs._unsafeUnwrap().blocks[0]?.recordCount).toBe('10');
+    expect(fake.reads[0]?.filters.contractKinds).toEqual(['call_off']);
+    const placed = await analysisStats(d, { scope: { grain: 'contract', supplierCounty: 'CJ' } });
+    expect(placed._unsafeUnwrapErr().message).toMatch(/supplier geography/u);
+  });
+
+  it('a build whose coverage cannot be read, or whose id cannot be pinned, abstains', async () => {
+    // A live base build answers the other grains; the contract grain's own source fails.
+    const withBase = (port: CaMoneyPort) => ({
+      analysisRepo: makeDaRoutingAnalysisRepo(
+        fakeAnalysisRepo().repo,
+        undefined,
+        undefined,
+        makeCaMoneyAnalysisSource(port, d6Port())
+      ),
+    });
+    const unreadable = fakePort();
+    const noCoverage: CaMoneyPort = {
+      ...unreadable.port,
+      contractCoverage: () => Promise.resolve(err(serviceUnavailable('denied'))),
+    };
+    const a = (
+      await analysisStats(withBase(noCoverage), { scope: { grain: 'contract' } })
+    )._unsafeUnwrap().blocks[0];
+    expect(a?.meta.answerability).toBe('abstained');
+    expect(unreadable.reads).toEqual([]);
+
+    const huge = fakePort({ build: ok('123456789012') });
+    const b = (
+      await analysisStats(withBase(huge.port), { scope: { grain: 'contract' } })
+    )._unsafeUnwrap().blocks[0];
+    expect(b?.meta.answerability).toBe('abstained');
+    expect(huge.reads).toEqual([]);
   });
 });
