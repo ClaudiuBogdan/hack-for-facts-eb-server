@@ -271,8 +271,13 @@ export interface MonitorulRepo {
   // MO-4 / consumer correlation: every place an act was published:
   getPublicationsForAct(actId: string): Promise<Result<readonly MoActPublication[], ApiError>>;
   countPublicationsByIssuerYear( // MO-1 aggregate
-    f: MoPublicationAggInput
-  ): Promise<Result<readonly MoIssuerYearCount[], ApiError>>;
+    f: MoPublicationAggInput // f.resolution narrows rows and total; [] matches nothing
+  ): Promise<
+    Result<
+      { rows: readonly MoIssuerYearCount[]; total: number; rates: MoResolutionRates },
+      ApiError
+    >
+  >; // rates: the year by resolution over every filter but resolution (public rows only)
 
   // ── lifecycle / status timelines ─────────────────────────────────────────────
   getEdgesForSource(moActKey: string): Promise<Result<readonly MoLifecycleEdge[], ApiError>>;
@@ -370,7 +375,7 @@ route `config: { public: true }` (§14.11). TypeBox at the boundary; envelope pe
 | GET    | `/legal/acts/:actId/publications`      | path actId                                                                                                                                                             | `{ act: {actId}, publications: MoActPublication[] }`                         | — (bounded ≤ ~dozens)                   | 10 min | 5s      |
 | GET    | `/legal/acts/:actId/gazette-timeline`  | path actId                                                                                                                                                             | `{ statusEvents: MoStatusEvent[], inEdges: MoLifecycleEdge[] }` + `coverage` | —                                       | 10 min | 5s      |
 | GET    | `/legal/mo-edges`                      | `MoEdgeFilter` (§7.1): `relation[]`,`resolution[]`,`sourceMoActKey`,`targetActId`; `cursor`,`limit`                                                                    | `MoLifecycleEdge[]` + `meta.cursor`                                          | cursor `(edge_id)`                      | 5 min  | 5s      |
-| GET    | `/legal/mo-publications/aggregate`     | `MoPublicationAggFilter`: `issuerSlug`,`year`(req),`actType[]`,`groupBy`(enum: `issuer`\|`act_type`\|`year`)                                                           | `MoIssuerYearCount[]` + `denominator` + `coverage`                           | offset (small)                          | 10 min | 15s     |
+| GET    | `/legal/mo-publications/aggregate`     | `MoPublicationAggFilter`: `issuerSlug`,`year`(req),`actType[]`,`resolution[]`,`groupBy`(enum: `issuer`\|`act_type`\|`year`)                                            | `MoIssuerYearCount[]` + `denominator` + `coverage`                           | offset (small)                          | 10 min | 15s     |
 | GET    | `/legal/filters/resolve`               | `dim`(enum: `mo_issuer`\|`mo_part`\|`mo_act_type`), `q`, `limit`                                                                                                       | `{ dim, matches: [{value,label,count}] }`                                    | —                                       | 30 min | 5s      |
 
 **OpenAPI notes:** MO exports an OpenAPI fragment (paths above + the `Mo*` component
@@ -386,7 +391,10 @@ with portal's `LegalAct*` schemas. The act↔gazette **producer** routes
 dimension): `{ years: {min,max}, per_year_present: {...}, gaps: ['2012-2019
 archive hole','Part II deferred'], resolutionRates?: {unique, ambiguous,
 unmatched} }`. `resolutionRates` is present only on **publication/edge**
-collections; **omitted (null) for `mo_issues`** browse responses.
+collections; **omitted (null) for `mo_issues`** browse responses. On the MO-1
+aggregate, `resolution[]` narrows the grouped counts and the denominator (an empty
+list matches nothing), while `resolutionRates` counts the filtered year's public
+publications by resolution over every filter except `resolution`.
 
 ---
 
@@ -561,7 +569,7 @@ extend type Query {
     sort: MoPublicationSort = ACT_YEAR_DESC
   ): MoActPublicationConnection!
   moEdges(filter: MoEdgeFilter!, first: Int = 20, after: String): MoLifecycleEdgeConnection!
-  moPublicationsByIssuerYear(filter: MoPublicationAggFilter!): [MoIssuerYearCount!]!
+  moPublicationsByIssuerYear(filter: MoPublicationAggFilter!): MoIssuerBreakdown!
 }
 
 # ── Entity join + LegalAct extension (foundation §6.2/§9; via contributor §14.7) ─

@@ -50,6 +50,7 @@ import type {
   MoIssue,
   MoIssuerSummary,
   MoLifecycleEdge,
+  MoResolution,
   MoStatusEvent,
 } from './types.js';
 import type { LegalRepoBase } from '../core/repo-base.js';
@@ -222,7 +223,7 @@ const moObjectsAndQuery = /* GraphQL */ `
     ambiguous: Int!
     unmatched: Int!
   }
-  "Per-collection coverage honesty (catalog Core Rule). resolutionRates is publication-only."
+  "Per-collection coverage honesty (catalog Core Rule). resolutionRates is publication-only (counts by resolution); on moPublicationsByIssuerYear it covers the filtered year over every filter but resolution."
   type MoCoverage {
     yearMin: Int
     yearMax: Int
@@ -296,6 +297,8 @@ const moObjectsAndQuery = /* GraphQL */ `
     year: Int!
     issuerSlug: String
     actType: [String!]
+    "Keep only publications with these act-link resolutions (counts and denominator); an empty list matches nothing. coverage.resolutionRates ignores it: it splits the whole filtered year."
+    resolution: [MoResolution!]
     groupBy: MoAggGroupBy = issuer
   }
 
@@ -495,7 +498,13 @@ export const makeMonitorulResolvers = (deps: MonitorulGraphqlDeps): Record<strin
       moPublicationsByIssuerYear: async (
         _r: unknown,
         args: {
-          filter: { year: number; issuerSlug?: string; actType?: string[]; groupBy?: string };
+          filter: {
+            year: number;
+            issuerSlug?: string;
+            actType?: string[];
+            resolution?: MoResolution[] | null;
+            groupBy?: string;
+          };
         }
       ) => {
         const f = args.filter;
@@ -504,6 +513,7 @@ export const makeMonitorulResolvers = (deps: MonitorulGraphqlDeps): Record<strin
             year: f.year,
             ...(f.issuerSlug !== undefined && { issuerSlug: f.issuerSlug }),
             ...(f.actType !== undefined && { actType: f.actType }),
+            ...(f.resolution != null && { resolution: f.resolution }),
             groupBy: (f.groupBy ?? 'issuer') as MoAggGroupBy,
           })
         );

@@ -289,6 +289,69 @@ describe('Monitorul counts and discovery — measured under the same gate', () =
     expect(byType.rows.map((r) => r.actType).sort()).toEqual(['hotarare', 'ordin']);
   });
 
+  it('a resolution filter narrows the counts and the total; the rates split the whole public year', async () => {
+    const unmatched = value(
+      await repo!.countPublicationsByIssuerYear({
+        year: 2020,
+        groupBy: 'issuer',
+        resolution: ['unmatched'],
+      })
+    );
+    // pub-null only: restricted-null is unmatched too, but restricted.
+    expect(unmatched.rows.map((r) => [r.issuerSlug, r.count])).toEqual([['guvernul-romaniei', 1]]);
+    expect(unmatched.total).toBe(1);
+    // The rates ignore the resolution filter and the restricted rows.
+    expect(unmatched.rates).toEqual({ unique: 2, ambiguous: 0, unmatched: 1 });
+    // An explicit empty list matches nothing; the rates keep their scope.
+    const none = value(
+      await repo!.countPublicationsByIssuerYear({ year: 2020, groupBy: 'issuer', resolution: [] })
+    );
+    expect(none.rows).toEqual([]);
+    expect(none.total).toBe(0);
+    expect(none.rates).toEqual({ unique: 2, ambiguous: 0, unmatched: 1 });
+    // The rates apply every other filter: act type (pub-b and pub-null), a
+    // restricted-only issuer, and a year with no publications.
+    const ordin = value(
+      await repo!.countPublicationsByIssuerYear({
+        year: 2020,
+        groupBy: 'issuer',
+        actType: ['ordin'],
+        resolution: ['unmatched'],
+      })
+    );
+    expect(ordin.total).toBe(1);
+    expect(ordin.rates).toEqual({ unique: 1, ambiguous: 0, unmatched: 1 });
+    const restrictedIssuer = value(
+      await repo!.countPublicationsByIssuerYear({
+        year: 2020,
+        groupBy: 'act_type',
+        issuerSlug: 'presedintele-romaniei',
+        resolution: ['unique'],
+      })
+    );
+    expect(restrictedIssuer.total).toBe(0);
+    expect(restrictedIssuer.rates).toEqual({ unique: 0, ambiguous: 0, unmatched: 0 });
+    const emptyYear = value(
+      await repo!.countPublicationsByIssuerYear({ year: 2019, groupBy: 'issuer' })
+    );
+    expect(emptyYear.total).toBe(0);
+    expect(emptyYear.rates).toEqual({ unique: 0, ambiguous: 0, unmatched: 0 });
+    const linked = value(
+      await repo!.countPublicationsByIssuerYear({
+        year: 2020,
+        groupBy: 'act_type',
+        resolution: ['unique', 'ambiguous'],
+      })
+    );
+    expect(linked.total).toBe(2);
+    expect(linked.rows.map((r) => [r.actType, r.count]).sort()).toEqual([
+      ['hotarare', 1],
+      ['ordin', 1],
+    ]);
+    const all = value(await repo!.countPublicationsByIssuerYear({ year: 2020, groupBy: 'issuer' }));
+    expect(all.rates).toEqual({ unique: 2, ambiguous: 0, unmatched: 1 });
+  });
+
   it('the issuer summary counts only public rows; a restricted-only issuer is absent', async () => {
     const summary = value(await repo!.getIssuerSummary('guvernul-romaniei'));
     expect(summary?.publicationCount).toBe(3);

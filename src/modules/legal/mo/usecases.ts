@@ -7,7 +7,9 @@
  *
  * `coverage` is computed cheaply: the year range comes from a cached repo scan
  * (one bounded query per TTL window, not per request); the gaps list is fixed;
- * `resolutionRates` are publication-only (Codex #5 — edges/issues omit it).
+ * `resolutionRates` are publication-only (Codex #5 — edges/issues omit it); the MO-1
+ * aggregate fills them with the filtered year's counts by resolution, over every
+ * filter but `resolution`.
  */
 
 import { err, ok, type Result } from 'neverthrow';
@@ -157,7 +159,8 @@ export const issuerYearBreakdown = async (
   if (res.isErr()) return err(res.error);
   // The denominator is the TRUE total over the filters (not the capped-group sum).
   const range = await cov.yearRange();
-  const cvg = coverageOf(range.isOk() ? range.value : { min: null, max: null }, null);
+  // The rates are the year's resolution counts over every filter but `resolution`.
+  const cvg = coverageOf(range.isOk() ? range.value : { min: null, max: null }, res.value.rates);
   return ok({ items: res.value.rows, denominator: res.value.total, coverage: cvg });
 };
 

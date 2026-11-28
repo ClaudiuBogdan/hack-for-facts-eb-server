@@ -52,6 +52,7 @@ import {
   type MoLifecycleEdge,
   type MoPartCount,
   type MoPartCode,
+  type MoResolutionRates,
   type MoResolveHit,
   type MoStatusEvent,
 } from './types.js';
@@ -414,11 +415,27 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         )})`
       );
     }
+    // The resolution rates describe the population the counts split: every
+    // filter but `resolution`, so a resolution-filtered read still shows how the
+    // year resolves as a whole.
+    const ratesWhere = sql.join(conds, sql` and `);
+    if (input.resolution !== undefined) {
+      // An explicit empty list matches nothing, as the shared `in` filter does
+      // (shared/shell/filters/derive.ts); the rates above keep their scope.
+      conds.push(
+        input.resolution.length === 0
+          ? sql`false`
+          : sql`p.resolution in (${sql.join(
+              input.resolution.map((r) => sql`${r}`),
+              sql`, `
+            )})`
+      );
+    }
     const where = sql.join(conds, sql` and `);
     try {
       // The grouped top-100 AND a SEPARATE total over the same filters, so the
       // denominator is exact even when groups exceed the cap (Codex #1).
-      const [grouped, totalRow] = await Promise.all([
+      const [grouped, totalRow, ratesRows] = await Promise.all([
         sql<{ g: string | null; cnt: string }>`
           select ${groupExpr} as g, count(*) as cnt
           from legal.mo_act_publications p
@@ -430,6 +447,12 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         sql<{ total: string }>`
           select count(*) as total from legal.mo_act_publications p where ${where}
         `.execute(db),
+        sql<{ resolution: string; cnt: string }>`
+          select p.resolution, count(*) as cnt
+          from legal.mo_act_publications p
+          where ${ratesWhere}
+          group by p.resolution
+        `.execute(db),
       ]);
       const rows: MoIssuerYearCount[] = grouped.rows.map((r) => ({
         issuerSlug: input.groupBy === 'issuer' ? r.g : (input.issuerSlug ?? null),
@@ -439,7 +462,13 @@ export const makeMonitorulRepo = (db: Db): MonitorulRepo => {
         count: Number(r.cnt),
       }));
       const total = Number(totalRow.rows[0]?.total ?? 0);
-      return ok({ rows, total });
+      const byResolution = new Map(ratesRows.rows.map((r) => [r.resolution, Number(r.cnt)]));
+      const rates: MoResolutionRates = {
+        unique: byResolution.get('unique') ?? 0,
+        ambiguous: byResolution.get('ambiguous') ?? 0,
+        unmatched: byResolution.get('unmatched') ?? 0,
+      };
+      return ok({ rows, total, rates });
     } catch (error) {
       return err(databaseError('countPublicationsByIssuerYear failed', error));
     }

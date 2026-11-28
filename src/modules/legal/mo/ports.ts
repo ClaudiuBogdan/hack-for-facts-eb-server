@@ -16,6 +16,8 @@ import type {
   MoLifecycleEdge,
   MoPartCount,
   MoPartCode,
+  MoResolution,
+  MoResolutionRates,
   MoResolveHit,
   MoStatusEvent,
 } from './types.js';
@@ -48,6 +50,8 @@ export interface MoPublicationAggInput {
   readonly year: number;
   readonly issuerSlug?: string;
   readonly actType?: readonly string[];
+  /** Keep only publications with these act-link resolutions (the counts and the denominator). */
+  readonly resolution?: readonly MoResolution[];
   readonly groupBy: MoAggGroupBy;
 }
 
@@ -98,7 +102,12 @@ export interface MonitorulRepo {
    */
   countPublicationsByIssuerYear(
     input: MoPublicationAggInput
-  ): Promise<Result<{ rows: readonly MoIssuerYearCount[]; total: number }, ApiError>>;
+  ): Promise<
+    Result<
+      { rows: readonly MoIssuerYearCount[]; total: number; rates: MoResolutionRates },
+      ApiError
+    >
+  >;
 
   // ── lifecycle / status timelines ──────────────────────────────────────────────
   /** Out-edges of a publication (`_natural_uq` prefix). */

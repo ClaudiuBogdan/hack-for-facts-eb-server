@@ -46,7 +46,8 @@ const moRepo = {
   getStatusEventsForAct: async () => ok([]),
   getEdgesForTargetAct: async () => ok([]),
   listIssues: async () => ok({ items: [], total: 0 }),
-  countPublicationsByIssuerYear: async () => ok({ rows: [], total: 0 }),
+  countPublicationsByIssuerYear: async () =>
+    ok({ rows: [], total: 0, rates: { unique: 0, ambiguous: 0, unmatched: 0 } }),
   getIssueYearRange: async () => ok({ min: 1990, max: 2026 }),
 } as unknown as MonitorulRepo;
 const moTools = makeMonitorulMcpTools({
